@@ -1,0 +1,471 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: "Manrope", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+    color: #0a0a0a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+  }
+
+  ::selection {
+    background: #0a0a0a;
+    color: #ffffff;
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #0a0a0a;
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+}
+
+@layer components {
+  /* Premium primary button
+     - luminous sweep on hover
+     - subtle lift + tightened shadow
+     - press: scale-down + ripple burst
+     - motion is fast (150-220ms) and enterprise-quiet */
+  .btn-primary {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.875rem 1.25rem;
+    border-radius: 12px;
+    background: #0a0a0a;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    letter-spacing: -0.005em;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2), 0 8px 24px rgba(10, 10, 10, 0.18);
+    overflow: hidden;
+    isolation: isolate;
+    transition:
+      transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform, box-shadow;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0) 40%,
+      rgba(255, 255, 255, 0) 60%,
+      rgba(255, 255, 255, 0.05)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .btn-primary::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 45%;
+    height: 100%;
+    background: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.28) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-14deg);
+    transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .btn-primary:hover {
+    background: #141414;
+    transform: translateY(-1px);
+    box-shadow:
+      0 2px 6px rgba(10, 10, 10, 0.25),
+      0 14px 34px rgba(10, 10, 10, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  }
+
+  .btn-primary:hover::after {
+    opacity: 1;
+    transform: translateX(320%) skewX(-14deg);
+  }
+
+  .btn-primary:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 3px rgba(10, 10, 10, 0.12),
+      0 8px 24px rgba(10, 10, 10, 0.18);
+  }
+
+  .btn-primary:active {
+    transform: translateY(0) scale(0.985);
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2), 0 4px 12px rgba(10, 10, 10, 0.18);
+    transition-duration: 90ms;
+  }
+
+  .btn-primary:disabled,
+  .btn-primary[aria-disabled="true"] {
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: not-allowed;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.08);
+    transform: none;
+  }
+
+  .btn-primary:disabled::after,
+  .btn-primary[aria-disabled="true"]::after {
+    display: none;
+  }
+
+  .btn-primary > * {
+    position: relative;
+    z-index: 3;
+  }
+
+  /* Ghost / secondary — used for inline actions and tab-inactive */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6875rem 1rem;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #0a0a0a;
+    font-weight: 600;
+    font-size: 0.875rem;
+    border: 1px solid #e5e7eb;
+    transition:
+      background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn-ghost:hover {
+    background: #fafafa;
+    border-color: #d4d4d8;
+  }
+
+  .btn-ghost:active {
+    transform: scale(0.985);
+  }
+
+  /* Inline action button that sits inside an input row (e.g. "Send OTP", "Fetch") */
+  .btn-inline {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 0.875rem;
+    border-radius: 8px;
+    background: #0a0a0a;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.8125rem;
+    letter-spacing: -0.005em;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2);
+    overflow: hidden;
+    isolation: isolate;
+    transition:
+      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 160ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn-inline::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 45%;
+    height: 100%;
+    background: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.25) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-14deg);
+    transition: transform 650ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .btn-inline:hover {
+    background: #141414;
+    box-shadow: 0 2px 6px rgba(10, 10, 10, 0.22), 0 6px 16px rgba(10, 10, 10, 0.18);
+  }
+
+  .btn-inline:hover::after {
+    opacity: 1;
+    transform: translateX(320%) skewX(-14deg);
+  }
+
+  .btn-inline:active {
+    transform: scale(0.97);
+    transition-duration: 90ms;
+  }
+
+  .btn-inline:disabled,
+  .btn-inline[aria-disabled="true"] {
+    background: #1f1f1f;
+    color: rgba(255, 255, 255, 0.55);
+    cursor: not-allowed;
+  }
+
+  .btn-inline > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Ripple element injected on press */
+  .btn-ripple {
+    position: absolute;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.35);
+    width: 12px;
+    height: 12px;
+    transform: translate(-50%, -50%) scale(0);
+    animation: ripple 550ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Form field — clean, muted, focused ring */
+  .field {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 0.875rem;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    color: #0a0a0a;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    transition:
+      border-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 140ms cubic-bezier(0.22, 1, 0.36, 1);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .field::placeholder {
+    color: #9ca3af;
+  }
+
+  .field:hover {
+    border-color: #d4d4d8;
+  }
+
+  .field:focus,
+  .field:focus-visible {
+    outline: none;
+    border-color: #0a0a0a;
+    box-shadow: 0 0 0 3px rgba(10, 10, 10, 0.06);
+  }
+
+  .field[aria-invalid="true"] {
+    border-color: #b91c1c;
+    box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.08);
+  }
+
+  .field[readonly],
+  .field[disabled] {
+    background: #fafafa;
+    color: #4b5563;
+    cursor: default;
+  }
+
+  /* Field row with inline action (input + Send OTP / Fetch) */
+  .field-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 0.25rem 0.25rem 0.25rem 0;
+    transition:
+      border-color 140ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .field-row:focus-within {
+    border-color: #0a0a0a;
+    box-shadow: 0 0 0 3px rgba(10, 10, 10, 0.06);
+  }
+
+  .field-row[data-invalid="true"] {
+    border-color: #b91c1c;
+    box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.08);
+  }
+
+  .field-row .field {
+    border: none;
+    box-shadow: none;
+    padding: 0.75rem 0 0.75rem 0.875rem;
+    background: transparent;
+  }
+
+  .field-row .field:focus {
+    box-shadow: none;
+    border: none;
+  }
+
+  /* Label */
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    color: #4b5563;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+  }
+
+  /* Auto-fill / Optional badges */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.005em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .badge-autofill {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .badge-optional {
+    background: #f4f4f5;
+    color: #6b7280;
+  }
+
+  /* Section card */
+  .surface {
+    background: #ffffff;
+    border: 1px solid #efeff1;
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.04), 0 8px 24px rgba(10, 10, 10, 0.04);
+  }
+
+  /* Tab switcher (GSTIN | PAN) */
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: #4b5563;
+    background: transparent;
+    transition:
+      color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .tab[data-active="true"] {
+    background: #0a0a0a;
+    color: #ffffff;
+    box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2), 0 8px 24px rgba(10, 10, 10, 0.18);
+  }
+
+  .tab[data-active="false"]:hover {
+    color: #0a0a0a;
+    background: #fafafa;
+  }
+
+  .tab:active {
+    transform: scale(0.985);
+  }
+
+  /* Section head — icon + title */
+  .section-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #0a0a0a;
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: -0.01em;
+  }
+
+  .section-head svg {
+    width: 1.125rem;
+    height: 1.125rem;
+    color: #0a0a0a;
+  }
+
+  /* Error text under field */
+  .field-error {
+    display: block;
+    margin-top: 0.375rem;
+    color: #b91c1c;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+}
