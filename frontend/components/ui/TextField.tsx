@@ -8,6 +8,8 @@ export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string;
   optional?: boolean;
   autofill?: boolean;
+  /** Custom element positioned inside the field on the right (e.g. an icon).
+      Auto-fill / Optional badges sit next to the label instead. */
   trailing?: ReactNode;
 }
 
@@ -21,7 +23,12 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   return (
     <div>
       <label htmlFor={fieldId} className="field-label">
-        {label}
+        <span>{label}</span>
+        {autofill ? (
+          <Badge tone="autofill">Auto-fill</Badge>
+        ) : optional ? (
+          <Badge tone="optional">Optional</Badge>
+        ) : null}
       </label>
       <div className="relative">
         <input
@@ -30,18 +37,9 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
           readOnly={readOnly}
           aria-invalid={invalid || undefined}
           aria-describedby={error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined}
-          className={cn("field", (autofill || readOnly) && "pr-24", className)}
+          className={cn("field", trailing && "pr-10", className)}
           {...rest}
         />
-        {(autofill || optional) && !trailing ? (
-          <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
-            {autofill ? (
-              <Badge tone="autofill">Auto-fill</Badge>
-            ) : (
-              <Badge tone="optional">Optional</Badge>
-            )}
-          </div>
-        ) : null}
         {trailing ? (
           <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
             {trailing}

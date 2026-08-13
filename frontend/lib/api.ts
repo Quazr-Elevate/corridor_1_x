@@ -82,4 +82,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  submitBuyer: (payload: unknown) =>
+    jsonFetch<{ id: string; status: string }>("/buyers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

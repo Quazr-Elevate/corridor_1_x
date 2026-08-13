@@ -355,9 +355,13 @@
     border: none;
   }
 
-  /* Label */
+  /* Label — flex row so a trailing badge (Auto-fill / Optional) sits inline
+     with the label text and doesn't crowd the input. */
   .field-label {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
     margin-bottom: 0.375rem;
     color: #4b5563;
     font-size: 0.8125rem;

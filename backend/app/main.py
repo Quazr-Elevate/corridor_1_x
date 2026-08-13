@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import gstin, health, otp, pan, sellers
+from app.routers import buyers, gstin, health, otp, pan, sellers
 
 app = FastAPI(title="Cor1x API", version="0.1.0")
 
@@ -24,3 +24,4 @@ app.include_router(gstin.router)
 app.include_router(pan.router)
 app.include_router(otp.router)
 app.include_router(sellers.router)
+app.include_router(buyers.router)

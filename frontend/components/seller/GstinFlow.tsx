@@ -251,22 +251,25 @@ export function GstinFlow({ onComplete }: Props) {
         <div className="grid grid-cols-3 gap-3">
           <TextField
             label="City"
-            placeholder="Auto-fill after GSTIN"
+            placeholder="Auto-fill"
             autofill
+            readOnly
             {...register("city")}
             error={errors.city?.message}
           />
           <TextField
             label="State"
-            placeholder="Auto-fill after GSTIN"
+            placeholder="Auto-fill"
             autofill
+            readOnly
             {...register("state")}
             error={errors.state?.message}
           />
           <TextField
             label="Pincode"
-            placeholder="Auto-fill after GSTIN"
+            placeholder="Auto-fill"
             autofill
+            readOnly
             inputMode="numeric"
             maxLength={6}
             {...register("pincode")}
