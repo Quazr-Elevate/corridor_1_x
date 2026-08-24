@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
+// AnimatePresence unused directly, but keep for future step reveals
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, Building2, MapPin, Phone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +18,9 @@ import { COUNTRIES } from "./countries";
 interface Props {
   onComplete: (payload: BuyerValues) => void;
 }
+
+// Initial reveal happens via CSS `.enter` classes on the parent card —
+// framer's initial-mount variants sometimes race with Next.js hydration.
 
 export function BuyerFlow({ onComplete }: Props) {
   const [mobileInput, setMobileInput] = useState("");
@@ -102,7 +107,11 @@ export function BuyerFlow({ onComplete }: Props) {
 
   const handleResend = async () => {
     if (!mobileInput) return;
-    await api.sendOtp({ channel: "phone", value: mobileInput.trim(), purpose: "phone" });
+    await api.sendOtp({
+      channel: "phone",
+      value: mobileInput.trim(),
+      purpose: "phone",
+    });
   };
 
   const onValid = async (values: BuyerValues) => {
@@ -117,103 +126,119 @@ export function BuyerFlow({ onComplete }: Props) {
 
   return (
     <form onSubmit={handleSubmit(onValid)} className="space-y-6" noValidate>
-      <section className="space-y-4">
-        <SectionHead icon={<Building2 />}>About you</SectionHead>
-        <TextField
-          label="Full name"
-          placeholder="Enter your full name"
-          autoComplete="name"
-          {...register("fullName")}
-          error={errors.fullName?.message}
-        />
-        <TextField
-          label="Company name"
-          placeholder="Enter company name"
-          autoComplete="organization"
-          {...register("companyName")}
-          error={errors.companyName?.message}
-        />
-      </section>
+      <div className="space-y-6">
+        <section className="space-y-4">
+          <SectionHead icon={<Building2 />}>About you</SectionHead>
+          <TextField
+            label="Full name"
+            placeholder="Enter your full name"
+            autoComplete="name"
+            {...register("fullName")}
+            error={errors.fullName?.message}
+          />
+          <TextField
+            label="Company name"
+            placeholder="Enter company name"
+            autoComplete="organization"
+            {...register("companyName")}
+            error={errors.companyName?.message}
+          />
+        </section>
 
-      <section className="space-y-4">
-        <SectionHead icon={<MapPin />}>Location</SectionHead>
-        <div>
-          <label htmlFor="f-country" className="field-label">
-            Country
-          </label>
-          <select
-            id="f-country"
-            className="field appearance-none"
-            {...register("country")}
-            aria-invalid={errors.country ? true : undefined}
-          >
-            {COUNTRIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {errors.country ? (
-            <span className="field-error" role="alert">
-              {errors.country.message}
-            </span>
-          ) : null}
-        </div>
-        <TextField
-          label="City"
-          placeholder="Enter city"
-          optional
-          {...register("city")}
-          error={errors.city?.message}
-        />
-      </section>
-
-      <section className="space-y-4">
-        <SectionHead icon={<Phone />}>Contact</SectionHead>
-        <FieldWithAction
-          label="Mobile number"
-          placeholder="Enter mobile number"
-          inputMode="numeric"
-          maxLength={10}
-          autoComplete="tel-national"
-          value={mobileInput}
-          onChange={(e) => {
-            const clean = e.target.value.replace(/\D/g, "").slice(0, 10);
-            setMobileInput(clean);
-            if (mobileError) setMobileError(null);
-          }}
-          readOnly={verified}
-          error={mobileError ?? errors.mobile?.message}
-          action={
-            <Button
-              variant="inline"
-              onClick={handleSendOtp}
-              loading={sending}
-              disabled={!mobileValid || verified}
+        <section className="space-y-4">
+          <SectionHead icon={<MapPin />}>Location</SectionHead>
+          <div>
+            <label htmlFor="f-country" className="field-label">
+              Country
+            </label>
+            <select
+              id="f-country"
+              className="field appearance-none"
+              {...register("country")}
+              aria-invalid={errors.country ? true : undefined}
             >
-              {verified ? "Verified" : "Send OTP"}
-            </Button>
-          }
-        />
-        <TextField
-          label="Email address"
-          placeholder="Enter email address"
-          type="email"
-          optional
-          autoComplete="email"
-          {...register("email")}
-          error={errors.email?.message}
-        />
-      </section>
+              {COUNTRIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            {errors.country ? (
+              <span className="field-error" role="alert">
+                {errors.country.message}
+              </span>
+            ) : null}
+          </div>
+          <TextField
+            label="City"
+            placeholder="Enter city"
+            optional
+            {...register("city")}
+            error={errors.city?.message}
+          />
+        </section>
 
-      {submitError ? <p className="text-sm font-medium text-danger">{submitError}</p> : null}
+        <section className="space-y-4">
+          <SectionHead icon={<Phone />}>Contact</SectionHead>
+          <FieldWithAction
+            label="Mobile number"
+            placeholder="Enter mobile number"
+            inputMode="numeric"
+            maxLength={10}
+            autoComplete="tel-national"
+            value={mobileInput}
+            onChange={(e) => {
+              const clean = e.target.value.replace(/\D/g, "").slice(0, 10);
+              setMobileInput(clean);
+              if (mobileError) setMobileError(null);
+            }}
+            readOnly={verified}
+            error={mobileError ?? errors.mobile?.message}
+            action={
+              <Button
+                variant="inline"
+                onClick={handleSendOtp}
+                loading={sending}
+                disabled={!mobileValid || verified}
+                data-verified={verified || undefined}
+              >
+                {verified ? "Verified" : "Send OTP"}
+              </Button>
+            }
+          />
+          <TextField
+            label="Email address"
+            placeholder="Enter email address"
+            type="email"
+            optional
+            autoComplete="email"
+            {...register("email")}
+            error={errors.email?.message}
+          />
+        </section>
+      </div>
 
-      <Button type="submit" className="w-full" loading={isSubmitting} disabled={!verified}>
+      {submitError ? (
+        <motion.p
+          className="text-sm font-medium text-danger"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {submitError}
+        </motion.p>
+      ) : null}
+
+      <Button
+        type="submit"
+        className="w-full"
+        loading={isSubmitting}
+        disabled={!verified}
+      >
         Continue to dashboard <ArrowRight aria-hidden className="h-4 w-4" />
       </Button>
 
       {!verified ? (
-        <p className="-mt-2 text-center text-xs text-mute">
+        <p className="-mt-2 text-center text-xs text-paper-muted">
           Verify your mobile number to enable submission
         </p>
       ) : null}

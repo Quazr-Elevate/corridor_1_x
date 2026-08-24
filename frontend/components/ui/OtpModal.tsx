@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "./Button";
 
@@ -25,7 +26,14 @@ interface OtpModalProps {
   onResend: () => Promise<void>;
 }
 
-export function OtpModal({ open, destination, devHint, onClose, onVerify, onResend }: OtpModalProps) {
+export function OtpModal({
+  open,
+  destination,
+  devHint,
+  onClose,
+  onVerify,
+  onResend,
+}: OtpModalProps) {
   const [digits, setDigits] = useState<string[]>(() => Array(OTP_LENGTH).fill(""));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -40,7 +48,7 @@ export function OtpModal({ open, destination, devHint, onClose, onVerify, onRese
     setDigits(Array(OTP_LENGTH).fill(""));
     setError(null);
     setResendIn(30);
-    const t = setTimeout(() => refs.current[0]?.focus(), 60);
+    const t = setTimeout(() => refs.current[0]?.focus(), 240);
     return () => clearTimeout(t);
   }, [open]);
 
@@ -141,93 +149,134 @@ export function OtpModal({ open, destination, devHint, onClose, onVerify, onRese
     setBusy(false);
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="otp-title"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-t-[24px] bg-white p-6 shadow-card sm:rounded-card"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-1 flex items-start justify-between">
-          <div>
-            <h2 id="otp-title" className="text-title text-ink">
-              Enter verification code
-            </h2>
-            <p className="mt-1 text-sm text-mute">
-              We sent a 6-digit code to <span className="font-medium text-ink">{destination}</span>
-            </p>
-          </div>
-          <button
-            aria-label="Close"
-            onClick={onClose}
-            className="rounded-full p-1.5 text-mute transition-colors hover:bg-paper-muted hover:text-ink"
-            type="button"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="mt-5 flex gap-2">
-          {digits.map((d, i) => (
-            <input
-              key={i}
-              ref={(el) => {
-                refs.current[i] = el;
-              }}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={1}
-              value={d}
-              onChange={handleChange(i)}
-              onKeyDown={handleKeyDown(i)}
-              onPaste={i === 0 ? handlePaste : undefined}
-              aria-label={`Digit ${i + 1}`}
-              aria-invalid={error ? true : undefined}
-              className="field h-12 flex-1 text-center text-lg font-semibold tracking-widest"
-            />
-          ))}
-        </div>
-
-        {error ? <p className="mt-3 text-sm font-medium text-danger">{error}</p> : null}
-
-        {devHint ? (
-          <p className="mt-3 rounded-md border border-dashed border-line-strong bg-paper-soft px-3 py-2 text-xs text-mute-strong">
-            <span className="font-semibold text-ink">Dev mode:</span> {devHint}
-          </p>
-        ) : null}
-
-        <div className="mt-5 flex items-center justify-between text-sm">
-          <button
-            type="button"
-            onClick={resend}
-            disabled={resendIn > 0 || busy}
-            className="text-ink underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:text-mute disabled:no-underline"
-          >
-            {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
-          </button>
-          <span className="text-xs text-mute-soft">Code expires in 5 min</span>
-        </div>
-
-        <Button
-          className="mt-5 w-full"
-          disabled={!complete}
-          loading={busy}
-          onClick={submit}
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="otp-title"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-md sm:items-center"
+          onClick={onClose}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
         >
-          Verify and continue
-        </Button>
+          <motion.div
+            className="relative w-full max-w-sm rounded-t-[20px] border-t border-line-soft bg-ink-soft p-5 shadow-card sm:rounded-card sm:border overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            initial={{ y: 40, opacity: 0, scale: 0.98 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 30, opacity: 0, scale: 0.98 }}
+            transition={{ type: "spring", stiffness: 340, damping: 32 }}
+          >
+            {/* Chartreuse → violet border sheen at the top edge */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 top-0 h-px"
+              style={{
+                background:
+                  "linear-gradient(to right, transparent, rgba(211,236,75,0.7), rgba(139,92,246,0.6), transparent)",
+              }}
+            />
+            <div className="mb-1 flex items-start justify-between">
+              <div>
+                <h2 id="otp-title" className="text-title text-paper">
+                  Verification code
+                </h2>
+                <p className="mt-1 text-xs text-paper-muted">
+                  Sent to{" "}
+                  <span className="font-medium text-paper">{destination}</span>
+                </p>
+              </div>
+              <button
+                aria-label="Close"
+                onClick={onClose}
+                className="rounded-full p-1 text-paper-muted transition-colors hover:bg-ink-elevated hover:text-paper"
+                type="button"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
 
-        <p className="mt-4 text-center text-xs text-mute">
-          Didn&apos;t receive it? Check your SMS or try email.
-        </p>
-      </div>
-    </div>
+            <div className="mt-5 flex gap-1.5">
+              {digits.map((d, i) => (
+                <motion.input
+                  key={i}
+                  ref={(el) => {
+                    refs.current[i] = el;
+                  }}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={1}
+                  value={d}
+                  onChange={handleChange(i)}
+                  onKeyDown={handleKeyDown(i)}
+                  onPaste={i === 0 ? handlePaste : undefined}
+                  aria-label={`Digit ${i + 1}`}
+                  aria-invalid={error ? true : undefined}
+                  className="field h-11 flex-1 text-center text-base font-semibold tracking-widest"
+                  animate={
+                    d
+                      ? { scale: [1, 1.06, 1], borderColor: "#D3EC4B" }
+                      : { scale: 1 }
+                  }
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                />
+              ))}
+            </div>
+
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  className="mt-3 text-sm font-medium text-danger"
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: [0, -6, 6, -3, 3, 0] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.4 }}
+                >
+                  {error}
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            {devHint ? (
+              <p className="mt-3 rounded-md border border-dashed border-line bg-ink-elevated/60 px-2.5 py-1.5 text-[11px] text-paper-soft">
+                <span className="font-semibold text-accent">Dev mode:</span>{" "}
+                {devHint}
+              </p>
+            ) : null}
+
+            <div className="mt-4 flex items-center justify-between text-xs">
+              <button
+                type="button"
+                onClick={resend}
+                disabled={resendIn > 0 || busy}
+                className="text-accent underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:text-paper-muted disabled:no-underline"
+              >
+                {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
+              </button>
+              <span className="text-[11px] text-paper-muted">
+                Expires in 5 min
+              </span>
+            </div>
+
+            <Button
+              className="mt-4 w-full"
+              disabled={!complete}
+              loading={busy}
+              onClick={submit}
+            >
+              Verify and continue
+            </Button>
+
+            <p className="mt-3 text-center text-[11px] text-paper-muted">
+              Didn&apos;t receive it? Check your SMS.
+            </p>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

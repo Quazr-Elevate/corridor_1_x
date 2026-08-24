@@ -12,7 +12,7 @@ const sans = Manrope({
 export const metadata: Metadata = {
   title: "Cor1x — Trade Direct. Settle Certain.",
   description:
-    "Verified B2B rice marketplace connecting mills, manufacturers, and traders with distributors, retailers, and restaurant chains.",
+    "Verified B2B commodity marketplace. AI matching, identity protected until escrow funds, autonomous settlement.",
   applicationName: "Cor1x",
   formatDetection: {
     telephone: false,
@@ -25,7 +25,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#ffffff",
+  themeColor: "#141414",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

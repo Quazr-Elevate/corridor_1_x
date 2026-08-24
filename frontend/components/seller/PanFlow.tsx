@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowRight, PencilLine } from "lucide-react";
@@ -20,6 +21,27 @@ import {
 interface Props {
   onComplete: (payload: SellerPanValues) => void;
 }
+
+const stackVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.07, delayChildren: 0.08 } },
+};
+const itemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] },
+  },
+};
+const revealVariants = {
+  hidden: { opacity: 0, y: 14 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] },
+  },
+};
 
 export function PanFlow({ onComplete }: Props) {
   const [panInput, setPanInput] = useState("");
@@ -128,13 +150,20 @@ export function PanFlow({ onComplete }: Props) {
       }
       return res;
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "Verification failed" };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Verification failed",
+      };
     }
   };
 
   const handleResend = async () => {
     if (!mobileInput) return;
-    await api.sendOtp({ channel: "phone", value: mobileInput.trim(), purpose: "phone" });
+    await api.sendOtp({
+      channel: "phone",
+      value: mobileInput.trim(),
+      purpose: "phone",
+    });
   };
 
   const onValid = async (values: SellerPanValues) => {
@@ -170,100 +199,160 @@ export function PanFlow({ onComplete }: Props) {
             onClick={handleFetchPan}
             loading={fetching}
             disabled={!panValid || panFetched}
+            data-verified={panFetched || undefined}
           >
             {panFetched ? "Fetched" : "Fetch"}
           </Button>
         }
       />
 
-      <TextField
-        label="Name"
-        placeholder="Auto-fill after PAN"
-        autofill
-        readOnly
-        {...register("ownerName")}
-        error={errors.ownerName?.message}
-      />
+      <AnimatePresence>
+        {!panFetched && (
+          <motion.p
+            className="flex items-center gap-2 rounded-lg border border-dashed border-line px-3 py-2.5 text-xs text-paper-muted"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.3 }}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent/70" />
+            Enter your PAN and tap <span className="text-paper">Fetch</span> —
+            we&apos;ll match it against your identity.
+          </motion.p>
+        )}
+      </AnimatePresence>
 
-      <section className="space-y-4">
-        <SectionHead icon={<PencilLine />}>Fill manually</SectionHead>
+      <AnimatePresence>
+        {panFetched && (
+          <motion.div
+            className="space-y-6"
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+            variants={stackVariants}
+          >
+            <motion.div variants={itemVariants}>
+              <TextField
+                label="Name"
+                placeholder="Auto-fill after PAN"
+                autofill
+                readOnly
+                {...register("ownerName")}
+                error={errors.ownerName?.message}
+              />
+            </motion.div>
 
-        <TextField
-          label="Company name"
-          placeholder="Enter company name"
-          autoComplete="organization"
-          {...register("companyName")}
-          error={errors.companyName?.message}
-        />
+            <motion.section className="space-y-4" variants={revealVariants}>
+              <SectionHead icon={<PencilLine />}>Fill manually</SectionHead>
 
-        <div className="grid grid-cols-3 gap-3">
-          <TextField
-            label="City"
-            placeholder="City"
-            {...register("city")}
-            error={errors.city?.message}
-          />
-          <TextField
-            label="State"
-            placeholder="State"
-            {...register("state")}
-            error={errors.state?.message}
-          />
-          <TextField
-            label="Pincode"
-            placeholder="Pincode"
-            inputMode="numeric"
-            maxLength={6}
-            {...register("pincode")}
-            error={errors.pincode?.message}
-          />
-        </div>
+              <motion.div
+                className="space-y-4"
+                variants={stackVariants}
+                initial="hidden"
+                animate="visible"
+              >
+                <motion.div variants={itemVariants}>
+                  <TextField
+                    label="Company name"
+                    placeholder="Enter company name"
+                    autoComplete="organization"
+                    {...register("companyName")}
+                    error={errors.companyName?.message}
+                  />
+                </motion.div>
 
-        <TextField
-          label="Building address"
-          placeholder="Enter building address"
-          {...register("building")}
-          error={errors.building?.message}
-        />
+                <motion.div
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+                  variants={itemVariants}
+                >
+                  <TextField
+                    label="City"
+                    placeholder="City"
+                    {...register("city")}
+                    error={errors.city?.message}
+                  />
+                  <TextField
+                    label="State"
+                    placeholder="State"
+                    {...register("state")}
+                    error={errors.state?.message}
+                  />
+                  <TextField
+                    label="Pincode"
+                    placeholder="Pincode"
+                    inputMode="numeric"
+                    maxLength={6}
+                    {...register("pincode")}
+                    error={errors.pincode?.message}
+                  />
+                </motion.div>
 
-        <TextField
-          label="Email address"
-          placeholder="Enter email address"
-          type="email"
-          optional
-          autoComplete="email"
-          {...register("email")}
-          error={errors.email?.message}
-        />
+                <motion.div variants={itemVariants}>
+                  <TextField
+                    label="Building address"
+                    placeholder="Enter building address"
+                    {...register("building")}
+                    error={errors.building?.message}
+                  />
+                </motion.div>
 
-        <FieldWithAction
-          label="Mobile number"
-          placeholder="Enter mobile number"
-          inputMode="numeric"
-          maxLength={10}
-          autoComplete="tel-national"
-          value={mobileInput}
-          onChange={(e) => {
-            const clean = e.target.value.replace(/\D/g, "").slice(0, 10);
-            setMobileInput(clean);
-            if (mobileError) setMobileError(null);
-          }}
-          readOnly={verified}
-          error={mobileError ?? errors.mobile?.message}
-          action={
-            <Button
-              variant="inline"
-              onClick={handleSendOtp}
-              loading={sending}
-              disabled={!mobileValid || verified}
-            >
-              {verified ? "Verified" : "Send OTP"}
-            </Button>
-          }
-        />
-      </section>
+                <motion.div variants={itemVariants}>
+                  <TextField
+                    label="Email address"
+                    placeholder="Enter email address"
+                    type="email"
+                    optional
+                    autoComplete="email"
+                    {...register("email")}
+                    error={errors.email?.message}
+                  />
+                </motion.div>
 
-      {submitError ? <p className="text-sm font-medium text-danger">{submitError}</p> : null}
+                <motion.div variants={itemVariants}>
+                  <FieldWithAction
+                    label="Mobile number"
+                    placeholder="Enter mobile number"
+                    inputMode="numeric"
+                    maxLength={10}
+                    autoComplete="tel-national"
+                    value={mobileInput}
+                    onChange={(e) => {
+                      const clean = e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 10);
+                      setMobileInput(clean);
+                      if (mobileError) setMobileError(null);
+                    }}
+                    readOnly={verified}
+                    error={mobileError ?? errors.mobile?.message}
+                    action={
+                      <Button
+                        variant="inline"
+                        onClick={handleSendOtp}
+                        loading={sending}
+                        disabled={!mobileValid || verified}
+                        data-verified={verified || undefined}
+                      >
+                        {verified ? "Verified" : "Send OTP"}
+                      </Button>
+                    }
+                  />
+                </motion.div>
+              </motion.div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {submitError ? (
+        <motion.p
+          className="text-sm font-medium text-danger"
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          {submitError}
+        </motion.p>
+      ) : null}
 
       <Button
         type="submit"
@@ -275,8 +364,10 @@ export function PanFlow({ onComplete }: Props) {
       </Button>
 
       {!panFetched || !verified ? (
-        <p className="-mt-2 text-center text-xs text-mute">
-          {!panFetched ? "Fetch PAN details to continue" : "Verify mobile number to enable submission"}
+        <p className="-mt-2 text-center text-xs text-paper-muted">
+          {!panFetched
+            ? "Fetch PAN details to continue"
+            : "Verify mobile number to enable submission"}
         </p>
       ) : null}
 
