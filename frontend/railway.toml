@@ -1,0 +1,7 @@
+# Railway service defaults for the frontend.
+
+[deploy]
+healthcheckPath = "/seller/onboarding"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

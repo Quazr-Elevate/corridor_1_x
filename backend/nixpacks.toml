@@ -1,0 +1,15 @@
+# Nixpacks build config for the Cor1x FastAPI backend on Railway.
+# Root directory (per Railway service settings): backend/
+# - Runs Alembic migrations on start so the DB schema is always current.
+# - DATABASE_URL is set in Railway env; defaults to a SQLite file on the
+#   mounted /data volume (SQLite is fine for phase-1 signup-only scale).
+# - Binds to $PORT (Railway sets this automatically).
+
+[phases.setup]
+nixPkgs = ["python312", "gcc"]
+
+[phases.install]
+cmds = ["python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install --no-cache-dir -r requirements.txt"]
+
+[start]
+cmd = ". /opt/venv/bin/activate && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"

@@ -1,0 +1,8 @@
+# Railway service defaults for the backend.
+# Health check + restart policy so a bad deploy doesn't loop forever.
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

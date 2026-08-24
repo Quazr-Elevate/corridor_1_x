@@ -1,0 +1,14 @@
+# Nixpacks build config for the Cor1x Next.js frontend on Railway.
+# Root directory (per Railway service settings): frontend/
+# - `next build` needs NEXT_PUBLIC_API_BASE_URL at build-time; set it in
+#   Railway env before the first deploy.
+# - `next start` picks up $PORT automatically on Railway.
+
+[phases.install]
+cmds = ["npm ci --no-audit --no-fund"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start -- -p $PORT -H 0.0.0.0"
