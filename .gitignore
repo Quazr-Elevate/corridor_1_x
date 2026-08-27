@@ -28,6 +28,9 @@ venv
 *.sqlite
 *.sqlite3
 
+# Backend uploads (dev — moves to S3 in prod)
+backend/uploads
+
 # Env
 .env
 .env.local

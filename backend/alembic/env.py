@@ -17,7 +17,15 @@ from app.config import settings
 from app.models.base import Base
 
 # Register all models so Base.metadata is populated for autogenerate.
-from app.models import user, identity, seller, buyer, otp  # noqa: F401
+from app.models import (  # noqa: F401
+    bank_details,
+    buyer,
+    identity,
+    otp,
+    product,
+    seller,
+    user,
+)
 
 config = context.config
 if config.config_file_name is not None:

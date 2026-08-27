@@ -35,7 +35,7 @@ export const personNameField = z
   .trim()
   .min(2, "Enter at least 2 characters")
   .max(100, "Name is too long")
-  .regex(personNameRegex, "Letters, spaces, hyphens, apostrophes, and periods only");
+  .regex(personNameRegex, "Name should not contain numbers");
 
 export const sellerGstinSchema = z.object({
   gstin: gstinField,

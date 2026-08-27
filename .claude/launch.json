@@ -9,7 +9,7 @@
     },
     {
       "name": "cor1x-backend",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "--app-dir", "backend", "app.main:app", "--reload", "--port", "8000"],
       "port": 8000
     }

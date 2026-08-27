@@ -687,4 +687,15 @@
   .rise[data-delay="10"] { animation-delay: 800ms; }
   .rise[data-delay="11"] { animation-delay: 900ms; }
   .rise[data-delay="12"] { animation-delay: 1000ms; }
+
+  /* Pulse ring shown briefly on a field when arriving via ?focus=<id>. */
+  @keyframes cor1x-focus-pulse {
+    0%   { box-shadow: 0 0 0 0 var(--accent-ring); }
+    60%  { box-shadow: 0 0 0 6px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+  .focus-pulse {
+    border-radius: 8px;
+    animation: cor1x-focus-pulse 1.6s ease-out;
+  }
 }
