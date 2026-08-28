@@ -2,6 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from fastapi import Response
+
 from app.db import get_db
 from app.deps import get_current_user
 from app.models.business_profile import BusinessProfile
@@ -9,6 +14,8 @@ from app.models.identity import Identity
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User
+from app.pii import mask_aadhaar, mask_bank_account
+from app.user_session import clear_session_cookie
 from app.schemas.me import (
     BankData,
     BusinessData,
@@ -97,7 +104,10 @@ async def me(
             nature_of_business=business.nature_of_business if business else None,
         ),
         bank=BankData(
-            account_number=business.bank_account_number if business else None,
+            # PII: mask account number in wire response. The user filled it
+            # themselves; showing them the masked value is enough to confirm
+            # "yes, this is the account I set". Full value stays in DB.
+            account_number=mask_bank_account(business.bank_account_number) if business else None,
             ifsc=business.bank_ifsc if business else None,
             holder_name=business.bank_holder_name if business else None,
             branch_name=business.bank_branch_name if business else None,
@@ -105,7 +115,62 @@ async def me(
         ),
         seller=RegulatoryData(
             udyam=business.udyam if business else None,
-            aadhaar=business.aadhaar if business else None,
+            # PII: Aadhaar Act mandates masking on display.
+            aadhaar=mask_aadhaar(business.aadhaar) if business else None,
             tan=business.tan if business else None,
         ),
     )
+
+
+# ── DPDP right-to-erasure ───────────────────────────────────────────────────
+
+
+@router.delete("/me", status_code=204)
+async def delete_me(
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Soft-delete the current account.
+
+    Under DPDP (India) and PDPL (UAE) users have a right-to-erasure.
+    This handler:
+      1. Marks `users.deleted_at = now()`  (auth stops working immediately)
+      2. Wipes personal fields on the profile row (name, email, address,
+         alt contacts, socials) so the row can't be read even by admin
+      3. Nulls the phone value on all identities (frees the number so
+         the person can sign up again with the same phone later)
+      4. Clears the session cookie
+
+    Business profile / products are kept because they may be part of a
+    counterparty's audit trail; admin can hard-delete via ops if the user
+    insists. Hard-delete of soft-deleted rows happens via cleanup job later.
+    """
+    now = datetime.now(tz=timezone.utc)
+    user.deleted_at = now
+
+    profile = await db.scalar(select(Profile).where(Profile.user_id == user.id))
+    if profile is not None:
+        profile.full_name = f"deleted-{user.id}"
+        profile.email = None
+        profile.address_line = None
+        profile.city = None
+        profile.state = None
+        profile.pincode = None
+        profile.alt_mobile = None
+        profile.alt_email = None
+        profile.business_email = None
+        profile.website_url = None
+        profile.google_business_url = None
+        profile.facebook_url = None
+
+    # Break identity->phone/email link so the values are free for reuse.
+    idents = list(await db.scalars(select(Identity).where(Identity.user_id == user.id)))
+    for ident in idents:
+        # Set to a unique unusable value so the UNIQUE(value) constraint
+        # holds without pointing at a real login.
+        ident.value = f"deleted-{uuid4().hex}"
+
+    await db.commit()
+    clear_session_cookie(response)
+    return Response(status_code=204)

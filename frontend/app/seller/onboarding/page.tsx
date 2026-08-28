@@ -1,12 +1,10 @@
-import type { Metadata } from "next";
-import { SellerOnboardingClient } from "@/components/seller/SellerOnboardingClient";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Seller Onboarding — Cor1x",
-  description:
-    "Start your seller journey on Cor1x. Verify your GSTIN or PAN to join a verified rice trade network.",
-};
-
-export default function SellerOnboardingPage() {
-  return <SellerOnboardingClient />;
+/**
+ * Retired. Seller signup is now the unified /signup page — role is derived
+ * from adding a product, so there's no "seller onboarding" flow separate
+ * from a buyer's. Old links land here → we bounce to /signup.
+ */
+export default function SellerOnboardingRetired() {
+  redirect("/signup?intent=seller");
 }

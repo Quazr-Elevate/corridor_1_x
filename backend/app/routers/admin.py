@@ -29,6 +29,7 @@ from app.models.identity import Identity
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
+from app.pii import mask_aadhaar, mask_bank_account
 from app.schemas.base import CamelModel
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -502,7 +503,9 @@ async def _load_user_detail(db: AsyncSession, uid: uuid.UUID) -> UserDetail:
             "businessType": business.business_type,
             "natureOfBusiness": business.nature_of_business,
             "udyam": business.udyam,
-            "aadhaar": business.aadhaar,
+            # PII: mask Aadhaar even in the admin view. Admin sees last 4
+            # for identification; ops that need the full value read the DB.
+            "aadhaar": mask_aadhaar(business.aadhaar),
             "tan": business.tan,
         }
         # Only surface the bank block once any of the fields is populated.
@@ -514,7 +517,7 @@ async def _load_user_detail(db: AsyncSession, uid: uuid.UUID) -> UserDetail:
             )
         ):
             bank_block = {
-                "accountNumber": business.bank_account_number,
+                "accountNumber": mask_bank_account(business.bank_account_number),
                 "ifsc": business.bank_ifsc,
                 "holderName": business.bank_holder_name,
                 "branchName": business.bank_branch_name,

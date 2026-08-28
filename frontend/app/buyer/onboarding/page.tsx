@@ -1,12 +1,9 @@
-import type { Metadata } from "next";
-import { BuyerOnboardingClient } from "@/components/buyer/BuyerOnboardingClient";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Buyer Onboarding — Cor1x",
-  description:
-    "Start your buyer journey on Cor1x. Source verified rice from mills, manufacturers, and traders across India.",
-};
-
-export default function BuyerOnboardingPage() {
-  return <BuyerOnboardingClient />;
+/**
+ * Retired. Buyer signup is now the unified /signup page. Old links land
+ * here → we bounce to /signup.
+ */
+export default function BuyerOnboardingRetired() {
+  redirect("/signup?intent=buyer");
 }

@@ -48,6 +48,10 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    # Soft-delete for DPDP right-to-erasure. Hard-delete via cleanup job later.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     identities: Mapped[list["Identity"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

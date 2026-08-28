@@ -96,6 +96,14 @@ export interface Me {
   seller: SellerData;
 }
 
+export interface OtpVerifyResponse {
+  ok: boolean;
+  error?: string;
+  // Phone-channel verify only. See routers/otp.py.
+  isNew?: boolean;
+  userId?: string;
+}
+
 export interface IfscLookup {
   ifsc: string;
   bank: string;
@@ -174,12 +182,20 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const userId = getStoredUserId();
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
+    // Include cookies so cor1x_session (login/signup) + cor1x_verified_phone
+    // (signup bridge) flow with every call. Requires CORS allow_credentials
+    // + a concrete origin (not *) on the backend — already set.
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      // Legacy header — kept while pulled dashboard code still reads
+      // userId from localStorage. Cookie auth takes precedence on backend.
       ...(userId ? { "X-User-Id": userId } : {}),
       ...(init?.headers ?? {}),
     },
   });
+  // 204 No Content (e.g. DELETE /me) has no body to parse.
+  if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg =
@@ -206,6 +222,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  // Phone-channel /otp/verify sets one of two cookies on success:
+  //   isNew=false → cor1x_session (login done, dashboard-ready)
+  //   isNew=true  → cor1x_verified_phone (10-min bridge to /auth/signup)
   verifyOtp: (payload: {
     otpId: string;
     code: string;
@@ -217,28 +236,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ channel: "phone", ...payload }),
     }),
-  authVerify: (payload: { otpId: string; code: string; mobile: string }) =>
-    jsonFetch<{ userId: string; isNew: boolean; needsProfile: boolean }>(
-      "/auth/verify",
-      { method: "POST", body: JSON.stringify(payload) },
-    ),
 
-  // Legacy standalone submits — DEAD after the profile/business refactor
-  // (POST /sellers and POST /buyers routes were removed). Kept only so the
-  // old /seller/onboarding + /buyer/onboarding pages still compile; either
-  // rewrite those pages to /auth/verify + /profile/* or delete them.
-  submitSeller: (_payload: unknown) =>
-    Promise.reject(
-      new Error(
-        "Legacy /sellers endpoint removed. Use /login → /dashboard/profile flow.",
-      ),
-    ) as Promise<{ id: string; status: string }>,
-  submitBuyer: (_payload: unknown) =>
-    Promise.reject(
-      new Error(
-        "Legacy /buyers endpoint removed. Use /login → /dashboard/profile flow.",
-      ),
-    ) as Promise<{ id: string; status: string }>,
+  // Complete signup — reads the cor1x_verified_phone cookie set moments
+  // ago by /otp/verify, creates User + Identity + Profile atomically,
+  // swaps to a durable cor1x_session cookie.
+  signup: (payload: {
+    fullName: string;
+    email: string;
+    consent: boolean;
+    consentVersion?: string;
+  }) =>
+    jsonFetch<{ userId: string; isNew: boolean }>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // Cheap probe used by middleware and page loaders — returns
+  // { userId: "..." } if a valid session cookie is present, else null.
+  session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
+
+  logout: () =>
+    jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+
+  deleteMe: () =>
+    jsonFetch<void>("/me", { method: "DELETE" }),
 
   // Dashboard — authenticated
   me: () => jsonFetch<Me>("/me"),

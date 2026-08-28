@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     admin_session_secret: str = "dev-only-admin-secret-change-me"
     admin_session_max_age_hours: int = 12
 
+    # User session cookie signing secret (cor1x_session + cor1x_verified_phone).
+    # ROTATE in prod via env var — leaked secret means every session token is
+    # forgeable. Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+    session_secret: str = "dev-only-session-secret-change-me"
+
+    # When true, cookies are set with Secure=false (dev over http://) and rate
+    # limits are relaxed. Off in production.
+    debug: bool = True
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

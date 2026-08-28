@@ -34,6 +34,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Filter out any origins that come in blank so `["http://localhost:3000", ""]`
+# doesn't accidentally allow the null-origin edge case.
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(gstin.router)

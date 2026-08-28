@@ -30,3 +30,9 @@ class OtpVerifyRequest(CamelModel):
 class OtpVerifyResponse(CamelModel):
     ok: bool
     error: str | None = None
+    # Populated on phone-channel verify. is_new=false means "this mobile is
+    # already registered and the session cookie was just set"; is_new=true
+    # means "no account yet — /auth/signup will consume the verified-phone
+    # cookie to create it".
+    is_new: bool | None = None
+    user_id: str | None = None
