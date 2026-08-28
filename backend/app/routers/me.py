@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models.bank_details import BankDetails
-from app.models.buyer import Buyer
+from app.models.business_profile import BusinessProfile
 from app.models.identity import Identity
-from app.models.seller import Seller
+from app.models.product import Product
+from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.me import (
     BankData,
@@ -15,34 +15,34 @@ from app.schemas.me import (
     Completion,
     MeResponse,
     PrimaryData,
-    SellerData,
+    RegulatoryData,
 )
 
 router = APIRouter(tags=["me"])
 
 
-def _primary_complete(b: Buyer | None) -> bool:
+def _primary_complete(p: Profile | None) -> bool:
     return bool(
-        b
-        and b.full_name
-        and b.email
-        and b.address_line
-        and b.city
-        and b.state
-        and b.pincode
+        p
+        and p.full_name
+        and p.email
+        and p.address_line
+        and p.city
+        and p.state
+        and p.pincode
     )
 
 
-def _business_complete(s: Seller | None) -> bool:
-    return bool(s and s.pan and s.company_name)
+def _business_complete(bp: BusinessProfile | None) -> bool:
+    return bool(bp and bp.pan and bp.company_name)
 
 
-def _bank_complete(bd: BankDetails | None) -> bool:
-    return bool(bd and bd.account_number and bd.ifsc and bd.holder_name)
+def _bank_complete(bp: BusinessProfile | None) -> bool:
+    return bool(bp and bp.bank_account_number and bp.bank_ifsc and bp.bank_holder_name)
 
 
-def _seller_complete(s: Seller | None) -> bool:
-    return bool(s and (s.udyam or s.aadhaar or s.tan))
+def _regulatory_complete(bp: BusinessProfile | None) -> bool:
+    return bool(bp and (bp.udyam or bp.aadhaar or bp.tan))
 
 
 @router.get("/me", response_model=MeResponse, response_model_by_alias=True)
@@ -50,54 +50,62 @@ async def me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
-    buyer = await db.scalar(select(Buyer).where(Buyer.user_id == user.id))
-    seller = await db.scalar(select(Seller).where(Seller.user_id == user.id))
-    bank = await db.scalar(select(BankDetails).where(BankDetails.user_id == user.id))
+    profile = await db.scalar(select(Profile).where(Profile.user_id == user.id))
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == user.id)
+    )
     identity = await db.scalar(
         select(Identity).where(Identity.user_id == user.id).limit(1)
     )
+    product_count = await db.scalar(
+        select(func.count(Product.id)).where(Product.user_id == user.id)
+    ) or 0
 
     return MeResponse(
         user_id=str(user.id),
-        user_type=user.user_type.value,
+        # Role is derived: any product means seller.
+        user_type="seller" if product_count > 0 else "buyer",
         status=user.status.value,
         mobile=identity.value if identity else "",
-        full_name=buyer.full_name if buyer else None,
+        full_name=profile.full_name if profile else None,
         completion=Completion(
-            primary=_primary_complete(buyer),
-            business=_business_complete(seller),
-            bank=_bank_complete(bank),
-            seller=_seller_complete(seller),
+            primary=_primary_complete(profile),
+            business=_business_complete(business),
+            bank=_bank_complete(business),
+            seller=_regulatory_complete(business),
         ),
         primary=PrimaryData(
-            full_name=buyer.full_name if buyer else None,
-            email=buyer.email if buyer else None,
-            address_line=buyer.address_line if buyer else None,
-            city=buyer.city if buyer else None,
-            state=buyer.state if buyer else None,
-            pincode=buyer.pincode if buyer else None,
-            alt_mobile=buyer.alt_mobile if buyer else None,
-            alt_email=buyer.alt_email if buyer else None,
-            business_email=buyer.business_email if buyer else None,
-            website_url=buyer.website_url if buyer else None,
-            google_business_url=buyer.google_business_url if buyer else None,
-            facebook_url=buyer.facebook_url if buyer else None,
+            full_name=profile.full_name if profile else None,
+            email=profile.email if profile else None,
+            address_line=profile.address_line if profile else None,
+            city=profile.city if profile else None,
+            state=profile.state if profile else None,
+            pincode=profile.pincode if profile else None,
+            country=profile.country if profile else None,
+            alt_mobile=profile.alt_mobile if profile else None,
+            alt_email=profile.alt_email if profile else None,
+            business_email=profile.business_email if profile else None,
+            website_url=profile.website_url if profile else None,
+            google_business_url=profile.google_business_url if profile else None,
+            facebook_url=profile.facebook_url if profile else None,
         ),
         business=BusinessData(
-            gstin=seller.gstin if seller else None,
-            pan=seller.pan if seller else None,
-            company_name=seller.company_name if seller else None,
+            gstin=business.gstin if business else None,
+            pan=business.pan if business else None,
+            company_name=business.company_name if business else None,
+            business_type=business.business_type if business else None,
+            nature_of_business=business.nature_of_business if business else None,
         ),
         bank=BankData(
-            account_number=bank.account_number if bank else None,
-            ifsc=bank.ifsc if bank else None,
-            holder_name=bank.holder_name if bank else None,
-            branch_name=bank.branch_name if bank else None,
-            bank_name=bank.bank_name if bank else None,
+            account_number=business.bank_account_number if business else None,
+            ifsc=business.bank_ifsc if business else None,
+            holder_name=business.bank_holder_name if business else None,
+            branch_name=business.bank_branch_name if business else None,
+            bank_name=business.bank_name if business else None,
         ),
-        seller=SellerData(
-            udyam=seller.udyam if seller else None,
-            aadhaar=seller.aadhaar if seller else None,
-            tan=seller.tan if seller else None,
+        seller=RegulatoryData(
+            udyam=business.udyam if business else None,
+            aadhaar=business.aadhaar if business else None,
+            tan=business.tan if business else None,
         ),
     )

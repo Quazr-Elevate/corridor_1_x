@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models.seller import Seller
+from app.models.business_profile import BusinessProfile
 from app.schemas.pan import PanLookup
 from app.validators import PAN_REGEX
 
@@ -28,10 +28,12 @@ async def get_pan(pan: str, db: AsyncSession = Depends(get_db)) -> PanLookup:
     if not PAN_REGEX.match(clean):
         raise HTTPException(status_code=400, detail="Enter a valid 10-character PAN")
 
-    # Reject duplicates upfront. sellers.pan is populated on both onboarding
-    # paths (derived from GSTIN chars 3–12 on the GSTIN flow, entered directly
-    # on the PAN flow), so this catches conflicts across both.
-    existing = await db.scalar(select(Seller).where(Seller.pan == clean))
+    # Reject duplicates upfront. business_profiles.pan is populated on both
+    # onboarding paths (derived from GSTIN chars 3–12 on the GSTIN flow,
+    # entered directly on the PAN flow), so this catches conflicts across both.
+    existing = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.pan == clean)
+    )
     if existing:
         raise HTTPException(status_code=409, detail="This PAN is already registered")
 

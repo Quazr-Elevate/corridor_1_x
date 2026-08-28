@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.deps import get_current_user
 from app.models.product import Product
-from app.models.user import User, UserType
+from app.models.user import User
 from app.schemas.product import PhotoUploaded, ProductCreate, ProductRead
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -105,11 +105,8 @@ async def create_product(
         photos=payload.photos,
     )
     db.add(product)
-
-    # First product upgrades user_type from buyer → seller
-    if user.user_type == UserType.buyer:
-        user.user_type = UserType.seller
-
+    # Role (seller vs buyer) is derived from the presence of products — no
+    # column to flip. This first product is what makes the user a seller.
     await db.commit()
     await db.refresh(product)
 

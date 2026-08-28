@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models.seller import Seller
+from app.models.business_profile import BusinessProfile
 from app.providers.gstin import lookup_gstin
 from app.schemas.gstin import GstinLookup
 
@@ -17,7 +17,9 @@ async def get_gstin(gstin: str, db: AsyncSession = Depends(get_db)) -> GstinLook
     # Reject duplicates upfront — gives immediate feedback at the Verify step
     # and avoids burning a paid Masters India API call for a GSTIN that's
     # already on file.
-    existing = await db.scalar(select(Seller).where(Seller.gstin == clean))
+    existing = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.gstin == clean)
+    )
     if existing:
         raise HTTPException(status_code=409, detail="This GSTIN is already registered")
 

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.identity import Identity
-from app.models.user import User, UserStatus, UserType
+from app.models.user import User, UserStatus
 from app.providers.otp import verify_otp
 from app.schemas.auth import AuthVerifyRequest, AuthVerifyResponse
 
@@ -18,11 +18,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def verify(payload: AuthVerifyRequest, db: AsyncSession = Depends(get_db)):
     """Unified sign-in / sign-up. Verifies the OTP, then:
     - returns 200 with is_new=false if the mobile already has an account
-    - creates User(user_type=buyer) + verified Identity and returns 201 with
-      is_new=true if it's a fresh mobile
+    - creates a User + verified Identity and returns 201 with is_new=true
+      if it's a fresh mobile
 
-    user_type defaults to 'buyer'; profile setup upgrades to 'seller' if the
-    user later adds seller-specific details (per the current SOP).
+    Role (buyer vs seller) is derived — a user becomes a seller by adding
+    their first product. No column stored for it.
     """
     otp_result = await verify_otp("phone", payload.mobile, payload.code)
     if not otp_result.ok:
@@ -35,14 +35,13 @@ async def verify(payload: AuthVerifyRequest, db: AsyncSession = Depends(get_db))
         body = AuthVerifyResponse(
             user_id=str(existing.user_id),
             is_new=False,
-            # TODO: check if seller/buyer profile row exists to know whether
-            # profile setup is still needed. For now assume returning users
-            # have completed profile.
+            # TODO: check if profile row exists to know whether profile setup
+            # is still needed. For now assume returning users have completed it.
             needs_profile=False,
         )
         return JSONResponse(status_code=200, content=body.model_dump(by_alias=True))
 
-    user = User(user_type=UserType.buyer, status=UserStatus.signed_up)
+    user = User(status=UserStatus.signed_up)
     db.add(user)
     await db.flush()
 

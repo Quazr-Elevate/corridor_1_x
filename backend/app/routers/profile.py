@@ -1,19 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models.bank_details import BankDetails
-from app.models.buyer import Buyer
-from app.models.seller import Seller, SellerOnboardingPath
+from app.models.business_profile import BusinessProfile, OnboardingPath
+from app.models.product import Product
+from app.models.profile import Profile
 from app.models.user import User, UserStatus
 from app.schemas.profile import (
     BankDetailsIn,
     BusinessDetails,
     PrimaryDetails,
     ProfileSectionSaved,
-    SellerDetails,
+    RegulatoryDetails,
 )
 from app.validators import GSTIN_REGEX, PAN_REGEX
 
@@ -23,36 +23,49 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 # ── Completion / verified-status helpers ─────────────────────────────────────
 
 
-def _primary_complete(b: Buyer | None) -> bool:
+def _primary_complete(p: Profile | None) -> bool:
     return bool(
-        b
-        and b.full_name
-        and b.email
-        and b.address_line
-        and b.city
-        and b.state
-        and b.pincode
+        p
+        and p.full_name
+        and p.email
+        and p.address_line
+        and p.city
+        and p.state
+        and p.pincode
     )
 
 
-def _business_complete(s: Seller | None) -> bool:
-    return bool(s and s.pan and s.company_name)
+def _business_complete(bp: BusinessProfile | None) -> bool:
+    return bool(bp and bp.pan and bp.company_name)
 
 
-def _bank_complete(bd: BankDetails | None) -> bool:
-    return bool(bd and bd.account_number and bd.ifsc and bd.holder_name)
+def _bank_complete(bp: BusinessProfile | None) -> bool:
+    return bool(bp and bp.bank_account_number and bp.bank_ifsc and bp.bank_holder_name)
+
+
+async def _has_products(user_id, db: AsyncSession) -> bool:
+    return bool(
+        await db.scalar(
+            select(func.count(Product.id)).where(Product.user_id == user_id)
+        )
+    )
 
 
 async def _maybe_verify_user(user: User, db: AsyncSession) -> None:
-    """Bump user.status to 'verified' the first time all three required
-    sections (Primary + Business + Bank) are complete. Adding a product is
-    a separate promotion that flips user_type from buyer to seller.
-    """
-    await db.flush()  # make any staged writes visible to the queries below
-    buyer = await db.scalar(select(Buyer).where(Buyer.user_id == user.id))
-    seller = await db.scalar(select(Seller).where(Seller.user_id == user.id))
-    bank = await db.scalar(select(BankDetails).where(BankDetails.user_id == user.id))
-    all_done = _primary_complete(buyer) and _business_complete(seller) and _bank_complete(bank)
+    """Bump `users.status` to 'verified' the first time all three required
+    sections (Primary + Business + Bank) are complete. Adding a product does
+    not gate this — role is a separate axis (a verified buyer without products
+    is fine; a verified seller has products *and* all three sections)."""
+    await db.flush()
+    profile = await db.scalar(select(Profile).where(Profile.user_id == user.id))
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == user.id)
+    )
+    all_done = (
+        _primary_complete(profile)
+        and _business_complete(business)
+        and _bank_complete(business)
+    )
     if all_done and user.status != UserStatus.verified:
         user.status = UserStatus.verified
 
@@ -66,22 +79,24 @@ async def save_primary(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProfileSectionSaved:
-    buyer = await db.scalar(select(Buyer).where(Buyer.user_id == user.id))
-    if buyer is None:
-        buyer = Buyer(user_id=user.id, full_name=payload.full_name)
-        db.add(buyer)
-    buyer.full_name = payload.full_name
-    buyer.email = payload.email
-    buyer.address_line = payload.address_line
-    buyer.city = payload.city
-    buyer.state = payload.state
-    buyer.pincode = payload.pincode
-    buyer.alt_mobile = payload.alt_mobile
-    buyer.alt_email = payload.alt_email
-    buyer.business_email = payload.business_email
-    buyer.website_url = payload.website_url
-    buyer.google_business_url = payload.google_business_url
-    buyer.facebook_url = payload.facebook_url
+    profile = await db.scalar(select(Profile).where(Profile.user_id == user.id))
+    if profile is None:
+        profile = Profile(user_id=user.id, full_name=payload.full_name)
+        db.add(profile)
+    profile.full_name = payload.full_name
+    profile.email = payload.email
+    profile.address_line = payload.address_line
+    profile.city = payload.city
+    profile.state = payload.state
+    profile.pincode = payload.pincode
+    if payload.country:
+        profile.country = payload.country
+    profile.alt_mobile = payload.alt_mobile
+    profile.alt_email = payload.alt_email
+    profile.business_email = payload.business_email
+    profile.website_url = payload.website_url
+    profile.google_business_url = payload.google_business_url
+    profile.facebook_url = payload.facebook_url
 
     await _maybe_verify_user(user, db)
     await db.commit()
@@ -104,28 +119,28 @@ async def save_business(
     if gstin and not GSTIN_REGEX.match(gstin):
         raise HTTPException(status_code=400, detail="Enter a valid 15-character GSTIN")
 
-    seller = await db.scalar(select(Seller).where(Seller.user_id == user.id))
-    if seller is None:
-        # Seller row needs some NOT NULL columns (owner_name, pincode, city, state).
-        # Backfill from buyers primary details if present; placeholder otherwise.
-        buyer = await db.scalar(select(Buyer).where(Buyer.user_id == user.id))
-        seller = Seller(
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == user.id)
+    )
+    if business is None:
+        business = BusinessProfile(
             user_id=user.id,
-            onboarding_path=SellerOnboardingPath.gstin if gstin else SellerOnboardingPath.pan,
+            onboarding_path=OnboardingPath.gstin if gstin else OnboardingPath.pan,
             gstin=gstin,
             pan=pan,
             company_name=payload.company_name,
-            owner_name=(buyer.full_name if buyer else "—"),
-            pincode=(buyer.pincode if buyer and buyer.pincode else "000000"),
-            city=(buyer.city if buyer and buyer.city else "—"),
-            state=(buyer.state if buyer and buyer.state else "—"),
-            country=(buyer.country if buyer and buyer.country else "India"),
+            business_type=payload.business_type,
+            nature_of_business=payload.nature_of_business,
         )
-        db.add(seller)
+        db.add(business)
     else:
-        seller.gstin = gstin
-        seller.pan = pan
-        seller.company_name = payload.company_name
+        business.gstin = gstin
+        business.pan = pan
+        business.company_name = payload.company_name
+        if payload.business_type is not None:
+            business.business_type = payload.business_type
+        if payload.nature_of_business is not None:
+            business.nature_of_business = payload.nature_of_business
 
     await _maybe_verify_user(user, db)
     await db.commit()
@@ -141,46 +156,59 @@ async def save_bank(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProfileSectionSaved:
-    bank = await db.scalar(select(BankDetails).where(BankDetails.user_id == user.id))
-    if bank is None:
-        bank = BankDetails(
-            user_id=user.id,
-            account_number=payload.account_number,
-            ifsc=payload.ifsc.upper(),
-            holder_name=payload.holder_name,
-            branch_name=payload.branch_name,
-            bank_name=payload.bank_name,
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == user.id)
+    )
+    if business is None:
+        # Bank lives on business_profiles; we need the KYB row first.
+        raise HTTPException(
+            status_code=409,
+            detail="Fill Business details first before adding Bank details",
         )
-        db.add(bank)
-    else:
-        bank.account_number = payload.account_number
-        bank.ifsc = payload.ifsc.upper()
-        bank.holder_name = payload.holder_name
-        bank.branch_name = payload.branch_name
-        bank.bank_name = payload.bank_name
+    business.bank_account_number = payload.account_number
+    business.bank_ifsc = payload.ifsc.upper()
+    business.bank_holder_name = payload.holder_name
+    business.bank_branch_name = payload.branch_name
+    business.bank_name = payload.bank_name
 
     await _maybe_verify_user(user, db)
     await db.commit()
     return ProfileSectionSaved()
 
 
-# ── Seller details (udyam/aadhaar/tan) ───────────────────────────────────────
+# ── Regulatory extras (udyam/aadhaar/tan) ────────────────────────────────────
 
 
-@router.post("/seller", response_model=ProfileSectionSaved, response_model_by_alias=True)
-async def save_seller(
-    payload: SellerDetails,
+@router.post("/regulatory", response_model=ProfileSectionSaved, response_model_by_alias=True)
+async def save_regulatory(
+    payload: RegulatoryDetails,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ProfileSectionSaved:
-    seller = await db.scalar(select(Seller).where(Seller.user_id == user.id))
-    if seller is None:
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == user.id)
+    )
+    if business is None:
         raise HTTPException(
             status_code=409,
-            detail="Fill Business details first before adding Seller details",
+            detail="Fill Business details first before adding regulatory IDs",
         )
-    seller.udyam = payload.udyam
-    seller.aadhaar = payload.aadhaar
-    seller.tan = payload.tan
+    business.udyam = payload.udyam
+    business.aadhaar = payload.aadhaar
+    business.tan = payload.tan
     await db.commit()
     return ProfileSectionSaved()
+
+
+# ── Backwards-compat alias — legacy /profile/seller path used by the pulled
+#     frontend still routes to the same handler. Safe to remove once the
+#     dashboard drops the old endpoint name.
+# ────────────────────────────────────────────────────────────────────────────
+router.add_api_route(
+    "/seller",
+    save_regulatory,
+    methods=["POST"],
+    response_model=ProfileSectionSaved,
+    response_model_by_alias=True,
+    name="save_regulatory_alias",
+)

@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin_auth import (
@@ -24,11 +24,11 @@ from app.admin_auth import (
 )
 from app.config import settings
 from app.db import get_db
-from app.models.bank_details import BankDetails
-from app.models.buyer import Buyer
+from app.models.business_profile import BusinessProfile, OnboardingPath
 from app.models.identity import Identity
-from app.models.seller import Seller
-from app.models.user import User, UserStatus, UserType
+from app.models.product import Product
+from app.models.profile import Profile
+from app.models.user import User, UserStatus
 from app.schemas.base import CamelModel
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -80,7 +80,8 @@ async def admin_me(email: AdminEmail) -> LoginOut:
 
 
 async def _primary_mobile(db: AsyncSession, user_id: uuid.UUID) -> str | None:
-    # Buyer/seller identities include phone + email. Prefer the numeric one.
+    """Primary identity for a user — the numeric one (phone) if present,
+    otherwise the first identity value in DB order."""
     rows = await db.scalars(
         select(Identity.value).where(Identity.user_id == user_id)
     )
@@ -91,26 +92,32 @@ async def _primary_mobile(db: AsyncSession, user_id: uuid.UUID) -> str | None:
     return vals[0] if vals else None
 
 
-def _stage(buyer: Buyer | None, seller: Seller | None, bank: BankDetails | None) -> str:
-    """Bucket a user into the verification funnel."""
+def _stage(profile: Profile | None, business: BusinessProfile | None) -> str:
+    """Bucket a user into the verification funnel. Bank now lives on the
+    same `business_profiles` row, so no separate arg."""
     primary = bool(
-        buyer
-        and buyer.full_name
-        and buyer.email
-        and buyer.address_line
-        and buyer.city
-        and buyer.state
-        and buyer.pincode
+        profile
+        and profile.full_name
+        and profile.email
+        and profile.address_line
+        and profile.city
+        and profile.state
+        and profile.pincode
     )
-    business = bool(seller and seller.pan and seller.company_name)
-    bank_ok = bool(bank and bank.account_number and bank.ifsc and bank.holder_name)
-    if primary and business and bank_ok:
+    biz = bool(business and business.pan and business.company_name)
+    bank_ok = bool(
+        business
+        and business.bank_account_number
+        and business.bank_ifsc
+        and business.bank_holder_name
+    )
+    if primary and biz and bank_ok:
         return "verified"
-    if primary and business:
+    if primary and biz:
         return "bank_pending"
     if primary:
         return "business_pending"
-    if buyer and buyer.full_name:
+    if profile and profile.full_name:
         return "primary_pending"
     return "signed_up"
 
@@ -138,12 +145,13 @@ async def dashboard_stats(
     _: AdminEmail,
     db: AsyncSession = Depends(get_db),
 ) -> DashboardStats:
-    total_buyers = await db.scalar(
-        select(func.count(User.id)).where(User.user_type == UserType.buyer)
-    ) or 0
-    total_sellers = await db.scalar(
-        select(func.count(User.id)).where(User.user_type == UserType.seller)
-    ) or 0
+    total_users = await db.scalar(select(func.count(User.id))) or 0
+    # Sellers are users with at least one product — count distinct product owners.
+    seller_ids = {
+        r for r in await db.scalars(select(Product.user_id).distinct())
+    }
+    total_sellers = len(seller_ids)
+    total_buyers = total_users - total_sellers
     total_verified = await db.scalar(
         select(func.count(User.id)).where(User.status == UserStatus.verified)
     ) or 0
@@ -160,14 +168,17 @@ async def dashboard_stats(
         )
     ) or 0
 
-    # Funnel — pull all users + their relations in one pass. Fine for MVP scale.
+    # Funnel — one pass over users + their profile/business rows.
     users = list(await db.scalars(select(User)))
-    buyers_map = {b.user_id: b for b in await db.scalars(select(Buyer))}
-    sellers_map = {s.user_id: s for s in await db.scalars(select(Seller))}
-    banks_map = {b.user_id: b for b in await db.scalars(select(BankDetails))}
+    profiles_map = {p.user_id: p for p in await db.scalars(select(Profile))}
+    business_map = {
+        b.user_id: b for b in await db.scalars(select(BusinessProfile))
+    }
     funnel_counter: Counter[str] = Counter()
     for u in users:
-        funnel_counter[_stage(buyers_map.get(u.id), sellers_map.get(u.id), banks_map.get(u.id))] += 1
+        funnel_counter[
+            _stage(profiles_map.get(u.id), business_map.get(u.id))
+        ] += 1
     funnel = {
         "signed_up": funnel_counter.get("signed_up", 0),
         "primary_pending": funnel_counter.get("primary_pending", 0),
@@ -176,61 +187,53 @@ async def dashboard_stats(
         "verified": funnel_counter.get("verified", 0),
     }
 
-    # Top states — buyers vs sellers (join user_type via users_map)
-    users_map = {u.id: u for u in users}
+    # Top states — buyers vs sellers. Role is derived from seller_ids.
     state_buckets: dict[str, Counter[str]] = {"buyer": Counter(), "seller": Counter()}
-    for b in buyers_map.values():
-        if not b.state:
+    for p in profiles_map.values():
+        if not p.state:
             continue
-        u = users_map.get(b.user_id)
-        if not u:
-            continue
-        state_buckets[u.user_type.value][b.state.strip().title()] += 1
+        role = "seller" if p.user_id in seller_ids else "buyer"
+        state_buckets[role][p.state.strip().title()] += 1
     top_states = {
-        role: [
-            {"state": s, "count": c}
-            for s, c in bucket.most_common(5)
-        ]
+        role: [{"state": s, "count": c} for s, c in bucket.most_common(5)]
         for role, bucket in state_buckets.items()
     }
 
-    # Duplicate GSTIN / PAN alerts — render each duplicated user with their
-    # display name if we have one; otherwise fall back to their mobile.
+    # Duplicate GSTIN / PAN alerts — labelled by name (fallback: mobile).
     async def _label(uid: uuid.UUID) -> str:
-        b = buyers_map.get(uid)
-        if b and b.full_name:
-            return b.full_name
+        p = profiles_map.get(uid)
+        if p and p.full_name:
+            return p.full_name
         mobile = await _primary_mobile(db, uid)
         return mobile or str(uid)[:8]
 
     def _people(ids: list[uuid.UUID]) -> list[dict[str, str]]:
-        # Preserve encounter order; drop duplicates preserving first-seen.
         seen: set[uuid.UUID] = set()
         return [
-            {"user_id": str(i)}  # label attached synchronously below
+            {"user_id": str(i)}
             for i in ids
             if not (i in seen or seen.add(i))
         ]
 
     gstin_map: dict[str, list[uuid.UUID]] = defaultdict(list)
     pan_map: dict[str, list[uuid.UUID]] = defaultdict(list)
-    for s in sellers_map.values():
-        if s.gstin:
-            gstin_map[s.gstin.strip().upper()].append(s.user_id)
-        if s.pan:
-            pan_map[s.pan.strip().upper()].append(s.user_id)
+    for bp in business_map.values():
+        if bp.gstin:
+            gstin_map[bp.gstin.strip().upper()].append(bp.user_id)
+        if bp.pan:
+            pan_map[bp.pan.strip().upper()].append(bp.user_id)
     duplicate_alerts: list[dict[str, Any]] = []
     for gstin, ids in gstin_map.items():
         if len(ids) > 1:
             people = _people(ids)
-            for p in people:
-                p["label"] = await _label(uuid.UUID(p["user_id"]))
+            for pl in people:
+                pl["label"] = await _label(uuid.UUID(pl["user_id"]))
             duplicate_alerts.append({"kind": "GSTIN", "value": gstin, "users": people})
     for pan, ids in pan_map.items():
         if len(ids) > 1:
             people = _people(ids)
-            for p in people:
-                p["label"] = await _label(uuid.UUID(p["user_id"]))
+            for pl in people:
+                pl["label"] = await _label(uuid.UUID(pl["user_id"]))
             duplicate_alerts.append({"kind": "PAN", "value": pan, "users": people})
 
     return DashboardStats(
@@ -271,7 +274,9 @@ async def dashboard_timeline(
     users = list(
         await db.scalars(select(User).where(User.created_at >= start))
     )
-    # Pre-seed every day so the chart shows zero-bars for empty days.
+    seller_ids = {
+        r for r in await db.scalars(select(Product.user_id).distinct())
+    }
     buckets: dict[str, dict[str, int]] = {}
     for i in range(days):
         d = (start + timedelta(days=i)).strftime("%Y-%m-%d")
@@ -279,7 +284,8 @@ async def dashboard_timeline(
     for u in users:
         key = u.created_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
         if key in buckets:
-            buckets[key][u.user_type.value] += 1
+            role = "seller" if u.id in seller_ids else "buyer"
+            buckets[key][role] += 1
     return [
         TimelinePoint(date=d, buyer=v["buyer"], seller=v["seller"])
         for d, v in buckets.items()
@@ -313,15 +319,18 @@ async def dashboard_recent(
             select(User).order_by(User.created_at.desc()).limit(limit)
         )
     )
+    seller_ids = {
+        r for r in await db.scalars(select(Product.user_id).distinct())
+    }
     result: list[RecentSignup] = []
     for u in users:
-        buyer = await db.scalar(select(Buyer).where(Buyer.user_id == u.id))
+        profile = await db.scalar(select(Profile).where(Profile.user_id == u.id))
         mobile = await _primary_mobile(db, u.id)
         result.append(
             RecentSignup(
                 user_id=str(u.id),
-                full_name=buyer.full_name if buyer else None,
-                user_type=u.user_type.value,
+                full_name=profile.full_name if profile else None,
+                user_type="seller" if u.id in seller_ids else "buyer",
                 status=u.status.value,
                 created_at=u.created_at,
                 mobile=mobile,
@@ -365,40 +374,46 @@ async def admin_users(
     db: AsyncSession = Depends(get_db),
 ) -> UsersListOut:
     stmt = select(User)
-    if user_type in {"buyer", "seller"}:
-        stmt = stmt.where(User.user_type == UserType(user_type))
     if status in {s.value for s in UserStatus}:
         stmt = stmt.where(User.status == UserStatus(status))
 
-    # Search: name / email / mobile / GSTIN / PAN. Do it in Python for MVP —
-    # we're at hundreds of users. Move to indexed columns when we hit 10k+.
     all_users = list(await db.scalars(stmt.order_by(User.created_at.desc())))
-    buyers_map = {b.user_id: b for b in await db.scalars(select(Buyer))}
-    sellers_map = {s.user_id: s for s in await db.scalars(select(Seller))}
-    banks_map = {b.user_id: b for b in await db.scalars(select(BankDetails))}
+    profiles_map = {p.user_id: p for p in await db.scalars(select(Profile))}
+    business_map = {
+        b.user_id: b for b in await db.scalars(select(BusinessProfile))
+    }
+    seller_ids = {
+        r for r in await db.scalars(select(Product.user_id).distinct())
+    }
     identities_by_user: dict[uuid.UUID, list[str]] = defaultdict(list)
     for ident in await db.scalars(select(Identity)):
         identities_by_user[ident.user_id].append(ident.value)
+
+    # Role filter — derived, not stored.
+    if user_type == "buyer":
+        all_users = [u for u in all_users if u.id not in seller_ids]
+    elif user_type == "seller":
+        all_users = [u for u in all_users if u.id in seller_ids]
 
     def matches_q(u: User) -> bool:
         if not q:
             return True
         needle = q.strip().lower()
-        b = buyers_map.get(u.id)
-        s = sellers_map.get(u.id)
+        p = profiles_map.get(u.id)
+        bp = business_map.get(u.id)
         haystack: list[str] = []
-        if b:
-            if b.full_name:
-                haystack.append(b.full_name)
-            if b.email:
-                haystack.append(b.email)
-        if s:
-            if s.gstin:
-                haystack.append(s.gstin)
-            if s.pan:
-                haystack.append(s.pan)
-            if s.company_name:
-                haystack.append(s.company_name)
+        if p:
+            if p.full_name:
+                haystack.append(p.full_name)
+            if p.email:
+                haystack.append(p.email)
+        if bp:
+            if bp.gstin:
+                haystack.append(bp.gstin)
+            if bp.pan:
+                haystack.append(bp.pan)
+            if bp.company_name:
+                haystack.append(bp.company_name)
         haystack.extend(identities_by_user.get(u.id, []))
         return any(needle in v.lower() for v in haystack)
 
@@ -408,21 +423,20 @@ async def admin_users(
 
     items: list[UserRow] = []
     for u in page:
-        b = buyers_map.get(u.id)
-        s = sellers_map.get(u.id)
-        bank = banks_map.get(u.id)
+        p = profiles_map.get(u.id)
+        bp = business_map.get(u.id)
         idents = identities_by_user.get(u.id, [])
         mobile = next((v for v in idents if v.isdigit()), None)
         items.append(
             UserRow(
                 user_id=str(u.id),
-                full_name=b.full_name if b else None,
-                user_type=u.user_type.value,
+                full_name=p.full_name if p else None,
+                user_type="seller" if u.id in seller_ids else "buyer",
                 status=u.status.value,
-                stage=_stage(b, s, bank),
+                stage=_stage(p, bp),
                 mobile=mobile,
-                email=(b.email if b else None),
-                state=b.state if b else None,
+                email=(p.email if p else None),
+                state=p.state if p else None,
                 created_at=u.created_at,
             )
         )
@@ -451,55 +465,72 @@ async def _load_user_detail(db: AsyncSession, uid: uuid.UUID) -> UserDetail:
     user = await db.scalar(select(User).where(User.id == uid))
     if not user:
         raise HTTPException(status_code=404, detail="Not found")
-    buyer = await db.scalar(select(Buyer).where(Buyer.user_id == uid))
-    seller = await db.scalar(select(Seller).where(Seller.user_id == uid))
-    bank = await db.scalar(select(BankDetails).where(BankDetails.user_id == uid))
+    profile = await db.scalar(select(Profile).where(Profile.user_id == uid))
+    business = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == uid)
+    )
     mobile = await _primary_mobile(db, uid)
+    product_count = await db.scalar(
+        select(func.count(Product.id)).where(Product.user_id == uid)
+    ) or 0
 
+    # "buyer" block = personal profile — kept as buyer JSON key for the pulled
+    # admin UI which still expects that shape.
     buyer_block: dict[str, Any] | None = None
-    if buyer:
+    if profile:
         buyer_block = {
-            "fullName": buyer.full_name,
-            "email": buyer.email,
-            "addressLine": buyer.address_line,
-            "city": buyer.city,
-            "state": buyer.state,
-            "pincode": buyer.pincode,
-            "altMobile": buyer.alt_mobile,
-            "altEmail": buyer.alt_email,
-            "businessEmail": buyer.business_email,
-            "websiteUrl": buyer.website_url,
+            "fullName": profile.full_name,
+            "email": profile.email,
+            "addressLine": profile.address_line,
+            "city": profile.city,
+            "state": profile.state,
+            "pincode": profile.pincode,
+            "country": profile.country,
+            "altMobile": profile.alt_mobile,
+            "altEmail": profile.alt_email,
+            "businessEmail": profile.business_email,
+            "websiteUrl": profile.website_url,
         }
     seller_block: dict[str, Any] | None = None
-    if seller:
-        seller_block = {
-            "gstin": seller.gstin,
-            "pan": seller.pan,
-            "companyName": seller.company_name,
-            "udyam": seller.udyam,
-            "aadhaar": seller.aadhaar,
-            "tan": seller.tan,
-        }
     bank_block: dict[str, Any] | None = None
-    if bank:
-        bank_block = {
-            "accountNumber": bank.account_number,
-            "ifsc": bank.ifsc,
-            "holderName": bank.holder_name,
-            "branchName": bank.branch_name,
-            "bankName": bank.bank_name,
+    if business:
+        seller_block = {
+            "onboardingPath": business.onboarding_path.value,
+            "gstin": business.gstin,
+            "pan": business.pan,
+            "companyName": business.company_name,
+            "businessType": business.business_type,
+            "natureOfBusiness": business.nature_of_business,
+            "udyam": business.udyam,
+            "aadhaar": business.aadhaar,
+            "tan": business.tan,
         }
+        # Only surface the bank block once any of the fields is populated.
+        if any(
+            (
+                business.bank_account_number,
+                business.bank_ifsc,
+                business.bank_holder_name,
+            )
+        ):
+            bank_block = {
+                "accountNumber": business.bank_account_number,
+                "ifsc": business.bank_ifsc,
+                "holderName": business.bank_holder_name,
+                "branchName": business.bank_branch_name,
+                "bankName": business.bank_name,
+            }
 
     return UserDetail(
         user_id=str(user.id),
-        user_type=user.user_type.value,
+        user_type="seller" if product_count > 0 else "buyer",
         status=user.status.value,
-        stage=_stage(buyer, seller, bank),
+        stage=_stage(profile, business),
         created_at=user.created_at,
         updated_at=user.updated_at,
         mobile=mobile,
-        has_buyer_data=bool(buyer and buyer.full_name),
-        has_seller_data=bool(seller),
+        has_buyer_data=bool(profile and profile.full_name),
+        has_seller_data=bool(business),
         buyer=buyer_block,
         seller=seller_block,
         bank=bank_block,
@@ -527,7 +558,6 @@ async def admin_user_detail(
 
 
 def _blank_to_none(v: str | None) -> str | None:
-    """Treat empty string in a PATCH body as an explicit clear."""
     if v is None:
         return None
     v = v.strip()
@@ -535,12 +565,15 @@ def _blank_to_none(v: str | None) -> str | None:
 
 
 class AdminBuyerPatch(CamelModel):
+    """Personal profile fields — writes to `profiles`."""
+
     full_name: str | None = None
     email: str | None = None
     address_line: str | None = None
     city: str | None = None
     state: str | None = None
     pincode: str | None = None
+    country: str | None = None
     alt_mobile: str | None = None
     alt_email: str | None = None
     business_email: str | None = None
@@ -550,15 +583,21 @@ class AdminBuyerPatch(CamelModel):
 
 
 class AdminSellerPatch(CamelModel):
+    """Business identity fields — writes to `business_profiles`."""
+
     gstin: str | None = None
     pan: str | None = None
     company_name: str | None = None
+    business_type: str | None = None
+    nature_of_business: str | None = None
     udyam: str | None = None
     aadhaar: str | None = None
     tan: str | None = None
 
 
 class AdminBankPatch(CamelModel):
+    """Bank fields — writes to `business_profiles.bank_*` (was separate table)."""
+
     account_number: str | None = None
     ifsc: str | None = None
     holder_name: str | None = None
@@ -572,36 +611,44 @@ class AdminUserPatch(CamelModel):
     bank: AdminBankPatch | None = None
 
 
-def _apply_buyer_patch(buyer: Buyer, patch: AdminBuyerPatch) -> None:
-    """Copy every field the admin sent onto the buyer row. Empty string clears
-    a nullable field; None means 'don't touch this key'. full_name is required
-    on the model, so we ignore attempts to blank it."""
+def _apply_profile_patch(profile: Profile, patch: AdminBuyerPatch) -> None:
+    """Copy every field the admin sent onto the profile row. Empty string
+    clears a nullable field; None means 'don't touch this key'. full_name is
+    required, so blanking is ignored."""
     data = patch.model_dump(exclude_unset=True)
     for field, value in data.items():
         cleaned = _blank_to_none(value) if isinstance(value, str) else value
         if field == "full_name":
             if cleaned:
-                buyer.full_name = cleaned
+                profile.full_name = cleaned
             continue
-        setattr(buyer, field, cleaned)
+        if field == "country" and cleaned is None:
+            # country has a NOT NULL server default — don't accept a blank
+            continue
+        setattr(profile, field, cleaned)
 
 
-def _apply_seller_patch(seller: Seller, patch: AdminSellerPatch) -> None:
+def _apply_business_patch(business: BusinessProfile, patch: AdminSellerPatch) -> None:
     data = patch.model_dump(exclude_unset=True)
     for field, value in data.items():
         cleaned = _blank_to_none(value) if isinstance(value, str) else value
         if cleaned and field in {"pan", "gstin"}:
             cleaned = cleaned.upper()
-        setattr(seller, field, cleaned)
+        # pan / company_name are NOT NULL — silently drop attempts to blank
+        if cleaned is None and field in {"pan", "company_name"}:
+            continue
+        setattr(business, field, cleaned)
 
 
-def _apply_bank_patch(bank: BankDetails, patch: AdminBankPatch) -> None:
+def _apply_bank_patch(business: BusinessProfile, patch: AdminBankPatch) -> None:
+    """Bank fields sit on business_profiles under a `bank_` prefix."""
     data = patch.model_dump(exclude_unset=True)
     for field, value in data.items():
         cleaned = _blank_to_none(value) if isinstance(value, str) else value
         if cleaned and field == "ifsc":
             cleaned = cleaned.upper()
-        setattr(bank, field, cleaned)
+        # Map: account_number → bank_account_number etc.
+        setattr(business, f"bank_{field}", cleaned)
 
 
 @router.patch(
@@ -624,39 +671,69 @@ async def admin_user_patch(
         raise HTTPException(status_code=404, detail="Not found")
 
     if payload.buyer is not None:
-        buyer = await db.scalar(select(Buyer).where(Buyer.user_id == uid))
-        if buyer is None:
+        profile = await db.scalar(select(Profile).where(Profile.user_id == uid))
+        if profile is None:
             name = _blank_to_none(payload.buyer.full_name)
             if not name:
                 raise HTTPException(
                     status_code=400,
-                    detail="Full name is required to create a buyer profile",
+                    detail="Full name is required to create a profile",
                 )
-            buyer = Buyer(user_id=uid, full_name=name)
-            db.add(buyer)
-        _apply_buyer_patch(buyer, payload.buyer)
+            profile = Profile(user_id=uid, full_name=name)
+            db.add(profile)
+        _apply_profile_patch(profile, payload.buyer)
 
     if payload.seller is not None:
-        seller = await db.scalar(select(Seller).where(Seller.user_id == uid))
-        if seller is None:
-            seller = Seller(user_id=uid)
-            db.add(seller)
-        _apply_seller_patch(seller, payload.seller)
+        business = await db.scalar(
+            select(BusinessProfile).where(BusinessProfile.user_id == uid)
+        )
+        if business is None:
+            # BusinessProfile has NOT NULL onboarding_path, pan, company_name.
+            # Guard: refuse creation unless all three are in the payload.
+            pan = _blank_to_none(payload.seller.pan)
+            company = _blank_to_none(payload.seller.company_name)
+            if not (pan and company):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Cannot create business profile without PAN and "
+                        "company name"
+                    ),
+                )
+            gstin = _blank_to_none(payload.seller.gstin)
+            business = BusinessProfile(
+                user_id=uid,
+                onboarding_path=(
+                    OnboardingPath.gstin if gstin else OnboardingPath.pan
+                ),
+                gstin=gstin.upper() if gstin else None,
+                pan=pan.upper(),
+                company_name=company,
+            )
+            db.add(business)
+        _apply_business_patch(business, payload.seller)
 
     if payload.bank is not None:
-        bank = await db.scalar(select(BankDetails).where(BankDetails.user_id == uid))
-        if bank is None:
-            bank = BankDetails(user_id=uid)
-            db.add(bank)
-        _apply_bank_patch(bank, payload.bank)
+        business = await db.scalar(
+            select(BusinessProfile).where(BusinessProfile.user_id == uid)
+        )
+        if business is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Fill business profile before setting bank details",
+            )
+        _apply_bank_patch(business, payload.bank)
 
-    # Re-run the "all-three complete → verified" gate so admin edits keep the
-    # user's status in sync with what the buyer/seller pages would compute.
+    # Re-run "all-three-complete → verified" gate after admin edits.
     await db.flush()
-    buyer2 = await db.scalar(select(Buyer).where(Buyer.user_id == uid))
-    seller2 = await db.scalar(select(Seller).where(Seller.user_id == uid))
-    bank2 = await db.scalar(select(BankDetails).where(BankDetails.user_id == uid))
-    if _stage(buyer2, seller2, bank2) == "verified" and user.status != UserStatus.verified:
+    profile2 = await db.scalar(select(Profile).where(Profile.user_id == uid))
+    business2 = await db.scalar(
+        select(BusinessProfile).where(BusinessProfile.user_id == uid)
+    )
+    if (
+        _stage(profile2, business2) == "verified"
+        and user.status != UserStatus.verified
+    ):
         user.status = UserStatus.verified
 
     await db.commit()

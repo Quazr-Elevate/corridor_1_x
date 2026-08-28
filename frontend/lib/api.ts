@@ -223,17 +223,22 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
     ),
 
-  // Legacy standalone submits (kept while /seller/onboarding + /buyer/onboarding pages exist)
-  submitSeller: (payload: unknown) =>
-    jsonFetch<{ id: string; status: string }>("/sellers", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  submitBuyer: (payload: unknown) =>
-    jsonFetch<{ id: string; status: string }>("/buyers", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  // Legacy standalone submits — DEAD after the profile/business refactor
+  // (POST /sellers and POST /buyers routes were removed). Kept only so the
+  // old /seller/onboarding + /buyer/onboarding pages still compile; either
+  // rewrite those pages to /auth/verify + /profile/* or delete them.
+  submitSeller: (_payload: unknown) =>
+    Promise.reject(
+      new Error(
+        "Legacy /sellers endpoint removed. Use /login → /dashboard/profile flow.",
+      ),
+    ) as Promise<{ id: string; status: string }>,
+  submitBuyer: (_payload: unknown) =>
+    Promise.reject(
+      new Error(
+        "Legacy /buyers endpoint removed. Use /login → /dashboard/profile flow.",
+      ),
+    ) as Promise<{ id: string; status: string }>,
 
   // Dashboard — authenticated
   me: () => jsonFetch<Me>("/me"),

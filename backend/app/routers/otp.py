@@ -5,8 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models.buyer import Buyer
 from app.models.identity import Identity
+from app.models.profile import Profile
 from app.providers.otp import send_otp, verify_otp
 from app.schemas.otp import OtpSendRequest, OtpSendResponse, OtpVerifyRequest, OtpVerifyResponse
 
@@ -46,7 +46,7 @@ async def send(
             elif payload.channel == "email":
                 normalized = payload.value.strip().lower()
                 owner = await db.scalar(
-                    select(Buyer.user_id).where(Buyer.email == normalized)
+                    select(Profile.user_id).where(Profile.email == normalized)
                 )
                 if owner is not None and owner != requester:
                     raise HTTPException(

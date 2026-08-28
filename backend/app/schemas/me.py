@@ -2,7 +2,10 @@ from app.schemas.base import CamelModel
 
 
 class Completion(CamelModel):
-    """Which profile sections are filled — drives sidebar ticks + product gate."""
+    """Which profile sections are filled — drives sidebar ticks + product gate.
+
+    The `seller` flag is a legacy name for "regulatory extras present"
+    (udyam / aadhaar / tan). Kept as-is for frontend compatibility."""
 
     primary: bool
     business: bool
@@ -17,6 +20,7 @@ class PrimaryData(CamelModel):
     city: str | None = None
     state: str | None = None
     pincode: str | None = None
+    country: str | None = None
     alt_mobile: str | None = None
     alt_email: str | None = None
     business_email: str | None = None
@@ -29,6 +33,8 @@ class BusinessData(CamelModel):
     gstin: str | None = None
     pan: str | None = None
     company_name: str | None = None
+    business_type: str | None = None
+    nature_of_business: str | None = None
 
 
 class BankData(CamelModel):
@@ -39,7 +45,7 @@ class BankData(CamelModel):
     bank_name: str | None = None
 
 
-class SellerData(CamelModel):
+class RegulatoryData(CamelModel):
     udyam: str | None = None
     aadhaar: str | None = None
     tan: str | None = None
@@ -47,7 +53,9 @@ class SellerData(CamelModel):
 
 class MeResponse(CamelModel):
     user_id: str
-    user_type: str  # 'buyer' | 'seller'
+    # Derived from products count. 'buyer' by default; 'seller' if the user
+    # has at least one product.
+    user_type: str
     status: str
     mobile: str
     full_name: str | None = None
@@ -55,7 +63,9 @@ class MeResponse(CamelModel):
     primary: PrimaryData
     business: BusinessData
     bank: BankData
-    seller: SellerData
+    # Kept as `seller` in the response for frontend-compat with the pulled UI;
+    # semantically these are regulatory IDs on the business profile.
+    seller: RegulatoryData
 
 
 class IfscLookup(CamelModel):

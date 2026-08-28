@@ -2,7 +2,8 @@ from app.schemas.base import CamelModel
 
 
 class PrimaryDetails(CamelModel):
-    """Contact + address + additional details + business email (buyers table)."""
+    """Personal profile — name, email, address, alt contacts, socials.
+    Written to the `profiles` table. Applies to every user (buyer or seller)."""
 
     full_name: str
     email: str | None = None
@@ -10,6 +11,7 @@ class PrimaryDetails(CamelModel):
     city: str | None = None
     state: str | None = None
     pincode: str | None = None
+    country: str | None = None
     # Additional
     alt_mobile: str | None = None
     alt_email: str | None = None
@@ -20,14 +22,20 @@ class PrimaryDetails(CamelModel):
 
 
 class BusinessDetails(CamelModel):
-    """GSTIN, PAN, company name (sellers table)."""
+    """Business identity — GSTIN, PAN, company name. Written to
+    `business_profiles`. Optional for buyers, required for verified sellers."""
 
     gstin: str | None = None
     pan: str
     company_name: str
+    business_type: str | None = None
+    nature_of_business: str | None = None
 
 
 class BankDetailsIn(CamelModel):
+    """Bank/payout account. Written into the `bank_*` columns on the same
+    `business_profiles` row as BusinessDetails (was a separate table pre-0006)."""
+
     account_number: str
     ifsc: str
     holder_name: str
@@ -35,7 +43,10 @@ class BankDetailsIn(CamelModel):
     bank_name: str | None = None
 
 
-class SellerDetails(CamelModel):
+class RegulatoryDetails(CamelModel):
+    """Extra IDs a seller may add — Udyam / Aadhaar / TAN.
+    Written to `business_profiles`."""
+
     udyam: str | None = None
     aadhaar: str | None = None
     tan: str | None = None

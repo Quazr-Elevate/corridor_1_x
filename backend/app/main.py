@@ -8,7 +8,6 @@ from app.config import settings
 from app.routers import (
     admin,
     auth,
-    buyers,
     gstin,
     health,
     ifsc,
@@ -18,7 +17,6 @@ from app.routers import (
     pincode,
     products,
     profile,
-    sellers,
 )
 
 app = FastAPI(title="Cor1x API", version="0.1.0")
@@ -41,8 +39,6 @@ app.include_router(auth.router)
 app.include_router(gstin.router)
 app.include_router(pan.router)
 app.include_router(otp.router)
-app.include_router(sellers.router)
-app.include_router(buyers.router)
 app.include_router(me.router)
 app.include_router(profile.router)
 app.include_router(products.router)
