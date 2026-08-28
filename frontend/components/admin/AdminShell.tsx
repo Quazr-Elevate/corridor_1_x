@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, LogOut, ShieldCheck, Users } from "lucide-react";
+import { CheckSquare, LayoutDashboard, LogOut, ShieldCheck, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { adminApi } from "@/lib/adminApi";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -82,6 +82,13 @@ function AdminShellInner({ children }: Props) {
               icon={LayoutDashboard}
               label="Dashboard"
               active={pathname === "/admin"}
+              confirmIfDirty={confirmIfDirty}
+            />
+            <NavItem
+              href="/admin/verify"
+              icon={CheckSquare}
+              label="Verify queue"
+              active={pathname.startsWith("/admin/verify")}
               confirmIfDirty={confirmIfDirty}
             />
             <NavItem

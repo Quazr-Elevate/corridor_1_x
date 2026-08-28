@@ -130,4 +130,47 @@ export const adminApi = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+
+  // Sprint 4 quick actions
+  verifyQueue: () => req<VerificationQueue>("/admin/verify/queue"),
+  verifyUser: (id: string) =>
+    req<UserDetail>(`/admin/users/${id}/verify`, { method: "POST" }),
+  rejectUser: (id: string) =>
+    req<UserDetail>(`/admin/users/${id}/reject`, { method: "POST" }),
+  bulkVerify: (userIds: string[]) =>
+    req<{ verified: number; skipped: string[] }>("/admin/users/bulk-verify", {
+      method: "POST",
+      body: JSON.stringify({ userIds }),
+    }),
+
+  reveals: (limit = 10) =>
+    req<RecentReveal[]>(`/admin/dashboard/reveals?limit=${limit}`),
 };
+
+export interface QueueRow {
+  userId: string;
+  fullName: string | null;
+  mobile: string | null;
+  companyName: string | null;
+  state: string | null;
+  dwellDays: number;
+  updatedAt: string;
+}
+
+export interface VerificationQueue {
+  signedUp: QueueRow[];
+  primaryPending: QueueRow[];
+  businessPending: QueueRow[];
+  bankPending: QueueRow[];
+}
+
+export interface RecentReveal {
+  revealId: string;
+  buyerId: string;
+  buyerName: string | null;
+  sellerId: string;
+  sellerCompany: string | null;
+  productId: string;
+  productName: string;
+  revealedAt: string;
+}

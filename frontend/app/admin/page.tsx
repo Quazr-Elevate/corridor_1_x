@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { OnboardingTimeline } from "@/components/admin/OnboardingTimeline";
+import { RevealsFeed } from "@/components/admin/RevealsFeed";
 import {
   adminApi,
   type DashboardStats,
@@ -143,6 +144,9 @@ function DashboardBody() {
         </div>
         <OnboardingTimeline data={timeline} />
       </section>
+
+      {/* Recent contact reveals — signals conversion */}
+      <RevealsFeed />
 
       {/* Quick filter chips → user list */}
       <section>

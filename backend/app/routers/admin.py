@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin_auth import (
@@ -806,3 +806,193 @@ async def admin_user_patch(
 
     await db.commit()
     return await _load_user_detail(db, uid)
+
+
+# ── Quick-action verify / reject (Sprint 4) ────────────────────────────────
+
+
+async def _flip_status(user: User, target: UserStatus) -> None:
+    """Set status. `updated_at` is auto-bumped by SQLAlchemy onupdate —
+    that timestamp is what the queue's dwell chip reads from."""
+    user.status = target
+
+
+async def _flip_by_id(db: AsyncSession, uid: uuid.UUID, target: UserStatus) -> User:
+    user = await db.scalar(select(User).where(User.id == uid))
+    if not user or user.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Not found")
+    await _flip_status(user, target)
+    return user
+
+
+@router.post(
+    "/users/{user_id}/verify",
+    response_model=UserDetail,
+    response_model_by_alias=True,
+)
+async def admin_verify_user(
+    user_id: str,
+    _: AdminEmail,
+    db: AsyncSession = Depends(get_db),
+) -> UserDetail:
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+    await _flip_by_id(db, uid, UserStatus.verified)
+    await db.commit()
+    return await _load_user_detail(db, uid)
+
+
+@router.post(
+    "/users/{user_id}/reject",
+    response_model=UserDetail,
+    response_model_by_alias=True,
+)
+async def admin_reject_user(
+    user_id: str,
+    _: AdminEmail,
+    db: AsyncSession = Depends(get_db),
+) -> UserDetail:
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found") from None
+    await _flip_by_id(db, uid, UserStatus.rejected)
+    await db.commit()
+    return await _load_user_detail(db, uid)
+
+
+class BulkVerifyIn(CamelModel):
+    user_ids: list[str]
+
+
+class BulkVerifyOut(CamelModel):
+    verified: int
+    skipped: list[str]
+
+
+@router.post(
+    "/users/bulk-verify",
+    response_model=BulkVerifyOut,
+    response_model_by_alias=True,
+)
+async def admin_bulk_verify(
+    payload: BulkVerifyIn,
+    _: AdminEmail,
+    db: AsyncSession = Depends(get_db),
+) -> BulkVerifyOut:
+    """Flip many users to verified in one call. Silently skips ids that
+    don't parse, don't exist, or are already deleted — returns the list
+    of skipped ids so the UI can flag partial success."""
+    if not payload.user_ids:
+        return BulkVerifyOut(verified=0, skipped=[])
+    parsed: list[uuid.UUID] = []
+    skipped: list[str] = []
+    for raw in payload.user_ids:
+        try:
+            parsed.append(uuid.UUID(raw))
+        except ValueError:
+            skipped.append(raw)
+
+    users = list(
+        await db.scalars(
+            select(User).where(User.id.in_(parsed), User.deleted_at.is_(None))
+        )
+    )
+    found_ids = {u.id for u in users}
+    for raw, pid in zip(payload.user_ids, parsed):
+        if pid not in found_ids:
+            skipped.append(raw)
+    for u in users:
+        await _flip_status(u, UserStatus.verified)
+    await db.commit()
+    return BulkVerifyOut(verified=len(users), skipped=skipped)
+
+
+# ── Verification queue ────────────────────────────────────────────────────
+
+
+class QueueRow(CamelModel):
+    user_id: str
+    full_name: str | None
+    mobile: str | None
+    company_name: str | None
+    state: str | None
+    dwell_days: int
+    updated_at: datetime
+
+
+class VerificationQueue(CamelModel):
+    """Users grouped by where they're stuck. Sorted oldest-first per group
+    (biggest dwell at top) so admin's eye lands on the most-neglected user."""
+
+    signed_up: list[QueueRow]
+    primary_pending: list[QueueRow]
+    business_pending: list[QueueRow]
+    bank_pending: list[QueueRow]
+
+
+@router.get(
+    "/verify/queue",
+    response_model=VerificationQueue,
+    response_model_by_alias=True,
+)
+async def admin_verify_queue(
+    _: AdminEmail,
+    db: AsyncSession = Depends(get_db),
+) -> VerificationQueue:
+    now = datetime.now(timezone.utc)
+    # Skip already-verified and rejected users — the queue is only for
+    # people the admin still needs to act on.
+    users = list(
+        await db.scalars(
+            select(User).where(
+                User.deleted_at.is_(None),
+                User.status.in_((UserStatus.signed_up, UserStatus.profile_complete)),
+            )
+        )
+    )
+    profiles_map = {p.user_id: p for p in await db.scalars(select(Profile))}
+    business_map = {
+        b.user_id: b for b in await db.scalars(select(BusinessProfile))
+    }
+    identities_by_user: dict[uuid.UUID, list[str]] = defaultdict(list)
+    for ident in await db.scalars(select(Identity)):
+        identities_by_user[ident.user_id].append(ident.value)
+
+    groups: dict[str, list[QueueRow]] = {
+        "signed_up": [],
+        "primary_pending": [],
+        "business_pending": [],
+        "bank_pending": [],
+    }
+    for u in users:
+        stage = _stage(profiles_map.get(u.id), business_map.get(u.id))
+        if stage not in groups:
+            continue
+        p = profiles_map.get(u.id)
+        bp = business_map.get(u.id)
+        idents = identities_by_user.get(u.id, [])
+        mobile = next((v for v in idents if v.isdigit()), None)
+        # Guard against clock skew or unset updated_at. SQLite drops the
+        # tz info round-trip, so normalize to naive for the subtraction.
+        updated = u.updated_at or u.created_at
+        updated_naive = updated.replace(tzinfo=None) if updated.tzinfo else updated
+        now_naive = now.replace(tzinfo=None)
+        dwell = max(0, (now_naive - updated_naive).days)
+        groups[stage].append(
+            QueueRow(
+                user_id=str(u.id),
+                full_name=p.full_name if p else None,
+                mobile=mobile,
+                company_name=bp.company_name if bp else None,
+                state=p.state if p else None,
+                dwell_days=dwell,
+                updated_at=updated,
+            )
+        )
+    # Sort each group by biggest dwell first — that's where admin should look.
+    for k in groups:
+        groups[k].sort(key=lambda r: r.dwell_days, reverse=True)
+    return VerificationQueue(**groups)
