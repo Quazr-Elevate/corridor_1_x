@@ -18,6 +18,7 @@ from app.routers import (
     products,
     profile,
     public,
+    reveals,
 )
 
 app = FastAPI(title="Cor1x API", version="0.1.0")
@@ -45,6 +46,7 @@ app.include_router(otp.router)
 app.include_router(me.router)
 app.include_router(profile.router)
 app.include_router(products.router)
+app.include_router(reveals.router)
 app.include_router(ifsc.router)
 app.include_router(pincode.router)
 app.include_router(public.router)

@@ -104,6 +104,23 @@ export interface OtpVerifyResponse {
   userId?: string;
 }
 
+export interface RevealedContact {
+  sellerId: string;
+  fullName: string | null;
+  companyName: string | null;
+  businessType: string | null;
+  mobile: string | null;
+  email: string | null;
+  businessEmail: string | null;
+  addressLine: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  country: string | null;
+  websiteUrl: string | null;
+  revealedAt: string;
+}
+
 export interface IfscLookup {
   ifsc: string;
   bank: string;
@@ -260,6 +277,13 @@ export const api = {
 
   deleteMe: () =>
     jsonFetch<void>("/me", { method: "DELETE" }),
+
+  // Verified-only. Idempotent — second call for the same product returns
+  // the same card with the original revealed_at.
+  revealContact: (productId: string) =>
+    jsonFetch<RevealedContact>(`/products/${productId}/contact-reveal`, {
+      method: "POST",
+    }),
 
   // Dashboard — authenticated
   me: () => jsonFetch<Me>("/me"),

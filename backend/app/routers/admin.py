@@ -25,12 +25,14 @@ from app.admin_auth import (
 from app.config import settings
 from app.db import get_db
 from app.models.business_profile import BusinessProfile, OnboardingPath
+from app.models.contact_reveal import ContactReveal
 from app.models.identity import Identity
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
 from app.pii import mask_aadhaar, mask_bank_account
 from app.schemas.base import CamelModel
+from app.schemas.reveal import AdminRecentReveal
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -303,6 +305,69 @@ class RecentSignup(CamelModel):
     status: str
     created_at: datetime
     mobile: str | None
+
+
+@router.get(
+    "/dashboard/reveals",
+    response_model=list[AdminRecentReveal],
+    response_model_by_alias=True,
+)
+async def dashboard_reveals(
+    _: AdminEmail,
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminRecentReveal]:
+    """Recent contact reveals — signal that the funnel is working."""
+    rows = list(
+        await db.scalars(
+            select(ContactReveal)
+            .order_by(ContactReveal.revealed_at.desc())
+            .limit(limit)
+        )
+    )
+    if not rows:
+        return []
+
+    buyer_ids = {r.buyer_id for r in rows}
+    seller_ids = {r.seller_id for r in rows}
+    product_ids = {r.product_id for r in rows}
+
+    profiles = {
+        p.user_id: p
+        for p in await db.scalars(
+            select(Profile).where(Profile.user_id.in_(buyer_ids))
+        )
+    }
+    businesses = {
+        b.user_id: b
+        for b in await db.scalars(
+            select(BusinessProfile).where(BusinessProfile.user_id.in_(seller_ids))
+        )
+    }
+    products = {
+        p.id: p
+        for p in await db.scalars(
+            select(Product).where(Product.id.in_(product_ids))
+        )
+    }
+
+    return [
+        AdminRecentReveal(
+            reveal_id=str(r.id),
+            buyer_id=str(r.buyer_id),
+            buyer_name=(profiles.get(r.buyer_id).full_name if profiles.get(r.buyer_id) else None),
+            seller_id=str(r.seller_id),
+            seller_company=(
+                businesses.get(r.seller_id).company_name
+                if businesses.get(r.seller_id)
+                else None
+            ),
+            product_id=str(r.product_id),
+            product_name=(products.get(r.product_id).name if products.get(r.product_id) else "(deleted)"),
+            revealed_at=r.revealed_at,
+        )
+        for r in rows
+    ]
 
 
 @router.get(

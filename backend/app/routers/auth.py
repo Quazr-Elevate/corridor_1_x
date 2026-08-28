@@ -148,4 +148,6 @@ async def whoami(
     from app.user_session import decode_session
 
     uid = decode_session(cor1x_session) if cor1x_session else None
-    return {"user_id": uid}
+    # camelCase key so it matches the CamelModel-serialized envelope used
+    # by every other endpoint the frontend consumes.
+    return {"userId": uid}

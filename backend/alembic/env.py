@@ -19,6 +19,7 @@ from app.models.base import Base
 # Register all models so Base.metadata is populated for autogenerate.
 from app.models import (  # noqa: F401
     business_profile,
+    contact_reveal,
     identity,
     otp,
     product,

@@ -14,6 +14,7 @@ from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business_profile import BusinessProfile
+from app.models.identity import Identity
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
@@ -80,6 +81,20 @@ def public_products_stmt(
             or_(Product.name.ilike(pattern), Product.description.ilike(pattern))
         )
     return stmt
+
+
+async def primary_mobile(db: AsyncSession, user_id: UUID) -> str | None:
+    """A user's phone identity (digit-only), preferred over email. Used
+    wherever a "call this seller" or "who is this account" display needs
+    to surface the mobile. Never derived from any profile column — mobile
+    only lives on identities."""
+    rows = list(
+        await db.scalars(select(Identity.value).where(Identity.user_id == user_id))
+    )
+    for v in rows:
+        if v and v.isdigit():
+            return v
+    return rows[0] if rows else None
 
 
 async def hydrate_sellers(

@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { api } from "@/lib/api";
+import { api, type RevealedContact } from "@/lib/api";
+import { RevealCard } from "./RevealCard";
 
 type Status = "anonymous" | "unverified" | "verified" | "checking";
 
@@ -27,6 +28,24 @@ export function ContactGate({
   productName: string;
 }) {
   const [status, setStatus] = useState<Status>("checking");
+  const [contact, setContact] = useState<RevealedContact | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+
+  const doReveal = async () => {
+    setRevealing(true);
+    setRevealError(null);
+    try {
+      const c = await api.revealContact(productId);
+      setContact(c);
+    } catch (err) {
+      setRevealError(
+        err instanceof Error ? err.message : "Could not reveal contact",
+      );
+    } finally {
+      setRevealing(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -96,14 +115,26 @@ export function ContactGate({
   }
 
   // status === "verified"
+  if (contact) {
+    return <RevealCard contact={contact} />;
+  }
   return (
     <GatePanel
-      title="You're verified"
-      body="The seller's phone, email, and full address will be revealed here once we ship the reveal flow in the next sprint."
+      title="Ready to unlock"
+      body={`Reveal ${productName}'s seller contact — phone, email, and full address. This is a one-time consent grant per product; you can come back later without re-verifying.`}
     >
-      <Button variant="primary" disabled>
-        Reveal contact (coming soon)
+      <Button
+        variant="primary"
+        onClick={doReveal}
+        loading={revealing}
+      >
+        Reveal contact <ArrowRight className="h-4 w-4" aria-hidden />
       </Button>
+      {revealError && (
+        <p className="mt-2 w-full text-xs font-medium text-danger">
+          {revealError}
+        </p>
+      )}
     </GatePanel>
   );
 }
