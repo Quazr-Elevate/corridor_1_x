@@ -17,6 +17,7 @@ from app.routers import (
     pincode,
     products,
     profile,
+    public,
 )
 
 app = FastAPI(title="Cor1x API", version="0.1.0")
@@ -46,6 +47,7 @@ app.include_router(profile.router)
 app.include_router(products.router)
 app.include_router(ifsc.router)
 app.include_router(pincode.router)
+app.include_router(public.router)
 app.include_router(admin.router)
 
 # Serve locally-stored uploads. Production swaps this for S3/R2/CloudFront.
