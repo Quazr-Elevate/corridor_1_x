@@ -107,9 +107,14 @@ export default function PrivacyPage() {
 
       <Section title="5. Where your data lives">
         <p>
-          Our backend runs in Mumbai (Railway&apos;s <code>ap-south</code>{" "}
-          region). Data at rest is encrypted by the underlying storage
-          provider. Data in transit uses TLS 1.2 or higher.
+          Our backend runs in Singapore (Railway&apos;s <code>sin</code>{" "}
+          region, on AWS <code>ap-southeast-1</code>). Data at rest is
+          encrypted by the underlying storage provider (AWS EBS with
+          KMS-managed keys). Data in transit uses TLS 1.2 or higher. India
+          hosting is on our Phase 2 roadmap; DPDP Act §16 permits transfer
+          to any country not on the Central Government&apos;s restricted
+          list, and Singapore is not restricted as of this policy&apos;s
+          effective date.
         </p>
       </Section>
 
