@@ -88,12 +88,27 @@ export function AuthShell({ mode, onAuthed }: Props) {
   const boxRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const [authedUser, setAuthedUser] = useState<{ userId: string; isNew: boolean } | null>(null);
+  const [legalOpen, setLegalOpen] = useState(false);
 
   const phoneValid = phoneRegex.test(phone.trim());
   const nameNeeded = mode === "signup";
   const nameValid = !nameNeeded || personNameField.safeParse(fullName).success;
-  const consentOk = !nameNeeded || consent;
+  // Both login and signup gate the CTA on the consent checkbox now.
+  const consentOk = consent;
   const canSend = phoneValid && nameValid && consentOk;
+
+  // Ticking an unchecked box opens the legal sheet instead of checking it —
+  // the check happens via "I agree" at the bottom of the sheet. An already
+  // checked box unchecks directly.
+  const onConsentClick = () => {
+    if (consent) setConsent(false);
+    else setLegalOpen(true);
+  };
+  const agree = () => {
+    setConsent(true);
+    setLegalOpen(false);
+    if (error) setError(null);
+  };
 
   useEffect(() => {
     if (step !== "otp" || resendIn <= 0) return;
@@ -111,7 +126,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
     setCrossLink(null);
     if (!phoneValid) return setError("Enter a valid 10-digit Indian mobile number");
     if (nameNeeded && !nameValid) return setError("Enter your full name (letters only)");
-    if (nameNeeded && !consentOk)
+    if (!consentOk)
       return setError("Please accept the Terms and Privacy Policy to continue");
     setSending(true);
     try {
@@ -374,39 +389,26 @@ export function AuthShell({ mode, onAuthed }: Props) {
               </div>
 
               <div className="mt-7">
-                {nameNeeded ? (
-                  <label className="flex items-start gap-2.5 text-[13px] leading-[1.6] text-[#5C6058]">
-                    <input
-                      type="checkbox"
-                      checked={consent}
-                      onChange={(e) => setConsent(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded border-[#D9DDD7] accent-[#7E8C13]"
-                    />
-                    <span>
-                      I accept Cor1x&apos;s{" "}
-                      <a href="/terms" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                        Terms
-                      </a>{" "}
-                      and{" "}
-                      <a href="/privacy" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                        Privacy Policy
-                      </a>
-                      .
-                    </span>
-                  </label>
-                ) : (
-                  <p className="max-w-[300px] text-[13px] leading-[1.6] text-[#5C6058]">
-                    By continuing you agree to Cor1x&apos;s{" "}
-                    <a href="/terms" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                      Terms
-                    </a>{" "}
-                    and{" "}
-                    <a href="/privacy" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                      Privacy Policy
-                    </a>
+                <div className="flex items-start gap-3 text-[13.5px] leading-[1.6] text-[#5C6058]">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={onConsentClick}
+                    aria-label="Accept Terms and Privacy Policy"
+                    className="mt-0.5 h-6 w-6 shrink-0 cursor-pointer rounded-[6px] border-[#D9DDD7] accent-[#7E8C13]"
+                  />
+                  <span>
+                    I accept Cor1x&apos;s{" "}
+                    <button
+                      type="button"
+                      onClick={() => setLegalOpen(true)}
+                      className={accentText + " font-semibold underline-offset-4 hover:underline"}
+                    >
+                      Terms &amp; Privacy Policy
+                    </button>
                     .
-                  </p>
-                )}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -556,7 +558,121 @@ export function AuthShell({ mode, onAuthed }: Props) {
           Encrypted · Verified · Never shared
         </p>
       </div>
+
+      {legalOpen && (
+        <LegalSheet onAgree={agree} onClose={() => setLegalOpen(false)} />
+      )}
     </main>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Terms & Privacy — one concise sheet, in-screen. "I agree" checks the
+// consent box and closes; the backdrop or × just closes.
+// ═════════════════════════════════════════════════════════════════════════
+
+function LegalSheet({
+  onAgree,
+  onClose,
+}: {
+  onAgree: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/30 backdrop-blur-[2px]"
+        style={{ animation: "dotsIn 0.25s ease both" }}
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Terms and Privacy Policy"
+        className="relative flex max-h-[82dvh] w-full max-w-[480px] flex-col rounded-t-[20px] bg-[#FAFAF8] shadow-[0_-12px_40px_rgba(0,0,0,0.18)]"
+        style={{
+          animation: "cardUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        <div className="mx-auto mt-2.5 h-1 w-10 shrink-0 rounded-full bg-[#D9DDD7]" />
+
+        <div className="flex items-center justify-between px-6 pt-4">
+          <h2 className="text-[19px] font-bold text-[#171917]">
+            Terms &amp; Privacy
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[#747970] transition-colors hover:bg-[#EFEFE9] hover:text-[#171917]"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-3">
+          <p className="text-[13.5px] leading-[1.65] text-[#5C6058]">
+            The short version of how Cor1x works and what happens to your data:
+          </p>
+          <ul className="mt-4 space-y-3.5 text-[13.5px] leading-[1.65] text-[#5C6058]">
+            <LegalPoint>
+              Your mobile number is your account. We verify it with a one-time
+              code — there is no password.
+            </LegalPoint>
+            <LegalPoint>
+              We collect only what onboarding needs: your name, contacts, and —
+              if you add them — business identifiers (GSTIN/PAN) and bank
+              details for payouts.
+            </LegalPoint>
+            <LegalPoint>
+              Your contact details stay private. They are revealed only to
+              verified members who request them, and every reveal is logged.
+            </LegalPoint>
+            <LegalPoint>
+              Data is encrypted in transit, never sold, and handled under
+              India&apos;s DPDP Act 2023.
+            </LegalPoint>
+            <LegalPoint>
+              You can access, correct, or delete your data anytime from your
+              profile. Questions: privacy@cor1x.com
+            </LegalPoint>
+          </ul>
+          <p className="mt-4 text-[12px] text-[#9B9F94]">
+            Full documents:{" "}
+            <a href="/terms" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
+              Terms
+            </a>{" "}
+            ·{" "}
+            <a href="/privacy" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
+              Privacy Policy
+            </a>
+          </p>
+        </div>
+
+        <div className="shrink-0 border-t border-[#ECEDE6] px-6 py-4">
+          <button
+            type="button"
+            onClick={onAgree}
+            className={ctaEnabled + " w-full"}
+            style={ctaEnabledStyle}
+          >
+            I agree
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LegalPoint({ children }: { children: React.ReactNode }) {
+  return (
+    <li className="flex gap-2.5">
+      <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+      <span>{children}</span>
+    </li>
   );
 }
 
