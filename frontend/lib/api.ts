@@ -51,13 +51,17 @@ export interface Completion {
 export interface PrimaryData {
   fullName?: string | null;
   email?: string | null;
+  emailVerifiedAt?: string | null;
   addressLine?: string | null;
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
   altMobile?: string | null;
+  altMobileVerifiedAt?: string | null;
   altEmail?: string | null;
+  altEmailVerifiedAt?: string | null;
   businessEmail?: string | null;
+  businessEmailVerifiedAt?: string | null;
   websiteUrl?: string | null;
   googleBusinessUrl?: string | null;
   facebookUrl?: string | null;
@@ -65,13 +69,16 @@ export interface PrimaryData {
 
 export interface BusinessData {
   gstin?: string | null;
+  gstinVerifiedAt?: string | null;
   pan?: string | null;
+  panVerifiedAt?: string | null;
   companyName?: string | null;
 }
 
 export interface BankData {
   accountNumber?: string | null;
   ifsc?: string | null;
+  ifscVerifiedAt?: string | null;
   holderName?: string | null;
   branchName?: string | null;
   bankName?: string | null;
@@ -259,7 +266,6 @@ export const api = {
   // swaps to a durable cor1x_session cookie.
   signup: (payload: {
     fullName: string;
-    email: string;
     consent: boolean;
     consentVersion?: string;
   }) =>
@@ -267,6 +273,42 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  // Atomic OTP-verify + write for a profile contact field. Server checks
+  // the code and stamps *_verified_at in one commit — /profile/primary no
+  // longer accepts these fields directly, so this is the only writer.
+  verifyContact: (payload: {
+    target: "email" | "altMobile" | "altEmail" | "businessEmail";
+    value: string;
+    code: string;
+  }) =>
+    jsonFetch<{ ok: boolean; verifiedAt: string }>("/verify/contact", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // Atomic Masters India lookup + write for GSTIN. Returns the lookup so
+  // the form can auto-fill company_name / business_type / nature.
+  verifyGstin: (value: string) =>
+    jsonFetch<{ ok: boolean; verifiedAt: string; lookup: GstinLookup }>(
+      "/verify/gstin",
+      { method: "POST", body: JSON.stringify({ value }) },
+    ),
+
+  verifyPan: (value: string) =>
+    jsonFetch<{ ok: boolean; verifiedAt: string; pan: string; name: string }>(
+      "/verify/pan",
+      { method: "POST", body: JSON.stringify({ value }) },
+    ),
+
+  verifyIfsc: (value: string) =>
+    jsonFetch<{
+      ok: boolean;
+      verifiedAt: string;
+      ifsc: string;
+      bank: string;
+      branch: string;
+    }>("/verify/ifsc", { method: "POST", body: JSON.stringify({ value }) }),
 
   // Cheap probe used by middleware and page loaders — returns
   // { userId: "..." } if a valid session cookie is present, else null.

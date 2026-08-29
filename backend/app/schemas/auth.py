@@ -6,10 +6,13 @@ class SignupRequest(CamelModel):
 
     The mobile isn't in the payload; it comes from the cor1x_verified_phone
     cookie that /otp/verify set. Consent must be true (DPDP / UAE PDPL).
+
+    Email is intentionally NOT collected here — an unverified email is worse
+    than no email. Users add + OTP-verify it from the profile page via
+    /verify/email once inside.
     """
 
     full_name: str
-    email: str
     consent: bool
     # Frontend can pin the specific policy version the user agreed to so we
     # have a durable audit trail if we change the docs.

@@ -2,20 +2,20 @@ from app.schemas.base import CamelModel
 
 
 class PrimaryDetails(CamelModel):
-    """Personal profile — name, email, address, alt contacts, socials.
-    Written to the `profiles` table. Applies to every user (buyer or seller)."""
+    """Personal profile — name, address, socials. Applies to every user.
+
+    Contact fields (email, alt_mobile, alt_email, business_email) are
+    intentionally NOT here — those go through /verify/contact so the
+    value + verified_at land in the DB atomically. Sending them here would
+    just be silently ignored by the endpoint.
+    """
 
     full_name: str
-    email: str | None = None
     address_line: str | None = None
     city: str | None = None
     state: str | None = None
     pincode: str | None = None
     country: str | None = None
-    # Additional
-    alt_mobile: str | None = None
-    alt_email: str | None = None
-    business_email: str | None = None
     website_url: str | None = None
     google_business_url: str | None = None
     facebook_url: str | None = None

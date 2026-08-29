@@ -136,22 +136,24 @@ export function PrimaryDetailsForm() {
     return () => window.clearTimeout(t);
   }, [savedAt]);
 
-  // Pre-fill from server on load — treat anything the server already has as previously verified
+  // Pre-fill from server on load. Verified state now comes from the server
+  // (email_verified_at etc.) — not from "has a value". Under the new
+  // /verify/contact flow the server only ever stores verified values.
   useEffect(() => {
     if (!me?.primary) return;
     setFullName(me.primary.fullName ?? "");
     setEmail(me.primary.email ?? "");
-    setEmailVerified(!!me.primary.email);
+    setEmailVerified(!!me.primary.emailVerifiedAt);
     setAddressLine(me.primary.addressLine ?? "");
     setCity(me.primary.city ?? "");
     setState(me.primary.state ?? "");
     setPincode(me.primary.pincode ?? "");
     setAltMobile(me.primary.altMobile ?? "");
-    setAltVerified(!!me.primary.altMobile);
+    setAltVerified(!!me.primary.altMobileVerifiedAt);
     setAltEmail(me.primary.altEmail ?? "");
-    setAltEmailVerified(!!me.primary.altEmail);
+    setAltEmailVerified(!!me.primary.altEmailVerifiedAt);
     setBusinessEmail(me.primary.businessEmail ?? "");
-    setBizEmailVerified(!!me.primary.businessEmail);
+    setBizEmailVerified(!!me.primary.businessEmailVerifiedAt);
     setWebsiteUrl(me.primary.websiteUrl ?? "");
     setGoogleBusinessUrl(me.primary.googleBusinessUrl ?? "");
     setFacebookUrl(me.primary.facebookUrl ?? "");
@@ -284,7 +286,7 @@ export function PrimaryDetailsForm() {
   };
 
   const handleVerify = async (code: string) => {
-    if (!otp.otpId || !otp.target) return { ok: false, error: "Session expired" };
+    if (!otp.target) return { ok: false, error: "Session expired" };
     const target = otp.target;
     const isEmail = target === "email" || target === "altEmail" || target === "businessEmail";
     const value =
@@ -296,20 +298,16 @@ export function PrimaryDetailsForm() {
         ? businessEmail.trim().toLowerCase()
         : altMobile.trim();
     try {
-      const res = await api.verifyOtp({
-        otpId: otp.otpId,
-        code,
-        channel: isEmail ? "email" : "phone",
-        ...(isEmail ? { email: value } : { mobile: value }),
-      });
-      if (res.ok) {
-        if (target === "email") setEmailVerified(true);
-        if (target === "altMobile") setAltVerified(true);
-        if (target === "altEmail") setAltEmailVerified(true);
-        if (target === "businessEmail") setBizEmailVerified(true);
-        setOtp({ open: false });
-      }
-      return res;
+      // Atomic — server checks OTP AND writes value + verified_at in one commit.
+      await api.verifyContact({ target, value, code });
+      if (target === "email") setEmailVerified(true);
+      if (target === "altMobile") setAltVerified(true);
+      if (target === "altEmail") setAltEmailVerified(true);
+      if (target === "businessEmail") setBizEmailVerified(true);
+      setOtp({ open: false });
+      // Refetch so any other verified flag/state stays in sync.
+      void refetch();
+      return { ok: true };
     } catch (err) {
       return {
         ok: false,
@@ -351,41 +349,19 @@ export function PrimaryDetailsForm() {
       setNameError("Name should not contain numbers");
       return;
     }
-    // Email is optional for save. Only block save if the user typed an email
-    // but hasn't verified it — otherwise unverified addresses would sneak in.
-    if (email.trim() && !emailValid) {
-      setEmailErr("Enter a valid email address, or clear the field before saving");
-      return;
-    }
-    if (email.trim() && !emailVerified) {
-      setEmailErr("Verify this email with OTP, or clear the field before saving");
-      return;
-    }
-    if (altMobile.trim() && !altVerified) {
-      setAltErr("Verify this number with OTP, or clear the field before saving");
-      return;
-    }
-    if (altEmail.trim() && !altEmailVerified) {
-      setAltEmailErr("Verify this email with OTP, or clear the field before saving");
-      return;
-    }
-    if (businessEmail.trim() && !bizEmailVerified) {
-      setBizEmailErr("Verify this email with OTP, or clear the field before saving");
-      return;
-    }
 
+    // Contact fields (email / alt_mobile / alt_email / business_email) are
+    // NOT sent from here — they were already persisted atomically the moment
+    // their OTP was verified via /verify/contact. This Save button only
+    // covers the free-text fields: name, address, URLs.
     setSaving(true);
     try {
       await api.saveProfilePrimary({
         fullName: name,
-        email: email.trim() ? email.trim().toLowerCase() : null,
         addressLine: addressLine.trim() || null,
         city: city.trim() || null,
         state: state.trim() || null,
         pincode: pincode.trim() || null,
-        altMobile: altMobile.trim() || null,
-        altEmail: altEmail.trim().toLowerCase() || null,
-        businessEmail: businessEmail.trim().toLowerCase() || null,
         websiteUrl: websiteUrl.trim() || null,
         googleBusinessUrl: googleBusinessUrl.trim() || null,
         facebookUrl: facebookUrl.trim() || null,

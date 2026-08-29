@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.schemas.base import CamelModel
 
 
@@ -16,14 +18,18 @@ class Completion(CamelModel):
 class PrimaryData(CamelModel):
     full_name: str | None = None
     email: str | None = None
+    email_verified_at: datetime | None = None
     address_line: str | None = None
     city: str | None = None
     state: str | None = None
     pincode: str | None = None
     country: str | None = None
     alt_mobile: str | None = None
+    alt_mobile_verified_at: datetime | None = None
     alt_email: str | None = None
+    alt_email_verified_at: datetime | None = None
     business_email: str | None = None
+    business_email_verified_at: datetime | None = None
     website_url: str | None = None
     google_business_url: str | None = None
     facebook_url: str | None = None
@@ -31,7 +37,9 @@ class PrimaryData(CamelModel):
 
 class BusinessData(CamelModel):
     gstin: str | None = None
+    gstin_verified_at: datetime | None = None
     pan: str | None = None
+    pan_verified_at: datetime | None = None
     company_name: str | None = None
     business_type: str | None = None
     nature_of_business: str | None = None
@@ -40,6 +48,7 @@ class BusinessData(CamelModel):
 class BankData(CamelModel):
     account_number: str | None = None
     ifsc: str | None = None
+    ifsc_verified_at: datetime | None = None
     holder_name: str | None = None
     branch_name: str | None = None
     bank_name: str | None = None

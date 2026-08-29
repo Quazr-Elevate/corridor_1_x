@@ -84,19 +84,19 @@ async def save_primary(
         profile = Profile(user_id=user.id, full_name=payload.full_name)
         db.add(profile)
     profile.full_name = payload.full_name
-    profile.email = payload.email
     profile.address_line = payload.address_line
     profile.city = payload.city
     profile.state = payload.state
     profile.pincode = payload.pincode
     if payload.country:
         profile.country = payload.country
-    profile.alt_mobile = payload.alt_mobile
-    profile.alt_email = payload.alt_email
-    profile.business_email = payload.business_email
     profile.website_url = payload.website_url
     profile.google_business_url = payload.google_business_url
     profile.facebook_url = payload.facebook_url
+    # NOTE: email / alt_mobile / alt_email / business_email are intentionally
+    # NOT written here. Those fields are set atomically by /verify/contact
+    # after OTP verification. Ignoring them on this endpoint is the mechanism
+    # that stops unverified addresses from reaching the DB.
 
     await _maybe_verify_user(user, db)
     await db.commit()
@@ -122,25 +122,36 @@ async def save_business(
     business = await db.scalar(
         select(BusinessProfile).where(BusinessProfile.user_id == user.id)
     )
+    # GSTIN + PAN must go through /verify/{gstin,pan} first. That's the
+    # endpoint that actually calls Masters India and stamps *_verified_at.
+    # This save endpoint only accepts values whose verified stamps already
+    # exist and match — same value, or unchanged. Otherwise the client is
+    # trying to bypass verification and we reject.
     if business is None:
-        business = BusinessProfile(
-            user_id=user.id,
-            onboarding_path=OnboardingPath.gstin if gstin else OnboardingPath.pan,
-            gstin=gstin,
-            pan=pan,
-            company_name=payload.company_name,
-            business_type=payload.business_type,
-            nature_of_business=payload.nature_of_business,
+        raise HTTPException(
+            status_code=409,
+            detail="Verify GSTIN or PAN first — use the Verify button on the field",
         )
-        db.add(business)
-    else:
-        business.gstin = gstin
-        business.pan = pan
-        business.company_name = payload.company_name
-        if payload.business_type is not None:
-            business.business_type = payload.business_type
-        if payload.nature_of_business is not None:
-            business.nature_of_business = payload.nature_of_business
+    if pan != (business.pan or "") and (
+        business.pan_verified_at is None or (business.pan or "") != pan
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="PAN was not verified. Click Verify on the PAN field first.",
+        )
+    if gstin and gstin != (business.gstin or "") and (
+        business.gstin_verified_at is None or (business.gstin or "") != gstin
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="GSTIN was not verified. Click Verify on the GSTIN field first.",
+        )
+    # Only free-text metadata is writable via this endpoint.
+    business.company_name = payload.company_name
+    if payload.business_type is not None:
+        business.business_type = payload.business_type
+    if payload.nature_of_business is not None:
+        business.nature_of_business = payload.nature_of_business
 
     await _maybe_verify_user(user, db)
     await db.commit()
@@ -165,11 +176,21 @@ async def save_bank(
             status_code=409,
             detail="Fill Business details first before adding Bank details",
         )
+    # IFSC must be verified via /verify/ifsc first — that call sets bank_ifsc
+    # + ifsc_verified_at atomically. Here we only accept the same IFSC that's
+    # already verified, so the client can't sneak in an unverified code.
+    submitted_ifsc = payload.ifsc.strip().upper()
+    if submitted_ifsc != (business.bank_ifsc or "") or business.ifsc_verified_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="IFSC was not verified. Click Verify on the IFSC field first.",
+        )
     business.bank_account_number = payload.account_number
-    business.bank_ifsc = payload.ifsc.upper()
     business.bank_holder_name = payload.holder_name
-    business.bank_branch_name = payload.branch_name
-    business.bank_name = payload.bank_name
+    if payload.branch_name is not None:
+        business.bank_branch_name = payload.branch_name
+    if payload.bank_name is not None:
+        business.bank_name = payload.bank_name
 
     await _maybe_verify_user(user, db)
     await db.commit()

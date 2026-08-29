@@ -32,8 +32,14 @@ export function BankDetailsForm() {
     setBankName(me.bank.bankName ?? "");
   }, [me?.bank]);
 
+  const [ifscVerified, setIfscVerified] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [ifscError, setIfscError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!me?.bank) return;
+    setIfscVerified(!!me.bank.ifscVerifiedAt);
+  }, [me?.bank]);
   const [holderError, setHolderError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -69,9 +75,13 @@ export function BankDetailsForm() {
     }
     setLookingUp(true);
     try {
-      const res = await api.lookupIfsc(ifsc.trim().toUpperCase());
+      // Atomic — server does the Razorpay lookup, saves bank_ifsc +
+      // ifsc_verified_at + fills bank_name / bank_branch_name in one commit.
+      const res = await api.verifyIfsc(ifsc.trim().toUpperCase());
       setBankName(res.bank);
       setBranchName(res.branch);
+      setIfscVerified(true);
+      await refetch();
     } catch (err) {
       setIfscError(err instanceof Error ? err.message : "IFSC lookup failed");
     } finally {
@@ -85,6 +95,10 @@ export function BankDetailsForm() {
     setHolderError(null);
     if (!accountNumber.trim() || !ifscValid || !holderName.trim()) {
       setError("Account number, IFSC and holder name are required");
+      return;
+    }
+    if (!ifscVerified) {
+      setIfscError("Click Fetch to verify IFSC before saving");
       return;
     }
     if (!personNameRegex.test(holderName.trim())) {
@@ -125,12 +139,7 @@ export function BankDetailsForm() {
 
       <div>
         <label htmlFor="f-ifsc" className="field-label">
-          <span>IFSC</span>
-          {branchName && bankName ? (
-            <span className="text-[10px] uppercase tracking-widest text-accent">
-              ✓ Fetched
-            </span>
-          ) : null}
+          <span>IFSC{ifscVerified ? " · verified" : ""}</span>
         </label>
         <div className="field-row" data-invalid={ifscError ? true : undefined}>
           <input
@@ -142,21 +151,33 @@ export function BankDetailsForm() {
             spellCheck={false}
             maxLength={11}
             value={ifsc}
+            readOnly={ifscVerified}
             onChange={(e) => {
               setIfsc(e.target.value.toUpperCase());
+              if (ifscVerified) setIfscVerified(false);
               if (ifscError) setIfscError(null);
             }}
           />
           <div className="flex items-center pr-1">
-            <Button
-              variant="inline"
-              onClick={lookupIfsc}
-              loading={lookingUp}
-              disabled={!ifscValid}
-              type="button"
-            >
-              Fetch
-            </Button>
+            {ifscVerified ? (
+              <Button
+                variant="inline"
+                type="button"
+                onClick={() => setIfscVerified(false)}
+              >
+                Change
+              </Button>
+            ) : (
+              <Button
+                variant="inline"
+                onClick={lookupIfsc}
+                loading={lookingUp}
+                disabled={!ifscValid}
+                type="button"
+              >
+                Verify
+              </Button>
+            )}
           </div>
         </div>
         {ifscError ? (

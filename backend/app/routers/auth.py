@@ -35,7 +35,7 @@ from app.user_session import (
     decode_verified_phone,
     set_session_cookie,
 )
-from app.validators import EMAIL_REGEX, PERSON_NAME_REGEX
+from app.validators import PERSON_NAME_REGEX
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -79,9 +79,6 @@ async def signup(
             status_code=400,
             detail="Full name must be letters, spaces, hyphens, apostrophes, or periods only",
         )
-    email = payload.email.strip().lower()
-    if not EMAIL_REGEX.match(email):
-        raise HTTPException(status_code=400, detail="Enter a valid email")
 
     # Defensive re-check — race with a concurrent signup on the same phone.
     existing = await db.scalar(select(Identity).where(Identity.value == mobile))
@@ -91,17 +88,6 @@ async def signup(
         set_session_cookie(response, str(existing.user_id))
         clear_verified_phone_cookie(response)
         return SignupResponse(user_id=str(existing.user_id), is_new=False)
-
-    # Similarly reject a duplicate email up-front to give a nicer message
-    # than the DB UNIQUE constraint (identities.value is unique per row).
-    email_taken = await db.scalar(
-        select(Profile.user_id).where(Profile.email == email)
-    )
-    if email_taken is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="This email is already registered to another account",
-        )
 
     user = User(status=UserStatus.signed_up)
     db.add(user)
@@ -114,10 +100,11 @@ async def signup(
     )
     db.add(identity)
 
+    # Email is intentionally omitted — user adds it from the profile page
+    # via /verify/email, which sets email + email_verified_at atomically.
     profile = Profile(
         user_id=user.id,
         full_name=full_name,
-        email=email,
         consent_at=datetime.now(tz=timezone.utc),
         consent_version=payload.consent_version or CURRENT_CONSENT_VERSION,
     )

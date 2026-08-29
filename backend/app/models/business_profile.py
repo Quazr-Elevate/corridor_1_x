@@ -61,6 +61,20 @@ class BusinessProfile(Base):
     bank_branch_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # ─── Verification stamps ──────────────────────────────────
+    # Written only by /verify/{gstin,pan,ifsc}. A NULL stamp means the value
+    # is user-declared but not confirmed against any authority. Save endpoints
+    # reject writes that would change the value without a fresh verification.
+    gstin_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pan_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ifsc_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

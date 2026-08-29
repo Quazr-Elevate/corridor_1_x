@@ -41,6 +41,24 @@ class Profile(Base):
     alt_email: Mapped[str | None] = mapped_column(String(150), nullable=True)
     business_email: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
+    # ─── Verification stamps ──────────────────────────────────
+    # Written by the atomic /verify/* endpoints. A NULL stamp means the
+    # paired value is either absent or unverified — the UI treats them the
+    # same. Never mutate the value column without also setting/clearing its
+    # stamp in the same commit.
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    alt_mobile_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    alt_email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    business_email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # ─── Social / trust signals ────────────────────────────────
     website_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     google_business_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
