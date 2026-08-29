@@ -163,10 +163,16 @@ export function AuthShell({ mode, onAuthed }: Props) {
         };
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-ink text-paper">
+    <main className="relative min-h-dvh overflow-hidden bg-ink text-paper safe-x">
       <AmbientBackground />
 
-      <div className="relative mx-auto w-full max-w-[440px] px-4 pb-14 pt-6 sm:max-w-md sm:px-5 sm:pt-10 lg:max-w-[560px]">
+      <div
+        className="relative mx-auto w-full max-w-[440px] px-4 pb-14 pt-6 sm:max-w-md sm:px-5 sm:pt-10 lg:max-w-[560px]"
+        style={{
+          paddingTop: "max(env(safe-area-inset-top), 24px)",
+          paddingBottom: "max(env(safe-area-inset-bottom), 56px)",
+        }}
+      >
         <BrandHeader
           eyebrow={copy.eyebrow}
           title={copy.title}
@@ -277,7 +283,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
           data-delay="9"
         >
           <span aria-hidden className="h-1 w-1 rounded-full bg-accent" />
-          Encrypted · DPDP-compliant · never shared
+          No unverified hands in between
         </p>
 
         <p className="mt-4 text-center text-xs text-paper-muted">

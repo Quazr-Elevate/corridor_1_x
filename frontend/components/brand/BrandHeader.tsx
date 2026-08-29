@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { HeroShip } from "./HeroShip";
+import { MorseDashes } from "./MorseDashes";
 
 interface BrandHeaderProps {
   eyebrow: string;
@@ -57,6 +58,10 @@ export function BrandHeader({ eyebrow, title, subtitle }: BrandHeaderProps) {
         >
           {subtitle}
         </p>
+
+        {/* Splash-echo: morse dashes tie the auth screens back to the
+            landing page's rhythm. Subtle, aligned to the eyebrow start. */}
+        <MorseDashes className="mt-4 justify-start" count={6} />
       </div>
     </header>
   );

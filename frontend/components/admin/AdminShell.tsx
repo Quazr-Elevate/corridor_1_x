@@ -47,7 +47,7 @@ function AdminShellInner({ children }: Props) {
 
   if (!ready) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-ink text-paper-muted">
+      <main className="flex min-h-dvh items-center justify-center bg-ink text-paper-muted">
         <p className="text-sm">Loading…</p>
       </main>
     );
@@ -55,7 +55,7 @@ function AdminShellInner({ children }: Props) {
   if (!email) return null;
 
   return (
-    <div className="min-h-screen bg-ink text-paper">
+    <div className="min-h-dvh bg-ink text-paper">
       <div className="mx-auto flex max-w-7xl">
         <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-line-soft/60 px-4 py-6 md:flex">
           <GuardedLink

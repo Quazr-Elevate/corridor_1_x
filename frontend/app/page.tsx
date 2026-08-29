@@ -1,105 +1,107 @@
 import Link from "next/link";
-import Image from "next/image";
-import { AmbientBackground } from "@/components/brand/AmbientBackground";
-import { HeroShip } from "@/components/brand/HeroShip";
+import { ArrowRight } from "lucide-react";
+import { SplashGlow } from "@/components/brand/SplashGlow";
+import { MorseDashes } from "@/components/brand/MorseDashes";
 
 /**
- * Landing page. Public. No data fetching. Points visitors at either
- * signup (new users) or login (returning) and hints at the product
- * catalog once that ships.
+ * Landing / splash. Mirrors the mobile design canvas: warm chartreuse pool
+ * top-left, star mark, wordmark, tagline, morse-dash breather, then Sign up
+ * + Log in stacked. Trust line pinned near the safe-area bottom.
+ *
+ * Below the fold on desktop: a short value-prop strip + a browse-catalog
+ * link. On mobile the splash fills the viewport and the rest scrolls in.
+ * PWA-installed users see the same view — no separate splash asset needed.
  */
 export default function Landing() {
   return (
-    <main className="relative min-h-screen overflow-hidden bg-ink text-paper">
-      <AmbientBackground />
+    <main className="relative min-h-[100dvh] overflow-hidden bg-ink text-paper">
+      <SplashGlow />
 
-      <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col justify-center px-5 py-14">
-        <header className="flex items-center justify-between enter">
-          <Image
-            src="/brand/logo.png"
-            alt="Corridor One X"
-            width={1998}
-            height={320}
-            priority
-            className="h-6 w-auto select-none sm:h-7"
-          />
-          <div className="flex items-center gap-3 text-xs">
-            <Link
-              href="/login"
-              className="rounded-full border border-line-soft px-3 py-1.5 text-paper-muted transition-colors hover:text-paper"
-            >
-              Sign in
-            </Link>
-            <Link
-              href="/signup"
-              className="rounded-full bg-accent px-3 py-1.5 font-medium text-accent-fg hover:bg-accent-hover"
-            >
-              Get started
-            </Link>
-          </div>
-        </header>
-
-        <section className="mt-16">
-          <p className="chip enter" data-delay="2">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-            Verified commodity trade infrastructure
+      {/* Splash — vertically centered, safe-area padded */}
+      <section
+        className="relative mx-auto flex min-h-[100dvh] w-full max-w-[440px] flex-col px-6"
+        style={{
+          paddingTop: "max(env(safe-area-inset-top), 40px)",
+          paddingBottom: "max(env(safe-area-inset-bottom), 32px)",
+        }}
+      >
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <StarMark className="h-11 w-11" />
+          <p className="mt-4 text-title font-medium tracking-tight text-paper">
+            Corridor One X
           </p>
-          <h1
-            className="mt-4 text-display sm:text-display-lg text-paper enter"
-            data-delay="3"
-          >
-            Trade direct.{" "}
-            <span className="text-gradient">Settle certain.</span>
-          </h1>
-          <p
-            className="mt-3 max-w-lg text-sm leading-relaxed text-paper-muted sm:text-base enter"
-            data-delay="4"
-          >
-            Cor1x connects verified rice producers, exporters, and importers
-            through a single dashboard. KYB clearance before contact. Contact
-            details revealed only after both sides are verified.
+          <p className="mt-1 text-xs tracking-wide text-accent/80">
+            Trade direct. Settle certain.
           </p>
-
-          <div className="mt-8 flex flex-wrap gap-3 enter" data-delay="5">
-            <Link
-              href="/signup"
-              className="btn-primary"
-            >
-              Create your account
-            </Link>
-            <Link href="/products" className="btn-ghost">
-              Browse the catalog
-            </Link>
-          </div>
-        </section>
-
-        <div
-          className="pointer-events-none absolute right-6 top-14 h-16 w-16 sm:h-20 sm:w-20"
-          aria-hidden
-        >
-          <HeroShip className="h-full w-full" />
+          <MorseDashes className="mt-6" />
         </div>
 
-        <footer className="mt-auto pt-16 text-xs text-paper-muted">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>© 2026 Corridor One X</span>
-            <div className="flex items-center gap-4">
-              <Link href="/privacy" className="hover:text-paper">
-                Privacy
-              </Link>
-              <Link href="/terms" className="hover:text-paper">
-                Terms
-              </Link>
-              <a
-                href="mailto:privacy@cor1x.com"
-                className="hover:text-paper"
-              >
-                Grievance
-              </a>
-            </div>
-          </div>
-        </footer>
-      </div>
+        <div className="flex flex-col gap-2.5 pb-4">
+          <Link
+            href="/signup"
+            className="flex h-12 items-center justify-center rounded-field bg-accent text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
+          >
+            Sign up
+          </Link>
+          <Link
+            href="/login"
+            className="flex h-12 items-center justify-center rounded-field border border-line bg-ink-elevated text-sm font-medium text-paper transition-colors hover:border-line-strong"
+          >
+            Log in
+          </Link>
+          <p className="mt-2 text-center text-[11px] text-paper-muted">
+            <span
+              aria-hidden
+              className="mr-1 inline-block h-1 w-1 rounded-full bg-accent align-middle"
+            />
+            No unverified hands in between.
+          </p>
+        </div>
+      </section>
+
+      {/* Below the splash — brief value prop for scrollers / SEO. Hidden as
+          "extra" on mobile so the splash reads clean; visible from md up. */}
+      <section className="relative mx-auto max-w-3xl px-6 pb-14 md:pb-20">
+        <div className="mx-auto grid gap-4 sm:grid-cols-3">
+          <ValueCard title="Verified only" body="KYB clearance for both sides before any contact reveal." />
+          <ValueCard title="Direct match" body="Buyers and sellers of rice, spice, grain — same dashboard." />
+          <ValueCard title="Audit trail" body="Every reveal logged. Contact and consent, in one place." />
+        </div>
+        <div className="mt-8 flex items-center justify-center gap-2 text-xs text-paper-muted">
+          <Link
+            href="/products"
+            className="inline-flex items-center gap-1 text-accent hover:underline underline-offset-4"
+          >
+            Browse the catalog
+            <ArrowRight className="h-3 w-3" aria-hidden />
+          </Link>
+          <span aria-hidden>·</span>
+          <Link href="/privacy" className="hover:text-paper">Privacy</Link>
+          <span aria-hidden>·</span>
+          <Link href="/terms" className="hover:text-paper">Terms</Link>
+        </div>
+      </section>
     </main>
+  );
+}
+
+function StarMark({ className = "" }: { className?: string }) {
+  // Same 4-point star used in the manifest icons — one primitive, everywhere.
+  return (
+    <svg viewBox="-160 -160 320 320" className={className} aria-hidden>
+      <path
+        d="M 0 -140 C 40 -40 40 -40 140 0 C 40 40 40 40 0 140 C -40 40 -40 40 -140 0 C -40 -40 -40 -40 0 -140 Z"
+        fill="#D3EC4B"
+      />
+    </svg>
+  );
+}
+
+function ValueCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-card border border-line-soft bg-ink-soft/60 px-4 py-4">
+      <p className="text-xs font-medium tracking-wide text-accent">{title}</p>
+      <p className="mt-1.5 text-xs leading-relaxed text-paper-muted">{body}</p>
+    </div>
   );
 }

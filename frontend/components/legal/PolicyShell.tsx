@@ -17,7 +17,7 @@ interface Props {
  */
 export function PolicyShell({ title, updated, children }: Props) {
   return (
-    <main className="relative min-h-screen overflow-hidden bg-ink text-paper">
+    <main className="relative min-h-dvh safe-x overflow-hidden bg-ink text-paper">
       <AmbientBackground />
 
       <div className="relative mx-auto max-w-2xl px-5 py-14">

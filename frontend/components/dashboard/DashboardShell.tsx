@@ -100,9 +100,12 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
 
   return (
     <MeContext.Provider value={{ me, loading, error, refetch: fetchMe }}>
-      <div className="min-h-screen bg-ink text-paper">
+      <div className="min-h-dvh bg-ink text-paper safe-x">
         {/* Sticky top bar with the profile-round hamburger */}
-        <header className="sticky top-0 z-30 border-b border-line-soft/60 bg-ink/80 backdrop-blur-xl">
+        <header
+          className="sticky top-0 z-30 border-b border-line-soft/60 bg-ink/80 backdrop-blur-xl"
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
+        >
           <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
             <HamburgerButton
               onClick={() => setDrawerOpen(true)}
@@ -133,7 +136,12 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
           onSignOut={handleSignOut}
         />
 
-        <main className="mx-auto max-w-6xl p-5 sm:p-8">{children}</main>
+        <main
+          className="mx-auto max-w-6xl p-5 sm:p-8"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 32px)" }}
+        >
+          {children}
+        </main>
       </div>
     </MeContext.Provider>
   );

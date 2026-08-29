@@ -57,8 +57,34 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-size: 14px; /* Base tightened for density */
+    /* iOS PWA — kill overscroll bounce that reveals the bg color */
+    overscroll-behavior-y: none;
   }
 
+  /* PWA standalone: hide any browser-chrome-only affordances that shouldn't
+     be there once installed. Nothing today, but the hook exists. */
+  @media (display-mode: standalone) {
+    body {
+      /* Prevent long-press context menu on the app shell */
+      -webkit-touch-callout: none;
+    }
+  }
+}
+
+@layer utilities {
+  /* Safe-area helpers — apply to any full-bleed container that hits the
+     device edges (auth cards, dashboard shells, sticky footers). Each var
+     falls back to 0 on non-iOS so it's inert everywhere else. */
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .min-h-dvh { min-height: 100dvh; }
+}
+
+@layer base {
   body {
     font-family: var(--font-sans);
     font-feature-settings: "cv02", "cv03", "cv04", "ss01";

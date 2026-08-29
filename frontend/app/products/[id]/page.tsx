@@ -59,7 +59,7 @@ export default async function ProductDetail({
   ];
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-ink text-paper">
+    <main className="relative min-h-dvh safe-x overflow-hidden bg-ink text-paper">
       <AmbientBackground />
 
       <div className="relative mx-auto max-w-5xl px-5 py-8">
