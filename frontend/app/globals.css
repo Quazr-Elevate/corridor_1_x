@@ -135,6 +135,67 @@
   50% { opacity: 1; }
 }
 
+/* ── Splash phase 1: world-map route intro (extracted from the design
+   canvas 1:1 — names, values, and delays match its inline animations). */
+@keyframes splashExit {
+  100% { opacity: 0; visibility: hidden; }
+}
+@keyframes mapIn {
+  0% { opacity: 0; }
+  100% { opacity: 0.55; }
+}
+@keyframes dotsIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes routeTrail {
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes nodePop {
+  0% { opacity: 0; transform: scale(0.2); }
+  60% { transform: scale(1.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes ringPulse {
+  0% { opacity: 0.7; transform: scale(0.35); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+@keyframes flyPath {
+  0% { offset-distance: 0%; opacity: 0; }
+  8% { opacity: 1; }
+  94% { opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes destPulse {
+  0% { opacity: 0.8; transform: scale(0.35); }
+  100% { opacity: 0; transform: scale(2.3); }
+}
+@keyframes camZoom {
+  0% { transform: scale(1); opacity: 1; }
+  65% { opacity: 1; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+@keyframes heroIn {
+  0% { opacity: 0; transform: translate(-82px, 42px) scale(0.25); }
+  18% { opacity: 1; }
+  100% { opacity: 1; transform: translate(0px, 0px) scale(1); }
+}
+@keyframes xFade {
+  100% { opacity: 0; }
+}
+@keyframes glowIn {
+  0% { opacity: 0; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes brandIn {
+  0% { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0px); }
+}
+@keyframes lineGrow {
+  0% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+
 /* Auth-screen chrome (from the design canvas's Sign up / Log in screens):
    a faint chartreuse pool bleeding down from the top edge over pure black. */
 .auth-screen-glow {
