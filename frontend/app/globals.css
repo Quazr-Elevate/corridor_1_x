@@ -196,6 +196,37 @@
   100% { transform: scaleX(1); }
 }
 
+/* ── Auth step machine + feedback (extends the design language) ── */
+/* Step entering from the right — form → OTP → business */
+@keyframes stepIn {
+  0% { opacity: 0; transform: translateX(26px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+/* Step entering from the left — going back */
+@keyframes stepBack {
+  0% { opacity: 0; transform: translateX(-26px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+/* Wrong-code shake on the OTP row */
+@keyframes shakeX {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(3px); }
+}
+/* Success tick pop */
+@keyframes tickPop {
+  0% { opacity: 0; transform: scale(0.4); }
+  65% { transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+/* Splash → auth exit morph: dark card rises over the splash */
+@keyframes cardUp {
+  0% { transform: translateY(105%); }
+  100% { transform: translateY(0); }
+}
+
 /* Auth-screen chrome (from the design canvas's Sign up / Log in screens):
    a faint chartreuse pool bleeding down from the top edge over pure black. */
 .auth-screen-glow {

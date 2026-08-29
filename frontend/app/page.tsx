@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 /**
@@ -33,7 +33,18 @@ import { useEffect, useState } from "react";
  * and clicking anywhere skips live.
  */
 export default function SplashLanding() {
+  const router = useRouter();
   const [skip, setSkip] = useState(false);
+  // Set when a CTA is tapped: a dark card rises over the splash (the
+  // design's cardUp morph), then we navigate underneath it.
+  const [exiting, setExiting] = useState<null | "/signup" | "/login">(null);
+
+  const exitTo = (href: "/signup" | "/login") => {
+    if (exiting) return;
+    setExiting(href);
+    router.prefetch(href);
+    setTimeout(() => router.push(href), 380);
+  };
 
   useEffect(() => {
     // The intro IS the default — "/" is the welcome URL the landing page
@@ -157,22 +168,45 @@ export default function SplashLanding() {
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        <Link
-          href="/signup"
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            exitTo("/signup");
+          }}
           className="flex h-[54px] items-center justify-center rounded-[6px] bg-accent text-[16px] font-semibold text-accent-fg shadow-[0_6px_16px_rgba(0,0,0,0.35)] transition-transform duration-150 active:scale-[0.98]"
         >
           Sign up
-        </Link>
-        <Link
-          href="/login"
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            exitTo("/login");
+          }}
           className="flex h-[54px] items-center justify-center rounded-[6px] bg-ink-elevated text-[16px] font-semibold text-paper shadow-[inset_0_0_0_1px_#3A3F38] transition-transform duration-150 active:scale-[0.98]"
         >
           Log in
-        </Link>
+        </button>
         <div className="mt-[2px] text-center text-[12px] font-semibold leading-[1.6] text-paper-muted">
           No unverified hands in between.
         </div>
       </div>
+
+      {/* Exit morph — the design's cardUp: a dark card rises over the
+          splash while the route change happens beneath it. The incoming
+          auth screen then plays its own fadeUp. */}
+      {exiting && (
+        <div
+          aria-hidden
+          className="absolute inset-0 z-20"
+          style={{
+            background:
+              "radial-gradient(100% 50% at 50% -10%, rgba(196, 216, 46, 0.06), transparent 60%), #0A0A0A",
+            animation: "cardUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both",
+          }}
+        />
+      )}
     </main>
   );
 }
