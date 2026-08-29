@@ -32,9 +32,16 @@ const RESEND_SECONDS = 30;
 
 // ── Shared light atoms ───────────────────────────────────────────────────────
 
+// Ambient wash — a wide arc of lime sweeping the whole top edge and
+// feathering down into the paper, like light through a doorway. Two layers:
+// a saturated crest hugging the very top, and a broad soft falloff beneath
+// it so there is no visible seam ("blended, not painted on").
 const pageBg: React.CSSProperties = {
-  background:
-    "radial-gradient(110% 55% at 78% -8%, rgba(196, 216, 46, 0.20), rgba(196, 216, 46, 0.06) 45%, transparent 65%), #FAFAF8",
+  background: [
+    "radial-gradient(130% 62% at 22% -38%, rgba(206, 222, 40, 0.80) 52%, rgba(206, 222, 40, 0.28) 68%, rgba(206, 222, 40, 0) 80%)",
+    "radial-gradient(170% 80% at 60% -48%, rgba(196, 216, 46, 0.22) 55%, rgba(196, 216, 46, 0.07) 72%, rgba(196, 216, 46, 0) 85%)",
+    "#FAFAF8",
+  ].join(", "),
 };
 
 const inputCls =
@@ -43,10 +50,18 @@ const inputCls =
 const labelCls =
   "mb-2.5 block text-[12px] font-bold uppercase tracking-[0.1em] text-[#747970]";
 
+// CTA — gradient lime slab with a soft outer glow (the reference's smudge
+// of light under the button) and the send glyph pinned to the right edge.
 const ctaEnabled =
-  "flex h-14 items-center justify-center gap-2 rounded-[13px] bg-accent text-[17px] font-bold text-[#171917] shadow-[0_10px_24px_-10px_rgba(150,165,30,0.45)] transition-all duration-150 hover:bg-accent-hover active:scale-[0.98] disabled:opacity-70";
+  "relative flex h-[58px] items-center justify-center rounded-[16px] text-[18px] font-bold text-[#171917] transition-all duration-150 active:scale-[0.98] disabled:opacity-70";
+const ctaEnabledStyle: React.CSSProperties = {
+  background:
+    "linear-gradient(180deg, #DCE84A 0%, #C9DB2A 45%, #BCCB08 100%)",
+  boxShadow:
+    "0 18px 44px -14px rgba(188, 203, 8, 0.55), 0 6px 16px -6px rgba(150, 165, 30, 0.35), inset 0 1px 0 rgba(255,255,255,0.35)",
+};
 const ctaDisabled =
-  "flex h-14 items-center justify-center gap-2 rounded-[13px] bg-[#ECEDE6] text-[17px] font-bold text-[#A2A69C]";
+  "flex h-[58px] items-center justify-center gap-2 rounded-[16px] bg-[#ECEDE6] text-[18px] font-bold text-[#A2A69C]";
 
 const accentText = "text-[#7E8C13]";
 
@@ -308,8 +323,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
               className="mt-6 text-[clamp(30px,9.5vw,38px)] font-bold leading-[1.12] tracking-[-0.02em]"
               style={{ textWrap: "balance", ...rise(0.25) }}
             >
-              {copy.headLead}
-              <br />
+              {copy.headLead}{" "}
               <span className={accentText}>{copy.headAccent}</span>
             </h1>
             <p
@@ -407,9 +421,15 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 onClick={sendOtp}
                 disabled={!canSend || sending}
                 className={canSend ? ctaEnabled : ctaDisabled}
+                style={canSend ? ctaEnabledStyle : undefined}
               >
                 {sending ? "Sending…" : "Send OTP"}
-                {canSend && !sending && <Send aria-hidden className="h-[18px] w-[18px]" />}
+                {canSend && !sending && (
+                  <Send
+                    aria-hidden
+                    className="absolute right-6 top-1/2 h-5 w-5 -translate-y-1/2"
+                  />
+                )}
               </button>
               <p className="mt-[18px] text-center text-[13px] text-[#747970]">
                 {copy.ctaCaption}
@@ -554,58 +574,43 @@ function CorridorTrace() {
   return (
     <svg
       aria-hidden
-      viewBox="0 0 280 320"
-      className="pointer-events-none absolute -right-4 -top-2 h-[300px] w-[260px] opacity-[0.45]"
+      viewBox="0 0 340 560"
+      className="pointer-events-none absolute -right-10 top-[120px] h-[520px] w-[320px]"
       fill="none"
     >
-      <defs>
-        <linearGradient id="ctRoute" x1="1" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#C4D82E" stopOpacity="0.5" />
-          <stop offset="70%" stopColor="#C4D82E" stopOpacity="0.12" />
-          <stop offset="100%" stopColor="#C4D82E" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="ctRoute2" x1="1" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#9BA982" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#9BA982" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {/* Primary route — sweeping down the right edge */}
+      {/* Dotted orbital arcs — the reference's network trace: big, airy,
+          dashed curves crossing on the right side with solid lime nodes. */}
       <path
-        d="M300,20 C230,45 200,110 170,160 C148,196 140,230 148,278"
-        stroke="url(#ctRoute)"
+        d="M330,10 C220,60 150,170 140,290 C132,380 160,460 240,520"
+        stroke="#C4D82E"
+        strokeOpacity="0.30"
         strokeWidth="1.5"
         strokeLinecap="round"
+        strokeDasharray="2 9"
       />
-      {/* Secondary fainter route */}
       <path
-        d="M310,90 C250,110 230,160 208,200 C194,226 192,244 200,272"
-        stroke="url(#ctRoute2)"
-        strokeWidth="1.2"
+        d="M345,140 C260,150 195,220 185,310 C177,382 200,440 260,480"
+        stroke="#C4D82E"
+        strokeOpacity="0.22"
+        strokeWidth="1.5"
         strokeLinecap="round"
-        strokeDasharray="1 8"
+        strokeDasharray="2 11"
+      />
+      <path
+        d="M340,300 C290,290 240,320 225,370"
+        stroke="#C4D82E"
+        strokeOpacity="0.18"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeDasharray="2 9"
       />
 
-      {/* Waypoint nodes along the primary route */}
-      <circle cx="228" cy="46" r="3" fill="#C4D82E" fillOpacity="0.55" />
-      <circle cx="181" cy="140" r="2.5" fill="#C4D82E" fillOpacity="0.4" />
-      <circle cx="145" cy="222" r="2.5" fill="#C4D82E" fillOpacity="0.3" />
-
-      {/* Arrival X-node — journey's end, kept clear of the content column */}
-      <g transform="translate(150, 282)" opacity="0.45">
-        <circle r="11" stroke="#C4D82E" strokeOpacity="0.4" strokeWidth="1" />
-        <path
-          d="M-4,-4 L4,4 M4,-4 L-4,4"
-          stroke="#7E8C13"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-      </g>
-
-      {/* Sparse geometric accents */}
-      <circle cx="252" cy="150" r="1.5" fill="#9BA982" fillOpacity="0.5" />
-      <circle cx="222" cy="238" r="1.5" fill="#9BA982" fillOpacity="0.4" />
-      <rect x="238" y="196" width="7" height="7" rx="1.5" stroke="#C4D82E" strokeOpacity="0.25" strokeWidth="1" transform="rotate(18 241 199)" />
+      {/* Solid lime nodes at arc intersections */}
+      <circle cx="196" cy="118" r="5" fill="#C4D82E" fillOpacity="0.55" />
+      <circle cx="141" cy="300" r="4" fill="#C4D82E" fillOpacity="0.45" />
+      <circle cx="257" cy="404" r="5" fill="#C4D82E" fillOpacity="0.5" />
+      <circle cx="304" cy="212" r="3.5" fill="#C4D82E" fillOpacity="0.35" />
+      <circle cx="232" cy="482" r="3" fill="#C4D82E" fillOpacity="0.35" />
     </svg>
   );
 }
@@ -791,8 +796,8 @@ function BusinessStep({
           <button
             type="button"
             onClick={onDone}
-            className={ctaEnabled + " mt-7"}
-            style={{ animation: "fadeUp 0.45s ease 0.35s both" }}
+            className={ctaEnabled + " mt-7 gap-2"}
+            style={{ ...ctaEnabledStyle, animation: "fadeUp 0.45s ease 0.35s both" }}
           >
             Continue to dashboard <ArrowRight aria-hidden className="h-4 w-4" />
           </button>
