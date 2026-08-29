@@ -93,8 +93,8 @@ export function AuthShell({ mode, onAuthed }: Props) {
   const phoneValid = phoneRegex.test(phone.trim());
   const nameNeeded = mode === "signup";
   const nameValid = !nameNeeded || personNameField.safeParse(fullName).success;
-  // Both login and signup gate the CTA on the consent checkbox now.
-  const consentOk = consent;
+  // Only signup requires the consent checkbox — login has no legal step.
+  const consentOk = !nameNeeded || consent;
   const canSend = phoneValid && nameValid && consentOk;
 
   // Ticking an unchecked box opens the legal sheet instead of checking it —
@@ -388,28 +388,30 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 </div>
               </div>
 
-              <div className="mt-7">
-                <div className="flex items-start gap-3 text-[13.5px] leading-[1.6] text-[#5C6058]">
-                  <input
-                    type="checkbox"
-                    checked={consent}
-                    onChange={onConsentClick}
-                    aria-label="Accept Terms and Privacy Policy"
-                    className="mt-0.5 h-6 w-6 shrink-0 cursor-pointer rounded-[6px] border-[#D9DDD7] accent-[#7E8C13]"
-                  />
-                  <span>
-                    I accept Cor1x&apos;s{" "}
-                    <button
-                      type="button"
-                      onClick={() => setLegalOpen(true)}
-                      className={accentText + " font-semibold underline-offset-4 hover:underline"}
-                    >
-                      Terms &amp; Privacy Policy
-                    </button>
-                    .
-                  </span>
+              {nameNeeded && (
+                <div className="mt-7">
+                  <div className="flex items-start gap-3 text-[13.5px] leading-[1.6] text-[#5C6058]">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={onConsentClick}
+                      aria-label="Accept Terms and Privacy Policy"
+                      className="mt-0.5 h-6 w-6 shrink-0 cursor-pointer rounded-[6px] border-[#D9DDD7] accent-[#7E8C13]"
+                    />
+                    <span>
+                      I accept Cor1x&apos;s{" "}
+                      <button
+                        type="button"
+                        onClick={() => setLegalOpen(true)}
+                        className={accentText + " font-semibold underline-offset-4 hover:underline"}
+                      >
+                        Terms &amp; Privacy Policy
+                      </button>
+                      .
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="mt-7 flex flex-col" style={rise(0.55)}>
