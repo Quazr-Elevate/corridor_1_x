@@ -470,20 +470,35 @@ function CargoCar() {
 }
 
 function CargoPlane() {
+  // Right-facing jet: swept chartreuse tail fin at the rear, cream fuselage
+  // tapering to the nose, swept wing with an engine pod, cockpit + window
+  // row. Same palette as the truck and rail car.
   return (
-    <svg width="120" height="42" viewBox="0 0 120 42">
-      <path d="M92,17 L104,4 H112 L103,17 Z" fill="#C4D82E" />
+    <svg width="120" height="44" viewBox="0 0 120 44">
+      {/* Tail fin — swept back over the rear */}
+      <path d="M24,16 L12,2 L3,2 L14,16 Z" fill="#C4D82E" />
+      {/* Tailplane */}
+      <path d="M22,19 L7,26 L17,27 L30,21 Z" fill="#8A9285" opacity="0.85" />
+      {/* Fuselage — tapers to a rounded nose on the right */}
       <path
-        d="M8,24 Q10,18 22,17 H94 Q108,18 114,23 Q108,28 94,29 H22 Q10,28 8,24 Z"
+        d="M10,22 C12,17 20,15 30,15 L90,15 C104,15 113,18.5 118,22 C113,25.5 104,29 90,29 L30,29 C20,29 12,27 10,22 Z"
         fill="#EDEFEA"
       />
-      <path d="M44,22 L26,36 H38 L58,24 Z" fill="#C4D82E" />
-      <circle cx="34" cy="22" r="1.6" fill="#0A0A0A" />
-      <circle cx="44" cy="22" r="1.6" fill="#0A0A0A" />
-      <circle cx="54" cy="22" r="1.6" fill="#0A0A0A" />
-      <circle cx="64" cy="22" r="1.6" fill="#0A0A0A" />
-      <circle cx="74" cy="22" r="1.6" fill="#0A0A0A" />
-      <path d="M10,23 Q13,20 20,19" fill="none" stroke="#C4D82E" strokeWidth="2" />
+      {/* Cockpit windshield */}
+      <path d="M105,17.5 L113,21 L105,23 Z" fill="#0A0A0A" />
+      {/* Window row */}
+      <circle cx="48" cy="20" r="1.6" fill="#0A0A0A" />
+      <circle cx="57" cy="20" r="1.6" fill="#0A0A0A" />
+      <circle cx="66" cy="20" r="1.6" fill="#0A0A0A" />
+      <circle cx="75" cy="20" r="1.6" fill="#0A0A0A" />
+      <circle cx="84" cy="20" r="1.6" fill="#0A0A0A" />
+      {/* Wing — swept back from mid-fuselage */}
+      <path d="M66,23 L40,38 L53,39 L80,25 Z" fill="#C4D82E" />
+      {/* Engine pod under the wing root */}
+      <ellipse cx="60" cy="33" rx="7" ry="4" fill="#1E1E1E" stroke="#3A3F38" />
+      <circle cx="53.5" cy="33" r="1.6" fill="#C4D82E" />
+      {/* Chartreuse nose accent */}
+      <path d="M113,20 C115.5,20.7 117,21.4 118,22 C117,22.6 115.5,23.3 113,24 Z" fill="#C4D82E" />
     </svg>
   );
 }
