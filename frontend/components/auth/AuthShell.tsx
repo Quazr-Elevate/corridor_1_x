@@ -32,16 +32,13 @@ const RESEND_SECONDS = 30;
 
 // ── Shared light atoms ───────────────────────────────────────────────────────
 
-// Ambient wash — a wide arc of lime sweeping the whole top edge and
-// feathering down into the paper, like light through a doorway. Two layers:
-// a saturated crest hugging the very top, and a broad soft falloff beneath
-// it so there is no visible seam ("blended, not painted on").
+// Pre-rendered ambient background: the lime wash arcing across the top plus
+// the dotted orbital network on the right, baked into one 75KB JPEG
+// (public/brand/auth-bg.jpg, 852×1846). Anchored to the top so the wash
+// always hugs the top edge; cover keeps the arcs pinned to the right on
+// every viewport. #FAFAF8 backs it for over-scroll and ultra-tall screens.
 const pageBg: React.CSSProperties = {
-  background: [
-    "radial-gradient(130% 62% at 22% -38%, rgba(206, 222, 40, 0.80) 52%, rgba(206, 222, 40, 0.28) 68%, rgba(206, 222, 40, 0) 80%)",
-    "radial-gradient(170% 80% at 60% -48%, rgba(196, 216, 46, 0.22) 55%, rgba(196, 216, 46, 0.07) 72%, rgba(196, 216, 46, 0) 85%)",
-    "#FAFAF8",
-  ].join(", "),
+  background: "url(/brand/auth-bg.jpg) top center / cover no-repeat, #FAFAF8",
 };
 
 const inputCls =
@@ -270,8 +267,6 @@ export function AuthShell({ mode, onAuthed }: Props) {
     >
       {/* Corridor trace — the splash journey's residue: a thin curved route
           with nodes arriving at a small X, upper-right, barely-there. */}
-      <CorridorTrace />
-
       <div className="relative mx-auto flex min-h-[calc(100dvh-48px)] w-full max-w-[440px] flex-col px-6 sm:max-w-md lg:max-w-[480px]">
         {/* ── Top bar ── */}
         <div className="flex items-center gap-3 pt-3" style={rise(0.1)}>
@@ -562,56 +557,6 @@ export function AuthShell({ mode, onAuthed }: Props) {
         </p>
       </div>
     </main>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════
-// Corridor trace — thin curved route lines + nodes arriving at a small X,
-// echoing the splash journey. Upper-right, extremely low opacity.
-// ═════════════════════════════════════════════════════════════════════════
-
-function CorridorTrace() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 340 560"
-      className="pointer-events-none absolute -right-10 top-[120px] h-[520px] w-[320px]"
-      fill="none"
-    >
-      {/* Dotted orbital arcs — the reference's network trace: big, airy,
-          dashed curves crossing on the right side with solid lime nodes. */}
-      <path
-        d="M330,10 C220,60 150,170 140,290 C132,380 160,460 240,520"
-        stroke="#C4D82E"
-        strokeOpacity="0.30"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray="2 9"
-      />
-      <path
-        d="M345,140 C260,150 195,220 185,310 C177,382 200,440 260,480"
-        stroke="#C4D82E"
-        strokeOpacity="0.22"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray="2 11"
-      />
-      <path
-        d="M340,300 C290,290 240,320 225,370"
-        stroke="#C4D82E"
-        strokeOpacity="0.18"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeDasharray="2 9"
-      />
-
-      {/* Solid lime nodes at arc intersections */}
-      <circle cx="196" cy="118" r="5" fill="#C4D82E" fillOpacity="0.55" />
-      <circle cx="141" cy="300" r="4" fill="#C4D82E" fillOpacity="0.45" />
-      <circle cx="257" cy="404" r="5" fill="#C4D82E" fillOpacity="0.5" />
-      <circle cx="304" cy="212" r="3.5" fill="#C4D82E" fillOpacity="0.35" />
-      <circle cx="232" cy="482" r="3" fill="#C4D82E" fillOpacity="0.35" />
-    </svg>
   );
 }
 
