@@ -15,20 +15,20 @@
       -apple-system, "Segoe UI", Roboto, sans-serif;
 
     --bg: #0a0a0a;
-    --card: #141416;
+    --card: #141414;
     --elevated: #1e1e1e;
 
     --fg: #edefea;
-    --fg-soft: #c9cbc5;
+    --fg-soft: #c1c8be;
     --fg-muted: #8a9285;
 
     --border: #3a3f38;
     --border-soft: #242724;
 
-    /* Primary — chartreuse (design canvas value) */
+    /* Primary — chartreuse (design-system tokens) */
     --accent: #c4d82e;
-    --accent-hover: #d2e640;
-    --accent-pressed: #a8bc22;
+    --accent-hover: #d6e85a;
+    --accent-pressed: #9cad1f;
     --accent-fg: #0a0a0a;
     --accent-ring: rgba(196,216,46, 0.35);
 
@@ -46,7 +46,7 @@
       #8b5cf6 100%
     );
 
-    --danger: #ef4b5c;
+    --danger: #d64545;
   }
 
   html,
@@ -129,6 +129,18 @@
 @keyframes roadMove {
   0% { background-position: 0px 0px; }
   100% { background-position: -34px 0px; }
+}
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Auth-screen chrome (from the design canvas's Sign up / Log in screens):
+   a faint chartreuse pool bleeding down from the top edge over pure black. */
+.auth-screen-glow {
+  background:
+    radial-gradient(100% 50% at 50% -10%, rgba(196, 216, 46, 0.06), transparent 60%),
+    #0a0a0a;
 }
 
 @layer base {

@@ -7,16 +7,16 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Surfaces cascade — matches the mobile design canvas exactly.
+        // Surfaces cascade — matches the design-system tokens exactly.
         ink: {
-          DEFAULT: "#0A0A0A", // page background — pure near-black
-          soft: "#141416", // card / popover
-          elevated: "#1E1E1E",
+          DEFAULT: "#0A0A0A", // --background
+          soft: "#141414", // --card
+          elevated: "#1E1E1E", // --elevated
         },
-        // Foreground — cool cream (from design)
+        // Foreground — cool cream (design --foreground / --secondary-foreground)
         paper: {
           DEFAULT: "#EDEFEA",
-          soft: "#C9CBC5",
+          soft: "#C1C8BE",
           muted: "#8A9285",
         },
         line: {
@@ -29,12 +29,12 @@ const config: Config = {
           soft: "#6A7266",
           strong: "#A8AFA4",
         },
-        // Primary accent — chartreuse (from design canvas, C4D82E).
+        // Primary accent — chartreuse (design tokens).
         accent: {
           DEFAULT: "#C4D82E",
           soft: "rgba(196, 216, 46, 0.10)",
-          hover: "#D2E640",
-          pressed: "#A8BC22",
+          hover: "#D6E85A",
+          pressed: "#9CAD1F",
           fg: "#0A0A0A",
           ring: "rgba(196, 216, 46, 0.35)",
         },
@@ -47,8 +47,8 @@ const config: Config = {
           glow: "rgba(139, 92, 246, 0.35)",
         },
         danger: {
-          DEFAULT: "#EF4B5C",
-          soft: "rgba(239, 75, 92, 0.12)",
+          DEFAULT: "#D64545",
+          soft: "rgba(214, 69, 69, 0.12)",
         },
       },
       fontFamily: {
