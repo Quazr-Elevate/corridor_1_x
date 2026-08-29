@@ -101,9 +101,11 @@ export default function SplashLanding() {
             className="opacity-0"
             style={{ animation: `fadeUp 0.5s ease both`, ...at("7.25s") }}
           >
-            <p className="text-[22px] font-semibold tracking-[-0.01em] text-paper">
-              Corridor One X
-            </p>
+            <img
+              src="/brand/wordmark.png"
+              alt="Corridor One X"
+              className="block w-[172px]"
+            />
           </div>
         </div>
 
@@ -128,9 +130,12 @@ export default function SplashLanding() {
             ...at("7.5s"),
           }}
         >
-          <VehicleLane delay={skip ? "0s" : "7.6s"} duration={skip ? "0.01s" : "9s"} svg={<Truck />} />
-          <VehicleLane delay={skip ? "0.01s" : "10.6s"} duration={skip ? "0.01s" : "9s"} svg={<CargoCar />} />
-          <VehicleLane delay={skip ? "0.02s" : "13.6s"} duration={skip ? "0.01s" : "9s"} svg={<CargoPlane />} />
+          {/* Vehicles keep their real 9s loops even when the intro is
+              skipped — only the initial stagger is compressed so the first
+              truck appears immediately instead of 7.6s in. */}
+          <VehicleLane delay={skip ? "0s" : "7.6s"} duration="9s" svg={<Truck />} />
+          <VehicleLane delay={skip ? "3s" : "10.6s"} duration="9s" svg={<CargoCar />} />
+          <VehicleLane delay={skip ? "6s" : "13.6s"} duration="9s" svg={<CargoPlane />} />
           <div
             aria-hidden
             className="absolute -left-[12%] -right-[12%] bottom-0 h-[2px] animate-road-move"
@@ -341,7 +346,7 @@ function IntroOverlay() {
           className="absolute left-0 right-0 top-[358px] flex justify-center"
           style={{ animation: "brandIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) 4.7s both" }}
         >
-          <img src="/brand/logo.png" alt="Corridor One X" className="block w-[216px]" />
+          <img src="/brand/wordmark.png" alt="Corridor One X" className="block w-[216px]" />
         </div>
         <div
           className="absolute left-0 right-0 top-[432px] text-center text-[14.5px] font-semibold leading-[1.6]"

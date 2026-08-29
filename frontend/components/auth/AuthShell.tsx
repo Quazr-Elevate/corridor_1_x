@@ -178,12 +178,12 @@ export function AuthShell({ mode, onAuthed }: Props) {
             {copy.title}
           </p>
           <Image
-            src="/brand/logo.png"
+            src="/brand/wordmark.png"
             alt="Corridor One X"
-            width={1998}
-            height={320}
+            width={1583}
+            height={173}
             priority
-            className="ml-auto h-4 w-auto select-none opacity-85"
+            className="ml-auto w-[118px] select-none opacity-85"
           />
         </div>
 
