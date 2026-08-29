@@ -7,6 +7,10 @@ class OtpSendRequest(CamelModel):
     channel: Literal["phone", "email"]
     value: str  # phone (10 digits) or email
     purpose: Literal["gstin", "phone", "email", "signup", "signin"] = "phone"
+    # Optional intent hint from the auth pages so /otp/send can fail-fast
+    # BEFORE burning an SMS on a mobile that's already registered (signup)
+    # or that has no account yet (login). Other callers omit it.
+    mode: Literal["signup", "login"] | None = None
 
 
 class OtpSendResponse(CamelModel):
@@ -25,6 +29,9 @@ class OtpVerifyRequest(CamelModel):
     # continue to work.
     mobile: str | None = None
     email: str | None = None
+    # Same intent hint as send. Enforced defensively — even if send is
+    # bypassed, verify won't silently log a signup-mode user in.
+    mode: Literal["signup", "login"] | None = None
 
 
 class OtpVerifyResponse(CamelModel):

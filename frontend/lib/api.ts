@@ -241,6 +241,9 @@ export const api = {
     channel: "phone" | "email";
     value: string;
     purpose: "gstin" | "phone" | "email";
+    // 'signup' → 409 if mobile already registered; 'login' → 409 if not.
+    // Prevents burning an SMS on a mobile whose state doesn't match intent.
+    mode?: "signup" | "login";
   }) =>
     jsonFetch<OtpSendResponse>("/otp/send", {
       method: "POST",
@@ -255,6 +258,7 @@ export const api = {
     channel?: "phone" | "email";
     mobile?: string;
     email?: string;
+    mode?: "signup" | "login";
   }) =>
     jsonFetch<OtpVerifyResponse>("/otp/verify", {
       method: "POST",

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models.business_profile import BusinessProfile, OnboardingPath
+from app.models.business_profile import BusinessProfile
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
@@ -185,7 +185,24 @@ async def save_bank(
             status_code=400,
             detail="IFSC was not verified. Click Verify on the IFSC field first.",
         )
-    business.bank_account_number = payload.account_number
+
+    # Bank account number uniqueness — an account belongs to one holder.
+    # Two different marketplace users claiming the same account is a red
+    # flag (payout collision or account takeover attempt); reject with a
+    # clear 409 rather than silently allowing the shadow.
+    account_number = payload.account_number.strip()
+    dup = await db.scalar(
+        select(BusinessProfile.user_id).where(
+            BusinessProfile.bank_account_number == account_number,
+            BusinessProfile.user_id != user.id,
+        )
+    )
+    if dup is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This bank account is already registered to another account",
+        )
+    business.bank_account_number = account_number
     business.bank_holder_name = payload.holder_name
     if payload.branch_name is not None:
         business.bank_branch_name = payload.branch_name

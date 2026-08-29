@@ -54,6 +54,26 @@ async def send(
     # Rate limit — no more than 3 sends per identifier per hour.
     check_otp_rate_limit(payload.value)
 
+    # Fail-fast on mode mismatch so we don't waste an SMS on a mobile
+    # whose account state doesn't match the user's intent. Enumeration
+    # here is acceptable — a B2B marketplace user needs to know whether
+    # they should sign in or sign up.
+    if payload.mode is not None and payload.channel == "phone" and not x_user_id:
+        mobile = payload.value.strip()
+        existing = await db.scalar(
+            select(Identity.user_id).where(Identity.value == mobile)
+        )
+        if payload.mode == "signup" and existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="This mobile is already registered. Please sign in instead.",
+            )
+        if payload.mode == "login" and existing is None:
+            raise HTTPException(
+                status_code=409,
+                detail="No account with this mobile. Please sign up first.",
+            )
+
     if x_user_id:
         try:
             requester = UUID(x_user_id)
@@ -128,6 +148,18 @@ async def verify(
         existing = await db.scalar(
             select(Identity).where(Identity.value == mobile)
         )
+        # Defensive mode check — even if the client skipped /otp/send,
+        # verify won't cross the user's stated intent.
+        if payload.mode == "signup" and existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="This mobile is already registered. Please sign in instead.",
+            )
+        if payload.mode == "login" and existing is None:
+            raise HTTPException(
+                status_code=409,
+                detail="No account with this mobile. Please sign up first.",
+            )
         if existing is not None:
             # Login path — set the durable session cookie now.
             set_session_cookie(response, str(existing.user_id))

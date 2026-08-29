@@ -37,6 +37,9 @@ export function AuthShell({ mode, onAuthed }: Props) {
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Backend uses a specific detail string for the mode/existence mismatch;
+  // we sniff it to render a "sign in / sign up instead" cross-link chip.
+  const [crossLink, setCrossLink] = useState<null | "toLogin" | "toSignup">(null);
   const [sending, setSending] = useState(false);
   const [otp, setOtp] = useState<{
     open: boolean;
@@ -55,6 +58,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
 
   const sendOtp = async () => {
     setError(null);
+    setCrossLink(null);
     if (!phoneValid) return setError("Enter a valid 10-digit Indian mobile number");
     if (nameNeeded && !nameValid) {
       const msg = personNameField.safeParse(fullName).success
@@ -71,6 +75,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
         channel: "phone",
         value: phone.trim(),
         purpose: "phone",
+        mode,
       });
       setOtp({
         open: true,
@@ -79,7 +84,13 @@ export function AuthShell({ mode, onAuthed }: Props) {
         devHint: res.devHint,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send code");
+      const msg = err instanceof Error ? err.message : "Could not send code";
+      setError(msg);
+      // Backend uses the phrase "sign in instead" for signup-mode duplicates
+      // and "sign up first" for login-mode misses. Cheap sniff so the UI can
+      // offer a one-tap jump to the correct page.
+      if (mode === "signup" && /sign in instead/i.test(msg)) setCrossLink("toLogin");
+      else if (mode === "login" && /sign up first/i.test(msg)) setCrossLink("toSignup");
     } finally {
       setSending(false);
     }
@@ -92,6 +103,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
         otpId: otp.otpId,
         code,
         mobile: phone.trim(),
+        mode,
       });
       if (!res.ok) return { ok: false, error: res.error };
 
@@ -231,7 +243,25 @@ export function AuthShell({ mode, onAuthed }: Props) {
           )}
 
           {error && (
-            <p className="mt-3 text-sm font-medium text-danger">{error}</p>
+            <div className="mt-3 space-y-1.5">
+              <p className="text-sm font-medium text-danger">{error}</p>
+              {crossLink === "toLogin" && (
+                <a
+                  href="/login"
+                  className="inline-flex items-center gap-1 text-xs text-accent underline-offset-4 hover:underline"
+                >
+                  Go to sign in <ArrowRight aria-hidden className="h-3 w-3" />
+                </a>
+              )}
+              {crossLink === "toSignup" && (
+                <a
+                  href="/signup"
+                  className="inline-flex items-center gap-1 text-xs text-accent underline-offset-4 hover:underline"
+                >
+                  Create an account <ArrowRight aria-hidden className="h-3 w-3" />
+                </a>
+              )}
+            </div>
           )}
 
           {nameNeeded && (
