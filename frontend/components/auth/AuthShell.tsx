@@ -19,33 +19,41 @@ const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
 /*
- * Light-surface auth flow (per the light design variant): warm paper
- * background with a chartreuse pool top-left, ink text, bordered white
- * inputs, chartreuse pill CTA with a send glyph. Deliberately minimal —
- * no trust rows, no hint boxes; just what the task needs.
+ * Light auth — "gradient accent" concept. Off-white paper (#FAFAF8) with a
+ * large, diffused lime pool at the upper-right; charcoal type (#171917);
+ * restrained lime accents; a faint corridor route/node trace in the
+ * background as continuity with the splash journey (flight → destination →
+ * X → login: "I just arrived at the Corridor").
  *
- * Steps: form → otp (full-screen digit boxes) → business (signup only,
- * optional GSTIN/PAN verify). Logic identical to the dark build.
+ * Entry is a staggered composition (top bar → badge → headline → copy →
+ * field → CTA → footer, ~100ms apart). Steps slide via stepIn/stepBack.
+ * Flow logic identical to previous builds.
  */
 
-// Light-theme atoms (kept as constants so all three steps stay in sync)
+// ── Shared light atoms ───────────────────────────────────────────────────────
+
 const pageBg: React.CSSProperties = {
   background:
-    "radial-gradient(120% 60% at 0% 0%, rgba(196, 216, 46, 0.28), transparent 55%), #F4F1EC",
+    "radial-gradient(110% 55% at 78% -8%, rgba(196, 216, 46, 0.20), rgba(196, 216, 46, 0.06) 45%, transparent 65%), #FAFAF8",
 };
 
 const inputCls =
-  "h-12 w-full min-w-0 rounded-[10px] border border-[#D9D6CB] bg-white px-3.5 text-[15px] text-[#1A1C17] outline-none transition-[border-color,box-shadow] placeholder:text-[#A8A599] focus:border-[#B7C42C] focus:shadow-[0_0_0_3px_rgba(196,216,46,0.25)]";
+  "h-[54px] w-full min-w-0 rounded-[12px] border border-[#D9DDD7] bg-white px-4 text-[17px] text-[#171917] outline-none transition-[border-color,box-shadow] duration-200 placeholder:text-[#AEB3AA] focus:border-[#B7C42C] focus:shadow-[0_0_0_3px_rgba(196,216,46,0.18)]";
 
 const labelCls =
-  "mb-2 block text-[11px] font-bold uppercase tracking-[0.1em] text-[#6E7266]";
+  "mb-2.5 block text-[12px] font-bold uppercase tracking-[0.1em] text-[#747970]";
 
 const ctaEnabled =
-  "flex h-[52px] items-center justify-center gap-2 rounded-[12px] bg-accent text-[15px] font-extrabold text-[#1A1C17] shadow-[0_8px_20px_-6px_rgba(140,155,30,0.5)] transition-all duration-150 hover:bg-accent-hover active:scale-[0.985] disabled:opacity-70";
+  "flex h-14 items-center justify-center gap-2 rounded-[13px] bg-accent text-[17px] font-bold text-[#171917] shadow-[0_10px_24px_-10px_rgba(150,165,30,0.45)] transition-all duration-150 hover:bg-accent-hover active:scale-[0.98] disabled:opacity-70";
 const ctaDisabled =
-  "flex h-[52px] items-center justify-center gap-2 rounded-[12px] bg-[#E4E1D6] text-[15px] font-extrabold text-[#9A978C]";
+  "flex h-14 items-center justify-center gap-2 rounded-[13px] bg-[#ECEDE6] text-[17px] font-bold text-[#A2A69C]";
 
 const accentText = "text-[#7E8C13]";
+
+// Staggered entry — delays per the composition spec.
+const rise = (delay: number): React.CSSProperties => ({
+  animation: `fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s both`,
+});
 
 export function AuthShell({ mode, onAuthed }: Props) {
   type Step = "form" | "otp" | "business";
@@ -214,7 +222,6 @@ export function AuthShell({ mode, onAuthed }: Props) {
   const copy =
     mode === "signup"
       ? {
-          title: "Sign up",
           eyebrow: "CREATE ACCOUNT",
           headLead: "One number.",
           headAccent: "One account.",
@@ -224,7 +231,6 @@ export function AuthShell({ mode, onAuthed }: Props) {
             : "Fill your name and mobile to continue",
         }
       : {
-          title: "Log in",
           eyebrow: "MEMBER · SECURE LOG IN",
           headLead: "Back to",
           headAccent: "the corridor.",
@@ -240,22 +246,25 @@ export function AuthShell({ mode, onAuthed }: Props) {
 
   return (
     <main
-      className="relative min-h-dvh overflow-y-auto text-[#1A1C17] safe-x"
+      className="relative min-h-dvh overflow-hidden text-[#171917] safe-x"
       style={{
         ...pageBg,
-        animation: "fadeUp 0.45s ease 0.08s both",
         paddingTop: "max(env(safe-area-inset-top), 24px)",
         paddingBottom: "max(env(safe-area-inset-bottom), 24px)",
       }}
     >
-      <div className="mx-auto flex min-h-[calc(100dvh-48px)] w-full max-w-[440px] flex-col px-[22px] sm:max-w-md lg:max-w-[480px]">
+      {/* Corridor trace — the splash journey's residue: a thin curved route
+          with nodes arriving at a small X, upper-right, barely-there. */}
+      <CorridorTrace />
+
+      <div className="relative mx-auto flex min-h-[calc(100dvh-48px)] w-full max-w-[440px] flex-col px-6 sm:max-w-md lg:max-w-[480px]">
         {/* ── Top bar ── */}
-        <div className="flex items-center gap-3 pt-4">
+        <div className="flex items-center gap-3 pt-3" style={rise(0.1)}>
           {step === "form" ? (
             <Link
               href="/?intro=0"
               aria-label="Back"
-              className="-ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[#D9D6CB] bg-white/70 text-[#1A1C17] transition-colors hover:bg-white"
+              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-[#D9DDD7] bg-white/60 text-[#171917] transition-all duration-150 hover:bg-white active:scale-95"
             >
               <ChevronLeft aria-hidden className="h-5 w-5" />
             </Link>
@@ -267,14 +276,13 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 if (step === "otp") goto("form", "back");
               }}
               className={
-                "-ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[#D9D6CB] bg-white/70 text-[#1A1C17] transition-colors hover:bg-white" +
+                "-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border border-[#D9DDD7] bg-white/60 text-[#171917] transition-all duration-150 hover:bg-white active:scale-95" +
                 (step === "business" ? " invisible" : "")
               }
             >
               <ChevronLeft aria-hidden className="h-5 w-5" />
             </button>
           )}
-          {/* Dark wordmark: the white asset filtered to ink. */}
           <Image
             src="/brand/wordmark.png"
             alt="Corridor One X"
@@ -288,21 +296,32 @@ export function AuthShell({ mode, onAuthed }: Props) {
         {/* ═══ Step 1 — form ═══ */}
         {step === "form" && (
           <div key="form" className="flex flex-col" style={stepAnim}>
-            <div className="mt-6 inline-flex items-center gap-[7px] self-start rounded-full border border-[#D9D6CB] bg-white/70 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.14em] text-[#6E7266]">
+            <div
+              className="mt-8 inline-flex items-center gap-2 self-start rounded-full border border-[#D9DDD7] bg-white/60 px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#5C6058]"
+              style={rise(0.2)}
+            >
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
               {copy.eyebrow}
             </div>
 
-            <h1 className="mt-4 text-[27px] font-bold leading-[1.2] tracking-[-0.01em]" style={{ textWrap: "pretty" }}>
-              {copy.headLead} <span className={accentText}>{copy.headAccent}</span>
+            <h1
+              className="mt-6 text-[clamp(30px,9.5vw,38px)] font-bold leading-[1.12] tracking-[-0.02em]"
+              style={{ textWrap: "balance", ...rise(0.25) }}
+            >
+              {copy.headLead}
+              <br />
+              <span className={accentText}>{copy.headAccent}</span>
             </h1>
-            <p className="mt-2 text-[13.5px] leading-[1.55] text-[#6E7266]" style={{ textWrap: "pretty" }}>
+            <p
+              className="mt-3 max-w-[320px] text-[17px] leading-[1.55] text-[#747970]"
+              style={{ textWrap: "pretty", ...rise(0.35) }}
+            >
               {copy.subtitle}
             </p>
 
-            <div className="mt-7 flex flex-col gap-5">
+            <div className="mt-10 flex flex-col" style={rise(0.45)}>
               {nameNeeded && (
-                <div>
+                <div className="mb-6">
                   <label htmlFor="auth-name" className={labelCls}>
                     Full name
                   </label>
@@ -324,8 +343,8 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 <label htmlFor="auth-phone" className={labelCls}>
                   Phone number
                 </label>
-                <div className="flex h-12 gap-2">
-                  <span className="flex items-center rounded-[10px] border border-[#D9D6CB] bg-white px-[13px] text-[14px] font-bold text-[#1A1C17]">
+                <div className="flex h-[54px] gap-2.5">
+                  <span className="flex items-center rounded-[12px] border border-[#D9DDD7] bg-white px-4 text-[16px] font-bold text-[#171917]">
                     +91
                   </span>
                   <input
@@ -345,16 +364,30 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 </div>
               </div>
 
-              {nameNeeded ? (
-                <label className="flex items-start gap-2 text-[12px] leading-[1.5] text-[#6E7266]">
-                  <input
-                    type="checkbox"
-                    checked={consent}
-                    onChange={(e) => setConsent(e.target.checked)}
-                    className="mt-0.5 h-3.5 w-3.5 rounded border-[#D9D6CB] accent-[#7E8C13]"
-                  />
-                  <span>
-                    I accept Cor1x&apos;s{" "}
+              <div className="mt-7">
+                {nameNeeded ? (
+                  <label className="flex items-start gap-2.5 text-[13px] leading-[1.6] text-[#5C6058]">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={(e) => setConsent(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-[#D9DDD7] accent-[#7E8C13]"
+                    />
+                    <span>
+                      I accept Cor1x&apos;s{" "}
+                      <a href="/terms" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
+                        Terms
+                      </a>{" "}
+                      and{" "}
+                      <a href="/privacy" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
+                        Privacy Policy
+                      </a>
+                      .
+                    </span>
+                  </label>
+                ) : (
+                  <p className="max-w-[300px] text-[13px] leading-[1.6] text-[#5C6058]">
+                    By continuing you agree to Cor1x&apos;s{" "}
                     <a href="/terms" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
                       Terms
                     </a>{" "}
@@ -363,22 +396,12 @@ export function AuthShell({ mode, onAuthed }: Props) {
                       Privacy Policy
                     </a>
                     .
-                  </span>
-                </label>
-              ) : (
-                <p className="text-[12px] leading-[1.5] text-[#6E7266]">
-                  By continuing you agree to Cor1x&apos;s{" "}
-                  <a href="/terms" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                    Terms
-                  </a>{" "}
-                  and{" "}
-                  <a href="/privacy" target="_blank" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                    Privacy Policy
-                  </a>
-                  .
-                </p>
-              )}
+                  </p>
+                )}
+              </div>
+            </div>
 
+            <div className="mt-7 flex flex-col" style={rise(0.55)}>
               <button
                 type="button"
                 onClick={sendOtp}
@@ -386,25 +409,45 @@ export function AuthShell({ mode, onAuthed }: Props) {
                 className={canSend ? ctaEnabled : ctaDisabled}
               >
                 {sending ? "Sending…" : "Send OTP"}
-                {canSend && !sending && <Send aria-hidden className="h-4 w-4" />}
+                {canSend && !sending && <Send aria-hidden className="h-[18px] w-[18px]" />}
               </button>
-              <p className="-mt-2 text-center text-[12.5px] text-[#6E7266]">{copy.ctaCaption}</p>
+              <p className="mt-[18px] text-center text-[13px] text-[#747970]">
+                {copy.ctaCaption}
+              </p>
 
               {error && (
-                <div className="space-y-1.5">
+                <div className="mt-3 space-y-1.5">
                   <p className="text-[13px] font-semibold text-[#C03A3A]">{error}</p>
                   {crossLink === "toLogin" && (
-                    <a href="/login" className={accentText + " inline-flex items-center gap-1 text-[12px] font-semibold underline-offset-4 hover:underline"}>
+                    <a href="/login" className={accentText + " inline-flex items-center gap-1 text-[13px] font-semibold underline-offset-4 hover:underline"}>
                       Go to log in <ArrowRight aria-hidden className="h-3 w-3" />
                     </a>
                   )}
                   {crossLink === "toSignup" && (
-                    <a href="/signup" className={accentText + " inline-flex items-center gap-1 text-[12px] font-semibold underline-offset-4 hover:underline"}>
+                    <a href="/signup" className={accentText + " inline-flex items-center gap-1 text-[13px] font-semibold underline-offset-4 hover:underline"}>
                       Create an account <ArrowRight aria-hidden className="h-3 w-3" />
                     </a>
                   )}
                 </div>
               )}
+
+              <p className="mt-9 text-center text-[14px] text-[#747970]">
+                {mode === "signup" ? (
+                  <>
+                    Already have an account?{" "}
+                    <a href="/login" className={accentText + " font-semibold underline-offset-4 transition-opacity hover:underline active:opacity-70"}>
+                      Log in
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    New to Cor1x?{" "}
+                    <a href="/signup" className={accentText + " font-semibold underline-offset-4 transition-opacity hover:underline active:opacity-70"}>
+                      Create an account
+                    </a>
+                  </>
+                )}
+              </p>
             </div>
           </div>
         )}
@@ -412,18 +455,18 @@ export function AuthShell({ mode, onAuthed }: Props) {
         {/* ═══ Step 2 — OTP ═══ */}
         {step === "otp" && (
           <div key="otp" className="flex flex-1 flex-col" style={stepAnim}>
-            <h1 className="mt-6 text-[27px] font-bold leading-[1.2] tracking-[-0.01em]">
+            <h1 className="mt-8 text-[clamp(28px,8.5vw,34px)] font-bold leading-[1.12] tracking-[-0.02em]">
               Verify your number
             </h1>
-            <p className="mt-2 text-[13.5px] leading-[1.55] text-[#6E7266]">
+            <p className="mt-3 text-[17px] leading-[1.55] text-[#747970]">
               We sent a {OTP_LENGTH}-digit code to{" "}
-              <span className="font-bold text-[#1A1C17]">
+              <span className="font-bold text-[#171917]">
                 +91 {phone.slice(0, 5)} {phone.slice(5)}
               </span>
             </p>
 
             <div
-              className="mt-7 flex justify-between gap-2"
+              className="mt-8 flex justify-between gap-2"
               style={shaking ? { animation: "shakeX 0.45s ease" } : undefined}
             >
               {digits.map((d, i) => (
@@ -440,12 +483,12 @@ export function AuthShell({ mode, onAuthed }: Props) {
                   aria-label={`Digit ${i + 1}`}
                   disabled={verifying}
                   className={
-                    "h-[52px] w-full min-w-0 rounded-[10px] border bg-white text-center text-[20px] font-bold text-[#1A1C17] outline-none transition-[border-color,box-shadow] " +
+                    "h-14 w-full min-w-0 rounded-[12px] border bg-white text-center text-[22px] font-bold text-[#171917] outline-none transition-[border-color,box-shadow] duration-200 " +
                     (otpError
                       ? "border-[#C03A3A]"
                       : d
-                      ? "border-[#B7C42C] shadow-[0_0_0_3px_rgba(196,216,46,0.2)]"
-                      : "border-[#D9D6CB] focus:border-[#B7C42C] focus:shadow-[0_0_0_3px_rgba(196,216,46,0.25)]")
+                      ? "border-[#B7C42C] shadow-[0_0_0_3px_rgba(196,216,46,0.15)]"
+                      : "border-[#D9DDD7] focus:border-[#B7C42C] focus:shadow-[0_0_0_3px_rgba(196,216,46,0.18)]")
                   }
                 />
               ))}
@@ -456,12 +499,12 @@ export function AuthShell({ mode, onAuthed }: Props) {
             )}
 
             {devHint && (
-              <p className="mt-4 text-[12px] text-[#6E7266]">
+              <p className="mt-5 text-[13px] text-[#747970]">
                 <span className={accentText + " font-bold"}>Dev mode:</span> {devHint}
               </p>
             )}
 
-            <p className="mt-5 text-[13px] text-[#6E7266]">
+            <p className="mt-6 text-[14px] text-[#747970]">
               Didn&apos;t get it?{" "}
               {resendIn > 0 ? (
                 <span>Resend in {resendIn}s</span>
@@ -476,7 +519,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
               )}
             </p>
 
-            {verifying && <p className="mt-4 text-[13px] text-[#6E7266]">Verifying…</p>}
+            {verifying && <p className="mt-4 text-[13px] text-[#747970]">Verifying…</p>}
           </div>
         )}
 
@@ -489,29 +532,11 @@ export function AuthShell({ mode, onAuthed }: Props) {
           />
         )}
 
-        {/* Cross-mode link */}
-        {step === "form" && (
-          <p className="mt-6 text-center text-[12.5px] text-[#6E7266]">
-            {mode === "signup" ? (
-              <>
-                Already have an account?{" "}
-                <a href="/login" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                  Log in
-                </a>
-              </>
-            ) : (
-              <>
-                New to Cor1x?{" "}
-                <a href="/signup" className={accentText + " font-semibold underline-offset-4 hover:underline"}>
-                  Create an account
-                </a>
-              </>
-            )}
-          </p>
-        )}
-
-        {/* Footer */}
-        <p className="mt-auto flex items-center justify-center gap-1.5 pt-8 text-[10px] font-bold uppercase tracking-[0.14em] text-[#8B8F82]">
+        {/* Security footer */}
+        <p
+          className="mt-auto flex items-center justify-center gap-2 pt-9 text-[11px] font-bold uppercase tracking-[0.16em] text-[#9B9F94]"
+          style={rise(0.65)}
+        >
           <Lock aria-hidden className="h-3 w-3" />
           Encrypted · Verified · Never shared
         </p>
@@ -521,7 +546,72 @@ export function AuthShell({ mode, onAuthed }: Props) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// Step 3 — business identity (light theme)
+// Corridor trace — thin curved route lines + nodes arriving at a small X,
+// echoing the splash journey. Upper-right, extremely low opacity.
+// ═════════════════════════════════════════════════════════════════════════
+
+function CorridorTrace() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 280 320"
+      className="pointer-events-none absolute -right-4 -top-2 h-[300px] w-[260px] opacity-[0.45]"
+      fill="none"
+    >
+      <defs>
+        <linearGradient id="ctRoute" x1="1" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#C4D82E" stopOpacity="0.5" />
+          <stop offset="70%" stopColor="#C4D82E" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="#C4D82E" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="ctRoute2" x1="1" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#9BA982" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#9BA982" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
+      {/* Primary route — sweeping down the right edge */}
+      <path
+        d="M300,20 C230,45 200,110 170,160 C148,196 140,230 148,278"
+        stroke="url(#ctRoute)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      {/* Secondary fainter route */}
+      <path
+        d="M310,90 C250,110 230,160 208,200 C194,226 192,244 200,272"
+        stroke="url(#ctRoute2)"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeDasharray="1 8"
+      />
+
+      {/* Waypoint nodes along the primary route */}
+      <circle cx="228" cy="46" r="3" fill="#C4D82E" fillOpacity="0.55" />
+      <circle cx="181" cy="140" r="2.5" fill="#C4D82E" fillOpacity="0.4" />
+      <circle cx="145" cy="222" r="2.5" fill="#C4D82E" fillOpacity="0.3" />
+
+      {/* Arrival X-node — journey's end, kept clear of the content column */}
+      <g transform="translate(150, 282)" opacity="0.45">
+        <circle r="11" stroke="#C4D82E" strokeOpacity="0.4" strokeWidth="1" />
+        <path
+          d="M-4,-4 L4,4 M4,-4 L-4,4"
+          stroke="#7E8C13"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </g>
+
+      {/* Sparse geometric accents */}
+      <circle cx="252" cy="150" r="1.5" fill="#9BA982" fillOpacity="0.5" />
+      <circle cx="222" cy="238" r="1.5" fill="#9BA982" fillOpacity="0.4" />
+      <rect x="238" y="196" width="7" height="7" rx="1.5" stroke="#C4D82E" strokeOpacity="0.25" strokeWidth="1" transform="rotate(18 241 199)" />
+    </svg>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Step 3 — business identity (light)
 // ═════════════════════════════════════════════════════════════════════════
 
 function BusinessStep({
@@ -573,21 +663,24 @@ function BusinessStep({
 
   return (
     <div className="flex flex-col" style={stepAnim}>
-      <div className="mt-6 inline-flex items-center gap-[7px] self-start rounded-full border border-[#D9D6CB] bg-white/70 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.14em] text-[#6E7266]">
+      <div className="mt-8 inline-flex items-center gap-2 self-start rounded-full border border-[#D9DDD7] bg-white/60 px-3.5 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-[#5C6058]">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
         ACCOUNT CREATED · OPTIONAL
       </div>
 
-      <h1 className="mt-4 text-[27px] font-bold leading-[1.2] tracking-[-0.01em]" style={{ textWrap: "pretty" }}>
+      <h1
+        className="mt-6 text-[clamp(28px,8.5vw,34px)] font-bold leading-[1.12] tracking-[-0.02em]"
+        style={{ textWrap: "balance" }}
+      >
         Add your <span className={accentText}>business identity.</span>
       </h1>
-      <p className="mt-2 text-[13.5px] leading-[1.55] text-[#6E7266]" style={{ textWrap: "pretty" }}>
+      <p className="mt-3 max-w-[320px] text-[17px] leading-[1.55] text-[#747970]" style={{ textWrap: "pretty" }}>
         Verify GSTIN or PAN now, or do it later from your profile.
       </p>
 
       {verified === null ? (
         <>
-          <div className="mt-7 flex gap-1.5 rounded-[12px] border border-[#D9D6CB] bg-white/70 p-[5px]">
+          <div className="mt-8 flex gap-1.5 rounded-[14px] border border-[#D9DDD7] bg-white/60 p-[5px]">
             {(["gstin", "pan"] as const).map((t) => (
               <button
                 key={t}
@@ -598,10 +691,10 @@ function BusinessStep({
                   setErr(null);
                 }}
                 className={
-                  "h-11 flex-1 rounded-[9px] text-[14px] font-bold transition-all duration-200 " +
+                  "h-11 flex-1 rounded-[10px] text-[14px] font-bold transition-all duration-200 " +
                   (tab === t
-                    ? "bg-accent text-[#1A1C17] shadow-[0_2px_8px_-2px_rgba(140,155,30,0.5)]"
-                    : "text-[#6E7266] hover:text-[#1A1C17]")
+                    ? "bg-accent text-[#171917] shadow-[0_2px_10px_-2px_rgba(150,165,30,0.4)]"
+                    : "text-[#747970] hover:text-[#171917]")
                 }
               >
                 {t === "gstin" ? "GSTIN" : "PAN only"}
@@ -609,11 +702,11 @@ function BusinessStep({
             ))}
           </div>
 
-          <div className="mt-5">
+          <div className="mt-6">
             <label htmlFor="biz-id" className={labelCls}>
               {tab === "gstin" ? "GSTIN number" : "PAN number"}
             </label>
-            <div className="flex gap-2">
+            <div className="flex gap-2.5">
               <input
                 id="biz-id"
                 placeholder={tab === "gstin" ? "27ABCDE1234F1Z5" : "ABCDE1234F"}
@@ -633,10 +726,10 @@ function BusinessStep({
                 onClick={verify}
                 disabled={!valid || busy}
                 className={
-                  "h-12 shrink-0 rounded-[10px] px-4 text-[13px] font-extrabold transition-colors " +
+                  "h-[54px] shrink-0 rounded-[12px] px-5 text-[14px] font-bold transition-colors " +
                   (valid && !busy
-                    ? "bg-accent text-[#1A1C17] hover:bg-accent-hover"
-                    : "bg-[#E4E1D6] text-[#9A978C]")
+                    ? "bg-accent text-[#171917] hover:bg-accent-hover"
+                    : "bg-[#ECEDE6] text-[#A2A69C]")
                 }
               >
                 {busy ? "Verifying…" : "Verify"}
@@ -646,44 +739,44 @@ function BusinessStep({
 
           {err && <p className="mt-3 text-[13px] font-semibold text-[#C03A3A]">{err}</p>}
 
-          <button type="button" disabled className={ctaDisabled + " mt-7"}>
+          <button type="button" disabled className={ctaDisabled + " mt-8"}>
             Continue to dashboard <ArrowRight aria-hidden className="h-4 w-4" />
           </button>
-          <p className="mt-2 text-center text-[12.5px] text-[#6E7266]">
+          <p className="mt-[18px] text-center text-[13px] text-[#747970]">
             Verify your {tab === "gstin" ? "GSTIN" : "PAN"} to continue
           </p>
           <button
             type="button"
             onClick={onDone}
-            className="mx-auto mt-4 text-[12.5px] font-semibold text-[#6E7266] underline-offset-4 hover:text-[#1A1C17] hover:underline"
+            className="mx-auto mt-6 text-[14px] font-semibold text-[#747970] underline-offset-4 transition-opacity hover:text-[#171917] hover:underline active:opacity-70"
           >
             Skip for now
           </button>
         </>
       ) : (
         <>
-          <div className="mt-7 rounded-[12px] border border-[#B7C42C] bg-white p-5 shadow-[0_8px_24px_-8px_rgba(140,155,30,0.35)]">
+          <div className="mt-8 rounded-[14px] border border-[#B7C42C] bg-white p-5 shadow-[0_12px_28px_-12px_rgba(150,165,30,0.35)]">
             <div className="flex items-center gap-3">
               <span
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-accent"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-accent"
                 style={{ animation: "tickPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}
               >
-                <Check aria-hidden className="h-5 w-5 text-[#1A1C17]" strokeWidth={3} />
+                <Check aria-hidden className="h-5 w-5 text-[#171917]" strokeWidth={3} />
               </span>
               <div style={{ animation: "fadeUp 0.45s ease 0.15s both" }}>
-                <p className={accentText + " text-[10px] font-extrabold uppercase tracking-[0.14em]"}>
+                <p className={accentText + " text-[11px] font-bold uppercase tracking-[0.14em]"}>
                   {verified.kind === "gstin" ? "GSTIN verified" : "PAN verified"}
                 </p>
-                <p className="mt-0.5 text-[15px] font-bold text-[#1A1C17]">{verified.name}</p>
+                <p className="mt-0.5 text-[16px] font-bold text-[#171917]">{verified.name}</p>
               </div>
             </div>
             <div
-              className="mt-4 space-y-1.5 border-t border-[#EAE7DD] pt-3 text-[12px] text-[#6E7266]"
+              className="mt-4 space-y-1.5 border-t border-[#EEF0EA] pt-3.5 text-[13px] text-[#747970]"
               style={{ animation: "fadeUp 0.45s ease 0.25s both" }}
             >
               <p>
                 <span className="uppercase tracking-[0.08em]">{verified.kind}</span> ·{" "}
-                <span className="font-mono text-[#1A1C17]">{verified.id}</span>
+                <span className="font-mono text-[#171917]">{verified.id}</span>
               </p>
               {verified.lookup?.address && (
                 <p>
@@ -698,7 +791,7 @@ function BusinessStep({
           <button
             type="button"
             onClick={onDone}
-            className={ctaEnabled + " mt-6"}
+            className={ctaEnabled + " mt-7"}
             style={{ animation: "fadeUp 0.45s ease 0.35s both" }}
           >
             Continue to dashboard <ArrowRight aria-hidden className="h-4 w-4" />
