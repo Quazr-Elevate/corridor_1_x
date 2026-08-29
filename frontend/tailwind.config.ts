@@ -7,36 +7,36 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Surfaces cascade — pitch-near-black up through elevated
+        // Surfaces cascade — matches the mobile design canvas exactly.
         ink: {
-          DEFAULT: "#0E0E10", // page background — pushed slightly darker
-          soft: "#16161A", // card / popover
-          elevated: "#1E1E24",
+          DEFAULT: "#0A0A0A", // page background — pure near-black
+          soft: "#141416", // card / popover
+          elevated: "#1E1E1E",
         },
-        // Foreground — warm cream
+        // Foreground — cool cream (from design)
         paper: {
-          DEFAULT: "#F4F2E6",
-          soft: "#C9C6B8",
-          muted: "#7A7770",
+          DEFAULT: "#EDEFEA",
+          soft: "#C9CBC5",
+          muted: "#8A9285",
         },
         line: {
-          DEFAULT: "#2A2A30",
-          soft: "#1F1F24",
-          strong: "#3A3A42",
+          DEFAULT: "#3A3F38",
+          soft: "#242724",
+          strong: "#4A4F48",
         },
         mute: {
-          DEFAULT: "#7A7770",
-          soft: "#5F5D57",
-          strong: "#9C9A90",
+          DEFAULT: "#8A9285",
+          soft: "#6A7266",
+          strong: "#A8AFA4",
         },
-        // Primary accent — chartreuse (from landing page)
+        // Primary accent — chartreuse (from design canvas, C4D82E).
         accent: {
-          DEFAULT: "#D3EC4B",
-          soft: "rgba(211, 236, 75, 0.10)",
-          hover: "#DEF063",
-          pressed: "#A7C930",
-          fg: "#0E0E10",
-          ring: "rgba(211, 236, 75, 0.35)",
+          DEFAULT: "#C4D82E",
+          soft: "rgba(196, 216, 46, 0.10)",
+          hover: "#D2E640",
+          pressed: "#A8BC22",
+          fg: "#0A0A0A",
+          ring: "rgba(196, 216, 46, 0.35)",
         },
         // Complementary — violet, for gradient partner + secondary accents
         violet: {
@@ -87,11 +87,11 @@ const config: Config = {
       boxShadow: {
         card: "0 1px 2px rgba(0,0,0,0.5), 0 20px 40px -12px rgba(0,0,0,0.55)",
         press: "inset 0 1px 0 rgba(255,255,255,0.06)",
-        cta: "0 0 0 1px rgba(211,236,75,0.35), 0 10px 28px -8px rgba(211,236,75,0.35), 0 4px 20px -4px rgba(139,92,246,0.25)",
+        cta: "0 0 0 1px rgba(196,216,46,0.35), 0 10px 28px -8px rgba(196,216,46,0.35), 0 4px 20px -4px rgba(139,92,246,0.25)",
         "cta-hover":
-          "0 0 0 1px rgba(211,236,75,0.55), 0 14px 40px -6px rgba(211,236,75,0.45), 0 6px 28px -4px rgba(139,92,246,0.35)",
-        focus: "0 0 0 3px rgba(211,236,75,0.35)",
-        glow: "0 0 60px rgba(211,236,75,0.28), 0 0 120px rgba(139,92,246,0.18)",
+          "0 0 0 1px rgba(196,216,46,0.55), 0 14px 40px -6px rgba(196,216,46,0.45), 0 6px 28px -4px rgba(139,92,246,0.35)",
+        focus: "0 0 0 3px rgba(196,216,46,0.35)",
+        glow: "0 0 60px rgba(196,216,46,0.28), 0 0 120px rgba(139,92,246,0.18)",
         "violet-glow": "0 0 60px rgba(139,92,246,0.35), 0 0 120px rgba(139,92,246,0.15)",
       },
       transitionTimingFunction: {
@@ -111,11 +111,11 @@ const config: Config = {
         pulseGlow: {
           "0%,100%": {
             filter:
-              "drop-shadow(0 0 12px rgba(211,236,75,0.55)) drop-shadow(0 0 40px rgba(139,92,246,0.35))",
+              "drop-shadow(0 0 12px rgba(196,216,46,0.55)) drop-shadow(0 0 40px rgba(139,92,246,0.35))",
           },
           "50%": {
             filter:
-              "drop-shadow(0 0 24px rgba(211,236,75,0.75)) drop-shadow(0 0 80px rgba(139,92,246,0.5))",
+              "drop-shadow(0 0 24px rgba(196,216,46,0.75)) drop-shadow(0 0 80px rgba(139,92,246,0.5))",
           },
         },
         floatSlow: {
@@ -152,6 +152,47 @@ const config: Config = {
           "0%,100%": { backgroundPosition: "0% 50%" },
           "50%": { backgroundPosition: "100% 50%" },
         },
+        // ── Splash intro sequence (from design canvas) ──
+        orbFloat: {
+          "0%,100%": { transform: "translate(0px,0px) scale(1)" },
+          "50%": { transform: "translate(14px,-20px) scale(1.08)" },
+        },
+        orbFloat2: {
+          "0%,100%": { transform: "translate(0px,0px) scale(1)" },
+          "50%": { transform: "translate(-18px,16px) scale(0.94)" },
+        },
+        xToLockup: {
+          "0%": { opacity: "0", transform: "translate(72px,178px) scale(2.31)" },
+          "12%": { opacity: "1" },
+          "100%": { opacity: "1", transform: "translate(0px,0px) scale(1)" },
+        },
+        fadeUp: {
+          "0%": { opacity: "0", transform: "translateY(18px)" },
+          "100%": { opacity: "1", transform: "translateY(0px)" },
+        },
+        textPulse: {
+          "0%,100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
+        truckIn: {
+          "0%": { opacity: "0", transform: "translateX(-260%)" },
+          "55%": { opacity: "1" },
+          "85%": { transform: "translateX(8px)" },
+          "100%": { opacity: "1", transform: "translateX(0px)" },
+        },
+        vehRun: {
+          "0%": { opacity: "0", transform: "translateX(-150%)" },
+          "4%": { opacity: "1" },
+          "15%": { transform: "translateX(0px)" },
+          "22%": { transform: "translateX(0px)" },
+          "31%": { opacity: "1" },
+          "33%": { opacity: "0", transform: "translateX(150%)" },
+          "100%": { opacity: "0", transform: "translateX(150%)" },
+        },
+        roadMove: {
+          "0%": { backgroundPosition: "0px 0px" },
+          "100%": { backgroundPosition: "-34px 0px" },
+        },
       },
       animation: {
         sweep: "sweep 900ms cubic-bezier(0.22, 1, 0.36, 1)",
@@ -163,6 +204,11 @@ const config: Config = {
         "scan-line": "scanLine 8s linear infinite",
         "slow-spin": "slowSpin 40s linear infinite",
         "gradient-shift": "gradientShift 6s ease-in-out infinite",
+        // Splash intro — direct from design canvas timings
+        "orb-float": "orbFloat 9s ease-in-out infinite",
+        "orb-float-2": "orbFloat2 11s ease-in-out infinite",
+        "road-move": "roadMove 0.55s linear infinite",
+        "text-pulse": "textPulse 3.6s ease-in-out infinite",
       },
     },
   },

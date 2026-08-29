@@ -14,23 +14,23 @@
     --font-sans: "Manrope", "Switzer", "Svatopluk", "Inter", system-ui,
       -apple-system, "Segoe UI", Roboto, sans-serif;
 
-    --bg: #0e0e10;
-    --card: #16161a;
-    --elevated: #1e1e24;
+    --bg: #0a0a0a;
+    --card: #141416;
+    --elevated: #1e1e1e;
 
-    --fg: #f4f2e6;
-    --fg-soft: #c9c6b8;
-    --fg-muted: #7a7770;
+    --fg: #edefea;
+    --fg-soft: #c9cbc5;
+    --fg-muted: #8a9285;
 
-    --border: #2a2a30;
-    --border-soft: #1f1f24;
+    --border: #3a3f38;
+    --border-soft: #242724;
 
-    /* Primary — chartreuse */
-    --accent: #d3ec4b;
-    --accent-hover: #def063;
-    --accent-pressed: #a7c930;
-    --accent-fg: #0e0e10;
-    --accent-ring: rgba(211, 236, 75, 0.35);
+    /* Primary — chartreuse (design canvas value) */
+    --accent: #c4d82e;
+    --accent-hover: #d2e640;
+    --accent-pressed: #a8bc22;
+    --accent-fg: #0a0a0a;
+    --accent-ring: rgba(196,216,46, 0.35);
 
     /* Complementary — violet */
     --violet: #8b5cf6;
@@ -41,7 +41,7 @@
     /* Gradient combo used across CTAs, badges, borders */
     --grad-brand: linear-gradient(
       100deg,
-      #d3ec4b 0%,
+      #c4d82e 0%,
       #b6e04a 35%,
       #8b5cf6 100%
     );
@@ -82,6 +82,53 @@
     padding-right: env(safe-area-inset-right);
   }
   .min-h-dvh { min-height: 100dvh; }
+}
+
+/* Splash intro keyframes — duplicated here (not just in tailwind.config
+   `keyframes`) because the landing page references them inline via
+   `style={{ animation: 'xToLockup ...' }}`. Tailwind's JIT only emits
+   `@keyframes` when it sees the matching `animate-*` class, so bare
+   references would go unresolved. Keeping them in raw CSS also lets
+   any component use these names without a tailwind class. */
+@keyframes xToLockup {
+  0% { opacity: 0; transform: translate(72px, 178px) scale(2.31); }
+  12% { opacity: 1; }
+  100% { opacity: 1; transform: translate(0px, 0px) scale(1); }
+}
+@keyframes fadeUp {
+  0% { opacity: 0; transform: translateY(18px); }
+  100% { opacity: 1; transform: translateY(0px); }
+}
+@keyframes textPulse {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes truckIn {
+  0% { opacity: 0; transform: translateX(-260%); }
+  55% { opacity: 1; }
+  85% { transform: translateX(8px); }
+  100% { opacity: 1; transform: translateX(0px); }
+}
+@keyframes vehRun {
+  0% { opacity: 0; transform: translateX(-150%); }
+  4% { opacity: 1; }
+  15% { transform: translateX(0px); }
+  22% { transform: translateX(0px); }
+  31% { opacity: 1; }
+  33% { opacity: 0; transform: translateX(150%); }
+  100% { opacity: 0; transform: translateX(150%); }
+}
+@keyframes orbFloat {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(14px, -20px) scale(1.08); }
+}
+@keyframes orbFloat2 {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(-18px, 16px) scale(0.94); }
+}
+@keyframes roadMove {
+  0% { background-position: 0px 0px; }
+  100% { background-position: -34px 0px; }
 }
 
 @layer base {
@@ -139,8 +186,8 @@
     font-size: 0.8125rem;
     letter-spacing: -0.005em;
     box-shadow:
-      0 0 0 1px rgba(211, 236, 75, 0.35),
-      0 10px 28px -8px rgba(211, 236, 75, 0.35),
+      0 0 0 1px rgba(196,216,46, 0.35),
+      0 10px 28px -8px rgba(196,216,46, 0.35),
       0 4px 20px -4px rgba(139, 92, 246, 0.25);
     overflow: hidden;
     isolation: isolate;
@@ -160,7 +207,7 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: linear-gradient(100deg, #d3ec4b 0%, #b6e04a 55%, #8b5cf6 120%);
+    background: linear-gradient(100deg, #c4d82e 0%, #b6e04a 55%, #8b5cf6 120%);
     background-size: 200% 100%;
     background-position: 0% 50%;
     opacity: 0;
@@ -193,8 +240,8 @@
   .btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
     box-shadow:
-      0 0 0 1px rgba(211, 236, 75, 0.55),
-      0 14px 40px -6px rgba(211, 236, 75, 0.45),
+      0 0 0 1px rgba(196,216,46, 0.55),
+      0 14px 40px -6px rgba(196,216,46, 0.45),
       0 6px 28px -4px rgba(139, 92, 246, 0.35);
   }
 
@@ -211,8 +258,8 @@
   .btn-primary:focus-visible {
     outline: none;
     box-shadow:
-      0 0 0 3px rgba(211, 236, 75, 0.45),
-      0 12px 32px -8px rgba(211, 236, 75, 0.35);
+      0 0 0 3px rgba(196,216,46, 0.45),
+      0 12px 32px -8px rgba(196,216,46, 0.35);
   }
 
   .btn-primary:active:not(:disabled) {
@@ -319,8 +366,8 @@
   .btn-inline:hover:not(:disabled) {
     background: var(--accent-hover);
     box-shadow:
-      0 0 0 1px rgba(211, 236, 75, 0.45),
-      0 6px 18px -4px rgba(211, 236, 75, 0.35),
+      0 0 0 1px rgba(196,216,46, 0.45),
+      0 6px 18px -4px rgba(196,216,46, 0.35),
       0 4px 14px -3px rgba(139, 92, 246, 0.25);
   }
 
@@ -348,9 +395,9 @@
   }
 
   .btn-inline[data-verified="true"] {
-    background: rgba(211, 236, 75, 0.14);
+    background: rgba(196,216,46, 0.14);
     color: var(--accent);
-    box-shadow: inset 0 0 0 1px rgba(211, 236, 75, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(196,216,46, 0.35);
     cursor: default;
   }
 
@@ -410,14 +457,14 @@
 
   .field[readonly],
   .field[disabled] {
-    background: rgba(211, 236, 75, 0.03);
+    background: rgba(196,216,46, 0.03);
     color: var(--fg-soft);
     cursor: default;
-    border-color: rgba(211, 236, 75, 0.14);
+    border-color: rgba(196,216,46, 0.14);
   }
 
   .field[readonly]:hover {
-    background: rgba(211, 236, 75, 0.05);
+    background: rgba(196,216,46, 0.05);
   }
 
   .field-row {
@@ -492,9 +539,9 @@
   }
 
   .badge-autofill {
-    background: rgba(211, 236, 75, 0.10);
+    background: rgba(196,216,46, 0.10);
     color: var(--accent);
-    box-shadow: inset 0 0 0 1px rgba(211, 236, 75, 0.25);
+    box-shadow: inset 0 0 0 1px rgba(196,216,46, 0.25);
   }
 
   .badge-optional {
@@ -522,7 +569,7 @@
     padding: 1px;
     background: linear-gradient(
       120deg,
-      rgba(211, 236, 75, 0.35) 0%,
+      rgba(196,216,46, 0.35) 0%,
       transparent 30%,
       transparent 65%,
       rgba(139, 92, 246, 0.3) 100%
@@ -620,7 +667,7 @@
 
   /* Gradient text — for headline word highlights */
   .text-gradient {
-    background: linear-gradient(100deg, #d3ec4b 0%, #b6e04a 45%, #a78bfa 100%);
+    background: linear-gradient(100deg, #c4d82e 0%, #b6e04a 45%, #a78bfa 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
