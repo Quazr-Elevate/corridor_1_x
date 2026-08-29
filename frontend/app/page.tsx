@@ -28,21 +28,23 @@ import { useEffect, useState } from "react";
  *   7.4s   tagline fades up, starts its 3.6s shimmer
  *   7.5s   vehicle road slides in; truck/cargo/plane loop from 7.6s
  *
- * Repeat visits in the same tab skip the whole intro (sessionStorage);
- * ?intro=1 forces replay, ?intro=0 forces skip, clicking skips live.
+ * The intro plays by default on every visit — "/" is the welcome URL the
+ * landing page redirects into. ?intro=0 skips (used by in-app back links),
+ * and clicking anywhere skips live.
  */
 export default function SplashLanding() {
   const [skip, setSkip] = useState(false);
 
   useEffect(() => {
+    // The intro IS the default — "/" is the welcome URL the landing page
+    // redirects to, so every entry gets the full sequence. In-app links
+    // that return here (e.g. the auth back button) pass ?intro=0 to skip,
+    // and a click anywhere skips live.
     try {
       const q = new URLSearchParams(location.search);
-      if (q.get("intro") === "1") return;
-      if (q.get("intro") === "0") return setSkip(true);
-      if (sessionStorage.getItem("cor1x-splash-seen")) setSkip(true);
-      else sessionStorage.setItem("cor1x-splash-seen", "1");
+      if (q.get("intro") === "0") setSkip(true);
     } catch {
-      // Private mode / storage disabled — play the intro anyway.
+      // URL parsing failed — just play the intro.
     }
   }, []);
 

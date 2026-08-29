@@ -168,7 +168,7 @@ export function AuthShell({ mode, onAuthed }: Props) {
         {/* ── Top bar: back · title · wordmark ── */}
         <div className="flex items-center gap-3 pt-4">
           <Link
-            href="/"
+            href="/?intro=0"
             aria-label="Back"
             className="-ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-[6px] bg-ink-soft text-paper-soft shadow-[inset_0_0_0_1px_#3A3F38] transition-colors hover:text-paper"
           >

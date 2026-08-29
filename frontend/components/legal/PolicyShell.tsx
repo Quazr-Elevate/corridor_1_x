@@ -22,7 +22,7 @@ export function PolicyShell({ title, updated, children }: Props) {
 
       <div className="relative mx-auto max-w-2xl px-5 py-14">
         <header className="flex items-center justify-between enter">
-          <Link href="/" className="flex items-center">
+          <Link href="/?intro=0" className="flex items-center">
             <Image
               src="/brand/logo.png"
               alt="Corridor One X"

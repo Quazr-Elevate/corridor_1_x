@@ -9,7 +9,7 @@ import Image from "next/image";
 export function PublicNav() {
   return (
     <header className="flex items-center justify-between enter">
-      <Link href="/" className="flex items-center">
+      <Link href="/?intro=0" className="flex items-center">
         <Image
           src="/brand/logo.png"
           alt="Corridor One X"
