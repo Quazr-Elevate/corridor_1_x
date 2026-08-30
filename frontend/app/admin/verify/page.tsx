@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, XCircle } from "lucide-react";
-import { AdminShell } from "@/components/admin/AdminShell";
+import { Rise } from "@/components/admin/spatial";
 import {
   adminApi,
   type QueueRow,
@@ -24,11 +24,7 @@ const STAGE_META: Array<{
 ];
 
 export default function VerifyQueuePage() {
-  return (
-    <AdminShell>
-      <QueueContent />
-    </AdminShell>
-  );
+  return <QueueContent />;
 }
 
 function QueueContent() {
@@ -125,45 +121,35 @@ function QueueContent() {
   );
 
   if (!queue) {
-    return <p className="text-sm text-paper-muted">Loading queue…</p>;
+    return <p className="text-sm" style={{ color: "var(--sp-text-3)" }}>Loading queue…</p>;
   }
 
   return (
-    <div className="space-y-8">
-      <header>
-        <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-          Admin · Verification queue
-        </p>
-        <h1 className="mt-1 text-display text-paper">
-          {totalPending} user{totalPending === 1 ? "" : "s"}{" "}
-          <span className="text-gradient">awaiting review</span>
+    <div className="mx-auto max-w-[1000px] space-y-6">
+      <Rise i={0}>
+        <p className="text-[12px]" style={{ color: "var(--sp-text-3)" }}>Admin console · Verification queue</p>
+        <h1 className="mt-1 text-[34px] font-semibold tracking-[-0.025em]" style={{ color: "var(--sp-text)" }}>
+          {totalPending} user{totalPending === 1 ? "" : "s"} awaiting review
         </h1>
-        <p className="mt-2 max-w-lg text-sm text-paper-muted">
-          Grouped by where they&apos;re stuck. Biggest dwell time is on top of
-          each list — the users who&apos;ve waited longest.
+        <p className="mt-2 max-w-lg text-[13.5px]" style={{ color: "var(--sp-text-2)" }}>
+          Grouped by where they&apos;re stuck. Longest dwell time is on top of each list.
         </p>
-      </header>
+      </Rise>
 
-      {/* Sticky bulk-action bar — only visible when something's checked */}
+      {/* Sticky bulk-action bar */}
       {totalSelected > 0 && (
-        <div className="sticky top-2 z-20 flex flex-wrap items-center justify-between gap-3 rounded-card border border-line-soft bg-ink-soft/90 px-4 py-3 backdrop-blur">
-          <span className="text-sm text-paper">
-            {totalSelected} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              className="text-xs text-paper-muted hover:text-paper"
-              disabled={busy}
-            >
+        <div className="sp-airy sticky top-4 z-20 flex flex-wrap items-center justify-between gap-3 px-4 py-3 backdrop-blur">
+          <span className="text-[13px]" style={{ color: "var(--sp-text)" }}>{totalSelected} selected</span>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setSelected(new Set())} className="text-[12px]" style={{ color: "var(--sp-text-3)" }} disabled={busy}>
               Clear
             </button>
             <button
               type="button"
               onClick={bulkVerify}
               disabled={busy}
-              className="btn-primary !py-2 !text-xs"
+              className="rounded-full px-4 py-2 text-[12.5px] font-bold transition-colors disabled:opacity-60"
+              style={{ background: "var(--sp-lime)", color: "var(--sp-lime-fg)" }}
             >
               Approve selected
             </button>
@@ -172,9 +158,7 @@ function QueueContent() {
       )}
 
       {msg && (
-        <p className="rounded-card border border-line-soft bg-ink-soft/60 px-4 py-2 text-xs text-paper">
-          {msg}
-        </p>
+        <p className="sp-airy px-4 py-2.5 text-[12.5px]" style={{ color: "var(--sp-text)" }}>{msg}</p>
       )}
 
       {STAGE_META.map((s) => (
@@ -219,78 +203,61 @@ function StageBlock({
   const allChecked = rows.length > 0 && rows.every((r) => selected.has(r.userId));
 
   return (
-    <section className="rounded-card border border-line-soft bg-ink-soft/40">
-      <header className="flex items-center justify-between gap-3 border-b border-line-soft/60 px-4 py-3">
+    <section className="sp-airy overflow-hidden">
+      <header className="flex items-center justify-between gap-3 px-5 py-4" style={{ borderBottom: "1px solid var(--sp-border)" }}>
         <div>
-          <h2 className="text-sm font-medium text-paper">
-            {label}{" "}
-            <span className="ml-1 text-paper-muted">· {rows.length}</span>
+          <h2 className="text-[14px] font-semibold" style={{ color: "var(--sp-text)" }}>
+            {label} <span className="ml-1" style={{ color: "var(--sp-text-3)" }}>· {rows.length}</span>
           </h2>
-          <p className="mt-0.5 text-[11px] text-paper-muted">{hint}</p>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>{hint}</p>
         </div>
         {rows.length > 0 && (
-          <label className="flex items-center gap-2 text-[11px] text-paper-muted">
-            <input
-              type="checkbox"
-              checked={allChecked}
-              onChange={(e) => onToggleGroup(rows, e.target.checked)}
-              className="h-3.5 w-3.5 accent-accent"
-            />
+          <label className="flex items-center gap-2 text-[11px]" style={{ color: "var(--sp-text-3)" }}>
+            <input type="checkbox" checked={allChecked} onChange={(e) => onToggleGroup(rows, e.target.checked)} className="h-4 w-4 accent-[#8a9a1f]" />
             Select all
           </label>
         )}
       </header>
 
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-xs text-paper-muted">
-          Nothing to review here — nice.
-        </p>
+        <p className="px-5 py-7 text-center text-[12px]" style={{ color: "var(--sp-text-3)" }}>Nothing to review here — nice.</p>
       ) : (
         <ul>
-          {rows.map((r) => (
+          {rows.map((r, i) => (
             <li
               key={r.userId}
-              className="grid grid-cols-[auto_minmax(0,3fr)_minmax(0,2fr)_auto_auto] items-center gap-3 border-b border-line-soft/40 px-4 py-3 last:border-b-0"
+              className="grid grid-cols-[auto_minmax(0,3fr)_minmax(0,2fr)_auto_auto] items-center gap-3 px-5 py-3.5"
+              style={{ borderTop: i === 0 ? "none" : "1px solid var(--sp-border)" }}
             >
-              <input
-                type="checkbox"
-                checked={selected.has(r.userId)}
-                onChange={() => onToggle(r.userId)}
-                className="h-3.5 w-3.5 accent-accent"
-              />
+              <input type="checkbox" checked={selected.has(r.userId)} onChange={() => onToggle(r.userId)} className="h-4 w-4 accent-[#8a9a1f]" />
               <div className="min-w-0">
-                <Link
-                  href={`/admin/users/${r.userId}`}
-                  className="truncate text-sm font-medium text-paper hover:text-accent"
-                >
+                <Link href={`/admin/users/${r.userId}`} className="truncate text-[13px] font-medium hover:underline" style={{ color: "var(--sp-text)" }}>
                   {r.fullName || "(no name yet)"}
                 </Link>
-                <p className="text-[11px] text-paper-muted">
-                  {r.mobile || "no mobile"}
-                  {r.state ? ` · ${r.state}` : ""}
+                <p className="text-[11px]" style={{ color: "var(--sp-text-3)" }}>
+                  {r.mobile || "no mobile"}{r.state ? ` · ${r.state}` : ""}
                 </p>
               </div>
-              <div className="min-w-0 text-xs text-paper-muted">
-                {r.companyName || "—"}
-              </div>
+              <div className="min-w-0 text-[12px]" style={{ color: "var(--sp-text-2)" }}>{r.companyName || "—"}</div>
               <span
-                className={
-                  "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium " +
-                  (r.dwellDays >= 3
-                    ? "bg-danger/10 text-danger ring-1 ring-inset ring-danger/30"
-                    : "bg-accent/10 text-accent ring-1 ring-inset ring-accent/25")
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-semibold"
+                style={
+                  r.dwellDays >= 3
+                    ? { background: "rgba(224,80,80,0.12)", color: "var(--sp-error)" }
+                    : { background: "var(--sp-lime-10)", color: "var(--sp-lime)" }
                 }
                 title={`Stuck since ${new Date(r.updatedAt).toLocaleDateString()}`}
               >
                 <Clock className="h-3 w-3" aria-hidden />
                 {r.dwellDays}d
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => onVerify(r.userId)}
                   disabled={busy}
-                  className="inline-flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-accent-fg hover:bg-accent-hover disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors disabled:opacity-50"
+                  style={{ background: "var(--sp-lime)", color: "var(--sp-lime-fg)" }}
                 >
                   <CheckCircle2 className="h-3 w-3" aria-hidden /> Verify
                 </button>
@@ -298,7 +265,8 @@ function StageBlock({
                   type="button"
                   onClick={() => onReject(r.userId)}
                   disabled={busy}
-                  className="inline-flex items-center gap-1 rounded-md border border-line px-2.5 py-1 text-[11px] text-paper-muted transition-colors hover:text-danger disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] transition-colors disabled:opacity-50"
+                  style={{ border: "1px solid var(--sp-border)", color: "var(--sp-text-3)" }}
                   title="Reject"
                 >
                   <XCircle className="h-3 w-3" aria-hidden />

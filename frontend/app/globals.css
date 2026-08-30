@@ -397,6 +397,48 @@
   border: 1px solid var(--sp-border);
 }
 
+/* ── Legacy-class bridge — scoped to .spatial only ───────────────────────
+   The user-detail admin page (and any straggler) uses the marketing dark
+   tokens (.surface, .text-paper, .bg-ink-*, etc). Remap them to the spatial
+   palette so those pages theme correctly in both light and dark WITHOUT a
+   full rewrite. This never affects the auth / user-facing pages, which live
+   outside .spatial. */
+.spatial .surface {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-airy-border);
+  border-radius: 20px;
+  box-shadow: var(--sp-airy-shadow);
+}
+.spatial .surface::before { display: none; }
+
+.spatial .text-paper { color: var(--sp-text); }
+.spatial .text-paper-muted,
+.spatial .text-mute { color: var(--sp-text-3); }
+.spatial .text-title { color: var(--sp-text); }
+.spatial .text-danger { color: var(--sp-error); }
+.spatial .text-accent { color: var(--sp-lime); }
+.spatial .text-gradient {
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  color: var(--sp-lime);
+}
+
+.spatial .bg-ink { background-color: var(--sp-canvas); }
+.spatial .bg-ink-soft { background-color: var(--sp-card-2); }
+.spatial .bg-ink-elevated { background-color: var(--sp-card-2); }
+.spatial .bg-accent { background-color: var(--sp-lime); }
+.spatial .bg-accent-soft { background-color: var(--sp-lime-10); }
+.spatial .text-accent-fg { color: var(--sp-lime-fg); }
+
+.spatial .border-line { border-color: var(--sp-border-strong); }
+.spatial .border-line-soft { border-color: var(--sp-border); }
+.spatial .divide-line-soft > * + * { border-color: var(--sp-border); }
+
+.spatial .hover\:text-paper:hover { color: var(--sp-text); }
+.spatial .hover\:text-accent:hover { color: var(--sp-lime); }
+.spatial .hover\:bg-accent-soft:hover { background-color: var(--sp-lime-10); }
+.spatial .hover\:border-accent:hover { border-color: var(--sp-lime); }
+
 /* Tabular figures for the whole console — numbers align like a command
    center. Machine values opt into mono via .sp-mono. */
 .spatial {

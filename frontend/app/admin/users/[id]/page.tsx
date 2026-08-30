@@ -22,7 +22,6 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { AdminShell } from "@/components/admin/AdminShell";
 import { adminApi, type UserDetail } from "@/lib/adminApi";
 import { cn } from "@/lib/cn";
 import { useDirtyFlag, useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -77,11 +76,9 @@ const BANK_FIELDS: FieldSpec[] = [
 
 export default function AdminUserDetailPage() {
   return (
-    <AdminShell>
-      <Suspense fallback={<p className="text-sm text-paper-muted">Loading…</p>}>
-        <UserDetailBody />
-      </Suspense>
-    </AdminShell>
+    <Suspense fallback={<p className="text-sm text-paper-muted">Loading…</p>}>
+      <UserDetailBody />
+    </Suspense>
   );
 }
 

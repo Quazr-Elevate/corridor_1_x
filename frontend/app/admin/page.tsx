@@ -13,7 +13,6 @@ import {
   Settings,
   ShieldCheck,
 } from "lucide-react";
-import { AdminShell } from "@/components/admin/AdminShell";
 import { OnboardingTimeline } from "@/components/admin/OnboardingTimeline";
 import { RevealsFeed } from "@/components/admin/RevealsFeed";
 import { Rise } from "@/components/admin/spatial";
@@ -25,11 +24,7 @@ import {
 } from "@/lib/adminApi";
 
 export default function AdminDashboardPage() {
-  return (
-    <AdminShell>
-      <DashboardBody />
-    </AdminShell>
-  );
+  return <DashboardBody />;
 }
 
 function DashboardBody() {
