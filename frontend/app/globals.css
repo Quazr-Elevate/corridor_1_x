@@ -309,6 +309,94 @@
   box-shadow: 0 10px 30px rgba(20, 30, 20, 0.06);
 }
 
+/* ── "Airy" surface language (Dynamics-365 style reference) ───────────────
+   Soft neutral canvas, pure-white super-rounded floating cards, pill chips,
+   circular icon buttons, and the signature soft gradient insight panel.
+   Themed via --sp-* so dark inherits sensible values too. */
+.spatial.sp-light {
+  --sp-canvas: #ececeb;          /* warm neutral, not white */
+  --sp-card: #ffffff;
+  --sp-card-2: #f7f8f5;
+  --sp-airy-shadow: 0 1px 2px rgba(20, 25, 20, 0.04), 0 18px 40px -20px rgba(20, 25, 20, 0.14);
+  --sp-airy-border: rgba(20, 25, 20, 0.06);
+}
+.spatial {
+  /* dark fallbacks so .sp-airy-* work in both themes */
+  --sp-card: var(--sp-surface);
+  --sp-card-2: var(--sp-surface-elevated);
+  --sp-airy-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --sp-airy-border: var(--sp-border);
+}
+
+.sp-airy {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-airy-border);
+  border-radius: 22px;
+  box-shadow: var(--sp-airy-shadow);
+}
+
+.sp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 12.5px;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-airy-border);
+  color: var(--sp-text-2);
+  transition: background 150ms var(--sp-ease), color 150ms var(--sp-ease),
+    box-shadow 150ms var(--sp-ease);
+}
+.sp-chip:hover {
+  color: var(--sp-text);
+  box-shadow: 0 4px 14px -6px rgba(20, 25, 20, 0.18);
+}
+.sp-chip[data-active="true"] {
+  background: var(--sp-lime);
+  color: var(--sp-lime-fg);
+  border-color: transparent;
+}
+
+.sp-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  width: 40px;
+  border-radius: 999px;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-airy-border);
+  color: var(--sp-text-2);
+  box-shadow: var(--sp-airy-shadow);
+  transition: transform 150ms var(--sp-ease), color 150ms var(--sp-ease);
+}
+.sp-icon-btn:hover {
+  color: var(--sp-text);
+  transform: translateY(-1px);
+}
+
+/* Signature soft gradient insight panel — lime→mint→pale, brand-tinted. */
+.sp-gradient {
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg,
+      rgba(196, 216, 46, 0.42) 0%,
+      rgba(170, 214, 160, 0.34) 38%,
+      rgba(198, 224, 214, 0.30) 66%,
+      rgba(232, 236, 228, 0.5) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+.spatial:not(.sp-light) .sp-gradient {
+  background:
+    linear-gradient(135deg,
+      rgba(196, 216, 46, 0.14) 0%,
+      rgba(120, 150, 110, 0.12) 45%,
+      rgba(90, 120, 120, 0.1) 70%,
+      rgba(20, 24, 20, 0.2) 100%);
+  border: 1px solid var(--sp-border);
+}
+
 /* Tabular figures for the whole console — numbers align like a command
    center. Machine values opt into mono via .sp-mono. */
 .spatial {
