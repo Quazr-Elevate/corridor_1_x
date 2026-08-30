@@ -5,10 +5,11 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Lock } from "lucide-react";
 import { adminApi } from "@/lib/adminApi";
-import { Rise, SpatialField } from "@/components/admin/spatial";
+import { Rise, SpatialField, useAdminTheme } from "@/components/admin/spatial";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const { cls } = useAdminTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -37,7 +38,7 @@ export default function AdminLoginPage() {
 
   return (
     <main
-      className="spatial relative flex min-h-dvh items-center justify-center overflow-hidden px-5"
+      className={cls + " relative flex min-h-dvh items-center justify-center overflow-hidden px-5"}
       style={{ paddingTop: "max(env(safe-area-inset-top),24px)", paddingBottom: "max(env(safe-area-inset-bottom),24px)" }}
     >
       <SpatialField />

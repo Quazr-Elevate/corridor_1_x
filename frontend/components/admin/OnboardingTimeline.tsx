@@ -2,9 +2,9 @@
 
 import type { TimelinePoint } from "@/lib/adminApi";
 
-// Two-series, brand-aligned: buyer = lime, seller = muted olive. No third hue.
+// Two-series, brand-aligned: buyer = lime, seller = muted olive (themed). No third hue.
 const BUYER = "var(--sp-lime)";
-const SELLER = "#6E7A56";
+const SELLER = "var(--sp-seller)";
 
 export function OnboardingTimeline({ data }: { data: TimelinePoint[] }) {
   const max = Math.max(1, ...data.map((d) => d.buyer + d.seller));
@@ -43,7 +43,7 @@ export function OnboardingTimeline({ data }: { data: TimelinePoint[] }) {
 
               <div
                 className="pointer-events-none absolute -top-12 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-[8px] px-2.5 py-1.5 text-[10px] backdrop-blur group-hover:block"
-                style={{ border: "1px solid var(--sp-border)", background: "rgba(13,15,13,0.96)", color: "var(--sp-text)" }}
+                style={{ border: "1px solid var(--sp-border)", background: "var(--sp-tooltip)", color: "var(--sp-text)" }}
               >
                 <p style={{ color: "var(--sp-text-3)" }}>{d.date}</p>
                 <p className="mt-0.5">

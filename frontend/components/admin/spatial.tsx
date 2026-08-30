@@ -1,7 +1,46 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+
+/**
+ * Admin theme — light | dark, derived from the same --sp-* tokens. Persisted
+ * per-viewer in localStorage. Light is the default (the console's chosen
+ * look); dark stays one toggle away.
+ *
+ * Returns the class suffix to append to a `.spatial` root and a toggle. Each
+ * spatial root (shell + login) calls this so both surfaces stay in sync
+ * across navigations.
+ */
+export type AdminTheme = "light" | "dark";
+const THEME_KEY = "cor1x-admin-theme";
+
+export function useAdminTheme(): { theme: AdminTheme; toggle: () => void; cls: string } {
+  const [theme, setTheme] = useState<AdminTheme>("light");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved === "dark" || saved === "light") setTheme(saved);
+    } catch {
+      /* storage blocked — stay on the default */
+    }
+  }, []);
+
+  const toggle = useCallback(() => {
+    setTheme((t) => {
+      const next = t === "light" ? "dark" : "light";
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  return { theme, toggle, cls: theme === "light" ? "spatial sp-light" : "spatial" };
+}
 
 /**
  * RouteTransition — replays the fade+rise entry every time the admin route

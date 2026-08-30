@@ -256,10 +256,57 @@
   --sp-error: #e56b6f;
   --sp-info: #7e9fff;
 
+  /* Theme-dependent extras (buyer=lime everywhere; seller + chrome vary). */
+  --sp-seller: #8b9a63;
+  --sp-topbar: rgba(9, 10, 9, 0.72);
+  --sp-tooltip: rgba(13, 15, 13, 0.96);
+  --sp-scrim: rgba(0, 0, 0, 0.5);
+
   --sp-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   background: var(--sp-canvas);
   color: var(--sp-text);
+  transition: background 220ms var(--sp-ease), color 220ms var(--sp-ease);
+}
+
+/* ── Light theme — derived from the same --sp-* tokens (design-system §5). */
+.spatial.sp-light {
+  --sp-canvas: #f5f6f2;
+  --sp-canvas-elevated: #ffffff;
+  --sp-surface: #ffffff;
+  --sp-surface-elevated: #ffffff;
+  --sp-surface-interactive: #f0f2ec;
+  --sp-border: #dee2dc;
+  --sp-border-strong: #ccd2ca;
+
+  --sp-text: #171917;
+  --sp-text-2: #697068;
+  --sp-text-3: #929990;
+  --sp-text-disabled: #b3b8b0;
+
+  /* Lime reads too bright on white — deepen it for legible signal + text. */
+  --sp-lime: #aebf1f;
+  --sp-lime-fg: #171917;
+  --sp-lime-06: rgba(150, 165, 20, 0.08);
+  --sp-lime-10: rgba(150, 165, 20, 0.13);
+  --sp-lime-14: rgba(150, 165, 20, 0.2);
+  --sp-lime-18: rgba(150, 165, 20, 0.26);
+
+  --sp-success: #6f9c1f;
+  --sp-warning: #b8862a;
+  --sp-error: #c0403f;
+  --sp-info: #4f6fd6;
+
+  --sp-seller: #7c8a4a;
+  --sp-topbar: rgba(245, 246, 242, 0.82);
+  --sp-tooltip: rgba(255, 255, 255, 0.98);
+  --sp-scrim: rgba(30, 35, 25, 0.28);
+}
+
+/* On light, the CTA lime slab keeps dark text; surfaces get a real shadow. */
+.spatial.sp-light .sp-surface,
+.spatial.sp-light .sp-surface-2 {
+  box-shadow: 0 10px 30px rgba(20, 30, 20, 0.06);
 }
 
 /* Tabular figures for the whole console — numbers align like a command

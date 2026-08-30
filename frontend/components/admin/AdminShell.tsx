@@ -4,10 +4,10 @@ import { ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CheckSquare, LayoutDashboard, LogOut, Menu, Users, X } from "lucide-react";
+import { CheckSquare, LayoutDashboard, LogOut, Menu, Moon, Sun, Users, X } from "lucide-react";
 import { adminApi } from "@/lib/adminApi";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
-import { RouteTransition, SpatialField } from "./spatial";
+import { RouteTransition, SpatialField, useAdminTheme, type AdminTheme } from "./spatial";
 
 interface Props {
   children: ReactNode;
@@ -31,6 +31,7 @@ function AdminShellInner({ children }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { confirmIfDirty } = useUnsavedGuard();
+  const { theme, toggle, cls } = useAdminTheme();
   const [email, setEmail] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [drawer, setDrawer] = useState(false);
@@ -59,7 +60,7 @@ function AdminShellInner({ children }: Props) {
 
   if (!ready) {
     return (
-      <main className="spatial flex min-h-dvh items-center justify-center">
+      <main className={cls + " flex min-h-dvh items-center justify-center"}>
         <p className="text-sm" style={{ color: "var(--sp-text-3)" }}>
           Loading…
         </p>
@@ -69,7 +70,7 @@ function AdminShellInner({ children }: Props) {
   if (!email) return null;
 
   return (
-    <div className="spatial relative min-h-dvh">
+    <div className={cls + " relative min-h-dvh"}>
       <SpatialField />
 
       {/* ── Mobile top bar ── */}
@@ -77,7 +78,7 @@ function AdminShellInner({ children }: Props) {
         className="sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-3 backdrop-blur-xl md:hidden"
         style={{
           borderColor: "var(--sp-border)",
-          background: "rgba(9,10,9,0.75)",
+          background: "var(--sp-topbar)",
           paddingTop: "max(env(safe-area-inset-top), 12px)",
         }}
       >
@@ -113,6 +114,8 @@ function AdminShellInner({ children }: Props) {
           email={email}
           onNav={nav}
           onSignOut={signOut}
+          theme={theme}
+          onToggleTheme={toggle}
           className="sticky top-0 hidden h-dvh w-[240px] shrink-0 md:flex"
         />
 
@@ -124,13 +127,15 @@ function AdminShellInner({ children }: Props) {
               aria-label="Close menu"
               onClick={() => setDrawer(false)}
               className="absolute inset-0"
-              style={{ background: "rgba(0,0,0,0.5)", animation: "dotsIn 0.2s ease both" }}
+              style={{ background: "var(--sp-scrim)", animation: "dotsIn 0.2s ease both" }}
             />
             <Sidebar
               pathname={pathname}
               email={email}
               onNav={nav}
               onSignOut={signOut}
+              theme={theme}
+              onToggleTheme={toggle}
               onClose={() => setDrawer(false)}
               className="relative flex h-full w-[260px] max-w-[80vw]"
               style={{
@@ -155,6 +160,8 @@ function Sidebar({
   email,
   onNav,
   onSignOut,
+  theme,
+  onToggleTheme,
   onClose,
   className = "",
   style,
@@ -163,6 +170,8 @@ function Sidebar({
   email: string;
   onNav: (href: string) => void;
   onSignOut: () => void;
+  theme: AdminTheme;
+  onToggleTheme: () => void;
   onClose?: () => void;
   className?: string;
   style?: React.CSSProperties;
@@ -252,7 +261,25 @@ function Sidebar({
         })}
       </nav>
 
-      <div className="mt-auto pt-4" style={{ borderTop: "1px solid var(--sp-border)" }}>
+      {/* Theme toggle — light | dark, same tokens. */}
+      <button
+        type="button"
+        onClick={onToggleTheme}
+        aria-label={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+        className="mt-auto flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 text-[13px] transition-colors"
+        style={{ color: "var(--sp-text-2)" }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--sp-surface)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      >
+        {theme === "light" ? (
+          <Moon aria-hidden className="h-[18px] w-[18px]" style={{ color: "var(--sp-text-3)" }} />
+        ) : (
+          <Sun aria-hidden className="h-[18px] w-[18px]" style={{ color: "var(--sp-lime)" }} />
+        )}
+        {theme === "light" ? "Dark theme" : "Light theme"}
+      </button>
+
+      <div className="mt-2 pt-4" style={{ borderTop: "1px solid var(--sp-border)" }}>
         <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--sp-text-3)" }}>
           Signed in
         </p>

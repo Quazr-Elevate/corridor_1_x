@@ -113,7 +113,7 @@ function DashboardBody() {
           </div>
           <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--sp-text-3)" }}>
             <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "var(--sp-lime)" }} />Buyer</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#6E7A56" }} />Seller</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "var(--sp-seller)" }} />Seller</span>
           </div>
         </div>
         <OnboardingTimeline data={timeline} />
@@ -173,7 +173,7 @@ function DashboardBody() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-medium" style={{ color: "var(--sp-text)" }}>
                       {r.fullName || r.mobile || "—"}
-                      <span className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: r.userType === "seller" ? "#8B9A63" : "var(--sp-lime)" }}>
+                      <span className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: r.userType === "seller" ? "var(--sp-seller)" : "var(--sp-lime)" }}>
                         · {r.userType}
                       </span>
                     </p>
@@ -200,7 +200,7 @@ function DashboardBody() {
           <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>Where your users are logging in from</p>
           <div className="mt-4 grid grid-cols-2 gap-6">
             <StateColumn title="Buyers" accent="var(--sp-lime)" rows={stats.topStates.buyer} />
-            <StateColumn title="Sellers" accent="#8B9A63" rows={stats.topStates.seller} />
+            <StateColumn title="Sellers" accent="var(--sp-seller)" rows={stats.topStates.seller} />
           </div>
         </Rise>
 
