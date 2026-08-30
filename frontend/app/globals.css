@@ -227,6 +227,97 @@
   100% { transform: translateY(0); }
 }
 
+/* ── Corridor Spatial UI — admin console theme + motion ───────────────────
+   Scoped under .spatial so it never touches the light auth screens or the
+   user dashboard. AdminShell puts .spatial on its root. */
+.spatial {
+  --sp-canvas: #090a09;
+  --sp-canvas-elevated: #0d0f0d;
+  --sp-surface: #121412;
+  --sp-surface-elevated: #171a17;
+  --sp-surface-interactive: #1c201c;
+  --sp-border: #252a25;
+  --sp-border-strong: #303630;
+
+  --sp-text: #f2f4ee;
+  --sp-text-2: #9aa197;
+  --sp-text-3: #6f766e;
+  --sp-text-disabled: #50564f;
+
+  --sp-lime: #c4d82e;
+  --sp-lime-fg: #0a0a0a;
+  --sp-lime-06: rgba(196, 216, 46, 0.06);
+  --sp-lime-10: rgba(196, 216, 46, 0.1);
+  --sp-lime-14: rgba(196, 216, 46, 0.14);
+  --sp-lime-18: rgba(196, 216, 46, 0.18);
+
+  --sp-success: #a9d84a;
+  --sp-warning: #e6b84a;
+  --sp-error: #e56b6f;
+  --sp-info: #7e9fff;
+
+  --sp-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  background: var(--sp-canvas);
+  color: var(--sp-text);
+}
+
+/* Tabular figures for the whole console — numbers align like a command
+   center. Machine values opt into mono via .sp-mono. */
+.spatial {
+  font-variant-numeric: tabular-nums;
+}
+.spatial .sp-mono {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+  font-variant-numeric: normal;
+}
+
+/* Spatial surface object — one soft shadow, 1px border, subtle top sheen. */
+.sp-surface {
+  background: var(--sp-surface);
+  border: 1px solid var(--sp-border);
+  border-radius: 16px;
+}
+.sp-surface-2 {
+  background: var(--sp-surface-elevated);
+  border: 1px solid var(--sp-border);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Route-transition: page bodies fade + rise on navigation. */
+@keyframes spRoute {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.sp-route {
+  animation: spRoute 320ms var(--sp-ease) both;
+}
+
+/* Staggered section entry helper (delay via inline style). */
+@keyframes spRise {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Drawer slide for mobile nav. */
+@keyframes spDrawerIn {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(0); }
+}
+
+/* Timeline bars grow up on entry. */
+@keyframes spBarGrow {
+  0% { transform: scaleY(0); opacity: 0; }
+  100% { transform: scaleY(1); opacity: 1; }
+}
+
+/* Funnel connector draws in. */
+@keyframes spDraw {
+  0% { transform: scaleY(0); }
+  100% { transform: scaleY(1); }
+}
+
 /* Auth-screen chrome (from the design canvas's Sign up / Log in screens):
    a faint chartreuse pool bleeding down from the top edge over pure black. */
 .auth-screen-glow {

@@ -16,6 +16,7 @@ import {
 import { AdminShell } from "@/components/admin/AdminShell";
 import { OnboardingTimeline } from "@/components/admin/OnboardingTimeline";
 import { RevealsFeed } from "@/components/admin/RevealsFeed";
+import { Rise } from "@/components/admin/spatial";
 import {
   adminApi,
   type DashboardStats,
@@ -48,113 +49,83 @@ function DashboardBody() {
   }, []);
 
   if (err) {
-    return <p className="text-sm text-danger">Could not load dashboard: {err}</p>;
+    return (
+      <div className="sp-surface p-6">
+        <p className="text-sm" style={{ color: "var(--sp-error)" }}>
+          Could not load dashboard: {err}
+        </p>
+        <button
+          type="button"
+          onClick={() => location.reload()}
+          className="mt-3 text-[13px] font-semibold"
+          style={{ color: "var(--sp-lime)" }}
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
-  if (!stats) {
-    return <p className="text-sm text-paper-muted">Loading…</p>;
-  }
+  if (!stats) return <DashboardSkeleton />;
 
   const wow =
     stats.signupsPrevWeek > 0
-      ? Math.round(
-          ((stats.signupsThisWeek - stats.signupsPrevWeek) /
-            stats.signupsPrevWeek) *
-            100,
-        )
+      ? Math.round(((stats.signupsThisWeek - stats.signupsPrevWeek) / stats.signupsPrevWeek) * 100)
       : null;
 
   return (
-    <div className="space-y-8">
-      <header>
-        <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-          <span
-            aria-hidden
-            className="mr-1.5 inline-block h-1 w-1 -translate-y-[2px] rounded-full bg-accent align-middle"
-          />
-          Admin console
-        </p>
-        <h1 className="mt-2 text-display text-paper">Dashboard</h1>
-        <p className="mt-2 text-sm text-paper-muted">
-          Onboarding health, verification funnel, and account moderation at a glance.
-        </p>
-      </header>
+    <div className="mx-auto max-w-[1200px] space-y-8">
+      {/* Header */}
+      <Rise i={0} className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--sp-text-3)" }}>
+            <span className="h-1 w-1 rounded-full" style={{ background: "var(--sp-lime)" }} />
+            Admin console
+          </p>
+          <h1 className="mt-2 text-[30px] font-semibold tracking-[-0.02em]" style={{ color: "var(--sp-text)" }}>
+            Dashboard
+          </h1>
+          <p className="mt-1.5 max-w-lg text-[13.5px]" style={{ color: "var(--sp-text-2)" }}>
+            Onboarding health, verification funnel, and account moderation at a glance.
+          </p>
+        </div>
+      </Rise>
 
-      {/* KPI tiles */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi
-          icon={<UserRound className="h-4 w-4" />}
-          label="Total buyers"
-          value={stats.totalBuyers}
-          hint="Registered accounts"
-          href="/admin/users?type=buyer"
-        />
-        <Kpi
-          icon={<Users className="h-4 w-4" />}
-          label="Total sellers"
-          value={stats.totalSellers}
-          hint="Users with a listing"
-          href="/admin/users?type=seller"
-        />
-        <Kpi
-          icon={<ShieldCheck className="h-4 w-4" />}
-          label="Verified"
-          value={stats.totalVerified}
-          hint="All 3 sections complete"
-          href="/admin/users?status=verified"
-        />
+      {/* KPI objects */}
+      <Rise i={1} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi icon={<UserRound className="h-4 w-4" />} label="Total buyers" value={stats.totalBuyers} hint="Registered accounts" href="/admin/users?type=buyer" />
+        <Kpi icon={<Users className="h-4 w-4" />} label="Total sellers" value={stats.totalSellers} hint="Users with a listing" href="/admin/users?type=seller" />
+        <Kpi icon={<ShieldCheck className="h-4 w-4" />} label="Verified" value={stats.totalVerified} hint="All 3 sections complete" href="/admin/users?status=verified" />
         <Kpi
           icon={<TrendingUp className="h-4 w-4" />}
           label="Signups this week"
           value={stats.signupsThisWeek}
-          hint={
-            wow === null
-              ? "vs prev week: —"
-              : `${wow >= 0 ? "+" : ""}${wow}% vs prev week`
-          }
-          positiveHint={wow !== null && wow >= 0}
+          hint={wow === null ? "vs prev week: —" : `${wow >= 0 ? "+" : ""}${wow}% vs prev week`}
+          positive={wow !== null && wow >= 0}
         />
-      </div>
+      </Rise>
 
       {/* Timeline */}
-      <section className="surface p-5 sm:p-6">
+      <Rise i={2} className="sp-surface p-5 sm:p-6">
         <div className="flex items-baseline justify-between">
           <div>
-            <p className="text-title text-paper">Onboarding timeline</p>
-            <p className="mt-0.5 text-xs text-paper-muted">
-              Last 30 days · signups per day, split by role
-            </p>
+            <p className="text-[15px] font-semibold" style={{ color: "var(--sp-text)" }}>Onboarding timeline</p>
+            <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>Last 30 days · signups per day, split by role</p>
           </div>
-          <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-paper-muted">
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="inline-block h-2 w-2 rounded-sm bg-accent"
-              />
-              Buyer
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="inline-block h-2 w-2 rounded-sm"
-                style={{ background: "var(--violet)" }}
-              />
-              Seller
-            </span>
+          <div className="flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: "var(--sp-text-3)" }}>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "var(--sp-lime)" }} />Buyer</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: "#6E7A56" }} />Seller</span>
           </div>
         </div>
         <OnboardingTimeline data={timeline} />
-      </section>
+      </Rise>
 
-      {/* Recent contact reveals — signals conversion */}
-      <RevealsFeed />
+      {/* Reveals */}
+      <Rise i={3}><RevealsFeed /></Rise>
 
-      {/* Quick filter chips → user list */}
-      <section>
-        <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-          <span
-            aria-hidden
-            className="mr-1.5 inline-block h-1 w-1 -translate-y-[2px] rounded-full bg-accent align-middle"
-          />
+      {/* Quick filters */}
+      <Rise i={4}>
+        <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em]" style={{ color: "var(--sp-text-3)" }}>
+          <span className="h-1 w-1 rounded-full" style={{ background: "var(--sp-lime)" }} />
           Jump into users
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -162,137 +133,98 @@ function DashboardBody() {
           <FilterChip href="/admin/users?type=buyer">Buyers</FilterChip>
           <FilterChip href="/admin/users?type=seller">Sellers</FilterChip>
           <FilterChip href="/admin/users?status=verified">Verified</FilterChip>
-          <FilterChip href="/admin/users?status=signed_up">
-            Signed up (incomplete)
-          </FilterChip>
+          <FilterChip href="/admin/users?status=signed_up">Signed up (incomplete)</FilterChip>
         </div>
-      </section>
+      </Rise>
 
-      {/* Two-column: funnel + recent */}
+      {/* Funnel + recent */}
       <div className="grid gap-6 lg:grid-cols-5">
-        <section className="surface p-5 sm:p-6 lg:col-span-3">
-          <p className="text-title text-paper">Verification funnel</p>
-          <p className="mt-0.5 text-xs text-paper-muted">
+        <Rise i={5} className="sp-surface p-5 sm:p-6 lg:col-span-3">
+          <p className="text-[15px] font-semibold" style={{ color: "var(--sp-text)" }}>Verification funnel</p>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>
             Where users are stuck along the primary → business → bank path
           </p>
-          <FunnelBars funnel={stats.funnel} />
-        </section>
+          <Funnel funnel={stats.funnel} />
+        </Rise>
 
-        <section className="surface p-5 sm:p-6 lg:col-span-2">
+        <Rise i={6} className="sp-surface p-5 sm:p-6 lg:col-span-2">
           <div className="flex items-baseline justify-between">
-            <p className="text-title text-paper">Recent signups</p>
-            <Link
-              href="/admin/users"
-              className="text-[11px] uppercase tracking-widest text-paper-muted hover:text-paper"
-            >
+            <p className="text-[15px] font-semibold" style={{ color: "var(--sp-text)" }}>Recent signups</p>
+            <Link href="/admin/users" className="text-[10px] font-bold uppercase tracking-[0.12em] transition-colors hover:underline" style={{ color: "var(--sp-text-3)" }}>
               View all
             </Link>
           </div>
-          <ul className="mt-4 divide-y divide-line-soft">
-            {recent.map((r) => (
-              <li key={r.userId}>
+          <ul className="mt-4">
+            {recent.map((r, i) => (
+              <li key={r.userId} style={{ borderTop: i === 0 ? "none" : "1px solid var(--sp-border)" }}>
                 <Link
                   href={`/admin/users/${r.userId}`}
-                  className="group flex items-center gap-3 py-3 first:pt-2 last:pb-2"
+                  className="group flex items-center gap-3 rounded-[10px] px-2 py-3 transition-colors"
+                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--sp-surface-elevated)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   <span
                     aria-hidden
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-soft bg-ink-elevated text-[11px] font-semibold text-paper"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                    style={{ border: "1px solid var(--sp-border)", background: "var(--sp-surface-interactive)", color: "var(--sp-text)" }}
                   >
                     {(r.fullName || r.mobile || "?").slice(0, 2).toUpperCase()}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-paper">
+                    <p className="truncate text-[13px] font-medium" style={{ color: "var(--sp-text)" }}>
                       {r.fullName || r.mobile || "—"}
-                      <span
-                        className="ml-1.5 align-middle text-[9px] uppercase tracking-widest"
-                        style={{
-                          color:
-                            r.userType === "seller"
-                              ? "var(--violet)"
-                              : "var(--accent)",
-                        }}
-                      >
+                      <span className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: r.userType === "seller" ? "#8B9A63" : "var(--sp-lime)" }}>
                         · {r.userType}
                       </span>
                     </p>
-                    <p className="mt-0.5 truncate text-[11px] text-paper-muted">
+                    <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--sp-text-3)" }}>
                       <Clock aria-hidden className="mr-1 inline h-3 w-3" />
                       {timeAgo(r.createdAt)} · {r.status}
                     </p>
                   </div>
-                  <ArrowUpRight
-                    aria-hidden
-                    className="h-4 w-4 shrink-0 text-paper-muted transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-paper"
-                  />
+                  <ArrowUpRight aria-hidden className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" style={{ color: "var(--sp-text-3)" }} />
                 </Link>
               </li>
             ))}
-            {recent.length === 0 ? (
-              <li className="py-6 text-center text-xs text-paper-muted">
-                No signups yet.
-              </li>
-            ) : null}
+            {recent.length === 0 && (
+              <li className="py-6 text-center text-xs" style={{ color: "var(--sp-text-3)" }}>No signups yet.</li>
+            )}
           </ul>
-        </section>
+        </Rise>
       </div>
 
-      {/* Bottom row — geo + duplicates */}
+      {/* Geo + duplicates */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="surface p-5 sm:p-6">
-          <p className="text-title text-paper">Top states</p>
-          <p className="mt-0.5 text-xs text-paper-muted">
-            Where your users are logging in from
-          </p>
+        <Rise i={7} className="sp-surface p-5 sm:p-6">
+          <p className="text-[15px] font-semibold" style={{ color: "var(--sp-text)" }}>Top states</p>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>Where your users are logging in from</p>
           <div className="mt-4 grid grid-cols-2 gap-6">
-            <StateColumn
-              title="Buyers"
-              accent="var(--accent)"
-              rows={stats.topStates.buyer}
-            />
-            <StateColumn
-              title="Sellers"
-              accent="var(--violet)"
-              rows={stats.topStates.seller}
-            />
+            <StateColumn title="Buyers" accent="var(--sp-lime)" rows={stats.topStates.buyer} />
+            <StateColumn title="Sellers" accent="#8B9A63" rows={stats.topStates.seller} />
           </div>
-        </section>
+        </Rise>
 
-        <section className="surface p-5 sm:p-6">
-          <p className="text-title text-paper">Duplicate alerts</p>
-          <p className="mt-0.5 text-xs text-paper-muted">
-            Accounts sharing the same GSTIN or PAN
-          </p>
+        <Rise i={8} className="sp-surface p-5 sm:p-6">
+          <p className="text-[15px] font-semibold" style={{ color: "var(--sp-text)" }}>Duplicate alerts</p>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--sp-text-3)" }}>Accounts sharing the same GSTIN or PAN</p>
           {stats.duplicateAlerts.length === 0 ? (
-            <p className="mt-4 flex items-center gap-2 text-xs text-paper-muted">
-              <ShieldCheck aria-hidden className="h-3.5 w-3.5 text-accent" />
+            <p className="mt-4 flex items-center gap-2 text-xs" style={{ color: "var(--sp-text-3)" }}>
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--sp-lime)" }} />
               No duplicates flagged.
             </p>
           ) : (
             <ul className="mt-4 space-y-2">
               {stats.duplicateAlerts.map((a, i) => (
-                <li
-                  key={`${a.kind}-${a.value}-${i}`}
-                  className="flex items-start gap-3 rounded-md border border-line-soft bg-ink-elevated px-3 py-2.5"
-                >
-                  <AlertTriangle
-                    aria-hidden
-                    className="mt-0.5 h-4 w-4 shrink-0"
-                    style={{ color: "var(--danger)" }}
-                  />
+                <li key={`${a.kind}-${a.value}-${i}`} className="flex items-start gap-3 rounded-[10px] px-3 py-2.5" style={{ border: "1px solid var(--sp-border)", background: "var(--sp-surface-elevated)" }}>
+                  <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--sp-error)" }} />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs text-paper">
-                      {a.kind}{" "}
-                      <span className="text-paper-muted">·</span>{" "}
-                      <span className="font-mono">{a.value}</span>
+                    <p className="text-xs" style={{ color: "var(--sp-text)" }}>
+                      {a.kind} <span style={{ color: "var(--sp-text-3)" }}>·</span> <span className="sp-mono">{a.value}</span>
                     </p>
-                    <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-paper-muted">
+                    <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px]" style={{ color: "var(--sp-text-3)" }}>
                       {a.users.map((u) => (
                         <li key={u.user_id}>
-                          <Link
-                            href={`/admin/users/${u.user_id}`}
-                            className="text-paper underline decoration-line hover:decoration-paper"
-                          >
+                          <Link href={`/admin/users/${u.user_id}`} className="underline hover:no-underline" style={{ color: "var(--sp-text)" }}>
                             {u.label}
                           </Link>
                         </li>
@@ -303,13 +235,13 @@ function DashboardBody() {
               ))}
             </ul>
           )}
-        </section>
+        </Rise>
       </div>
     </div>
   );
 }
 
-// ── UI ─────────────────────────────────────────────────────────────────────
+// ── UI ───────────────────────────────────────────────────────────────────────
 
 function Kpi({
   icon,
@@ -317,82 +249,120 @@ function Kpi({
   value,
   hint,
   href,
-  positiveHint,
+  positive,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
   hint?: string;
   href?: string;
-  positiveHint?: boolean;
+  positive?: boolean;
 }) {
   const inner = (
-    <div className="surface flex h-full flex-col justify-between p-4">
+    <div
+      className="sp-surface flex h-full flex-col justify-between p-5 transition-[transform,border-color] duration-150"
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "translateY(-1px)";
+        e.currentTarget.style.borderColor = "var(--sp-border-strong)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.borderColor = "var(--sp-border)";
+      }}
+    >
       <div className="flex items-center justify-between">
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent">
+        <span className="flex h-8 w-8 items-center justify-center rounded-[10px]" style={{ background: "var(--sp-lime-10)", color: "var(--sp-lime)" }}>
           {icon}
         </span>
-        {href ? (
-          <ArrowUpRight
-            aria-hidden
-            className="h-3.5 w-3.5 text-paper-muted transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-paper"
-          />
-        ) : null}
+        {href && <ArrowUpRight aria-hidden className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" style={{ color: "var(--sp-text-3)" }} />}
       </div>
-      <div className="mt-3">
-        <p className="text-2xl font-semibold tracking-tight text-paper">{value}</p>
-        <p className="mt-0.5 text-[11px] text-paper-muted">{label}</p>
+      <div className="mt-4">
+        <p className="text-[30px] font-semibold leading-none tracking-tight" style={{ color: "var(--sp-text)" }}>{value}</p>
+        <p className="mt-1.5 text-[12px]" style={{ color: "var(--sp-text-2)" }}>{label}</p>
       </div>
-      {hint ? (
-        <p
-          className={
-            "mt-2 text-[11px] " +
-            (positiveHint ? "text-accent" : "text-paper-muted")
-          }
-        >
-          {hint}
-        </p>
-      ) : null}
+      {hint && (
+        <p className="mt-2.5 text-[11px]" style={{ color: positive ? "var(--sp-lime)" : "var(--sp-text-3)" }}>{hint}</p>
+      )}
     </div>
   );
-  return href ? (
-    <Link href={href} className="group">
-      {inner}
-    </Link>
-  ) : (
-    inner
-  );
+  return href ? <Link href={href} className="group">{inner}</Link> : inner;
 }
 
-function FunnelBars({ funnel }: { funnel: Record<string, number> }) {
-  const stages: { key: string; label: string }[] = [
-    { key: "signed_up", label: "Signed up · nothing filled" },
-    { key: "primary_pending", label: "Primary details pending" },
-    { key: "business_pending", label: "Business details pending" },
-    { key: "bank_pending", label: "Bank details pending" },
-    { key: "verified", label: "Verified" },
+// Route-style funnel — a vertical progression with a lime connector, count
+// per stage, share bar, and a highlighted bottleneck (the non-verified stage
+// holding the most users).
+function Funnel({ funnel }: { funnel: Record<string, number> }) {
+  const stages = [
+    { key: "signed_up", label: "Signed up", sub: "nothing filled" },
+    { key: "primary_pending", label: "Primary details", sub: "pending" },
+    { key: "business_pending", label: "Business details", sub: "pending" },
+    { key: "bank_pending", label: "Bank details", sub: "pending" },
+    { key: "verified", label: "Verified", sub: "complete" },
   ];
-  const max = Math.max(1, ...stages.map((s) => funnel[s.key] ?? 0));
+  const counts = stages.map((s) => funnel[s.key] ?? 0);
+  const max = Math.max(1, ...counts);
+  // Bottleneck = the non-verified stage with the most users.
+  let bottleneckIdx = -1;
+  let bottleneckN = -1;
+  stages.forEach((s, i) => {
+    if (s.key !== "verified" && counts[i] > bottleneckN) {
+      bottleneckN = counts[i];
+      bottleneckIdx = i;
+    }
+  });
+
   return (
-    <ul className="mt-5 space-y-4">
-      {stages.map((s) => {
-        const n = funnel[s.key] ?? 0;
+    <ul className="relative mt-5">
+      {stages.map((s, i) => {
+        const n = counts[i];
         const pct = Math.round((n / max) * 100);
+        const isBottleneck = i === bottleneckIdx && n > 0;
+        const isVerified = s.key === "verified";
+        const dot = isVerified ? "var(--sp-lime)" : isBottleneck ? "var(--sp-lime)" : "var(--sp-text-3)";
         return (
-          <li key={s.key}>
-            <div className="flex items-baseline justify-between">
-              <p className="text-xs text-paper">{s.label}</p>
-              <p className="text-xs text-paper-muted">{n}</p>
-            </div>
-            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line-soft">
-              <div
-                className="h-full rounded-full transition-all"
+          <li key={s.key} className="relative grid grid-cols-[20px_minmax(0,1fr)] gap-3 pb-5 last:pb-0">
+            {/* Node + connector rail */}
+            <div className="relative flex justify-center">
+              {i < stages.length - 1 && (
+                <span
+                  aria-hidden
+                  className="absolute top-3 h-full w-px origin-top"
+                  style={{ background: "var(--sp-border-strong)", animation: `spDraw 0.4s var(--sp-ease) ${0.2 + i * 0.08}s both` }}
+                />
+              )}
+              <span
+                aria-hidden
+                className="relative z-10 mt-1.5 h-2.5 w-2.5 rounded-full"
                 style={{
-                  width: `${pct}%`,
-                  background:
-                    s.key === "verified" ? "var(--accent)" : "var(--violet)",
+                  background: dot,
+                  boxShadow: isBottleneck || isVerified ? "0 0 0 4px var(--sp-lime-10)" : "none",
                 }}
               />
+            </div>
+
+            <div>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[13px]" style={{ color: "var(--sp-text)" }}>
+                  {s.label}{" "}
+                  <span className="text-[11px]" style={{ color: "var(--sp-text-3)" }}>· {s.sub}</span>
+                  {isBottleneck && (
+                    <span className="ml-2 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em]" style={{ background: "var(--sp-lime-14)", color: "var(--sp-lime)" }}>
+                      Bottleneck
+                    </span>
+                  )}
+                </p>
+                <p className="text-[13px] font-semibold" style={{ color: "var(--sp-text)" }}>{n}</p>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: "var(--sp-surface-interactive)" }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${pct}%`,
+                    background: isVerified || isBottleneck ? "var(--sp-lime)" : "var(--sp-border-strong)",
+                    transition: "width 0.6s var(--sp-ease)",
+                  }}
+                />
+              </div>
             </div>
           </li>
         );
@@ -405,7 +375,16 @@ function FilterChip({ href, children }: { href: string; children: React.ReactNod
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 rounded-full border border-line-soft bg-ink-elevated px-3 py-1.5 text-xs text-paper transition-colors hover:border-line hover:bg-ink-soft"
+      className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[12.5px] transition-colors"
+      style={{ border: "1px solid var(--sp-border)", background: "var(--sp-surface)", color: "var(--sp-text-2)" }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "var(--sp-lime-14)";
+        e.currentTarget.style.color = "var(--sp-text)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--sp-border)";
+        e.currentTarget.style.color = "var(--sp-text-2)";
+      }}
     >
       {children}
       <ArrowRight aria-hidden className="h-3 w-3" />
@@ -413,36 +392,37 @@ function FilterChip({ href, children }: { href: string; children: React.ReactNod
   );
 }
 
-function StateColumn({
-  title,
-  accent,
-  rows,
-}: {
-  title: string;
-  accent: string;
-  rows: { state: string; count: number }[];
-}) {
+function StateColumn({ title, accent, rows }: { title: string; accent: string; rows: { state: string; count: number }[] }) {
   return (
     <div>
-      <p
-        className="text-[10px] uppercase tracking-widest"
-        style={{ color: accent }}
-      >
-        {title}
-      </p>
+      <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: accent }}>{title}</p>
       {rows.length === 0 ? (
-        <p className="mt-2 text-xs text-paper-muted">No data yet.</p>
+        <p className="mt-2 text-xs" style={{ color: "var(--sp-text-3)" }}>No data yet.</p>
       ) : (
-        <ul className="mt-2 space-y-2">
+        <ul className="mt-2.5 space-y-2">
           {rows.map((r) => (
             <li key={r.state} className="flex items-center gap-2 text-xs">
-              <MapPin aria-hidden className="h-3 w-3 text-paper-muted" />
-              <span className="flex-1 truncate text-paper">{r.state}</span>
-              <span className="text-paper-muted">{r.count}</span>
+              <MapPin aria-hidden className="h-3 w-3" style={{ color: "var(--sp-text-3)" }} />
+              <span className="flex-1 truncate" style={{ color: "var(--sp-text)" }}>{r.state}</span>
+              <span style={{ color: "var(--sp-text-3)" }}>{r.count}</span>
             </li>
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="mx-auto max-w-[1200px] space-y-8">
+      <div className="h-16 w-64 rounded-[12px]" style={{ background: "var(--sp-surface)", animation: "spRise 0.4s var(--sp-ease) both" }} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="h-32 rounded-[16px]" style={{ background: "var(--sp-surface)", opacity: 0.7 }} />
+        ))}
+      </div>
+      <div className="h-56 rounded-[16px]" style={{ background: "var(--sp-surface)", opacity: 0.6 }} />
     </div>
   );
 }
