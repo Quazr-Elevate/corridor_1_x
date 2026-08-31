@@ -65,14 +65,35 @@ def decode_session(token: str) -> str | None:
     return uid if isinstance(uid, str) else None
 
 
+# Cookie cross-site policy.
+#
+# In production (DEBUG=false) the frontend and backend are on DIFFERENT sites
+# — e.g. two *.up.railway.app subdomains, where up.railway.app is a public
+# suffix, so each subdomain is its own site. A SameSite=lax cookie is NOT sent
+# on cross-site requests, so the session/bridge cookies must be
+# `SameSite=None; Secure` to flow from the frontend to the API over HTTPS.
+#
+# In dev (DEBUG=true) we serve over plain http:// on localhost, where
+# SameSite=None would be rejected (it requires Secure, and Secure needs
+# HTTPS). So dev uses SameSite=lax + insecure, which works same-origin.
+#
+# NB: SameSite=None therefore REQUIRES DEBUG=false in production. If you deploy
+# with DEBUG=true, browsers drop the cookie and login silently fails.
+def _cookie_policy() -> tuple[str, bool]:
+    if settings.debug:
+        return "lax", False
+    return "none", True
+
+
 def set_session_cookie(response: Response, user_id: str) -> None:
+    samesite, secure = _cookie_policy()
     response.set_cookie(
         key=SESSION_COOKIE,
         value=issue_session(user_id),
         max_age=SESSION_MAX_AGE_SEC,
         httponly=True,
-        samesite="lax",
-        secure=not settings.debug,
+        samesite=samesite,
+        secure=secure,
         path="/",
     )
 
@@ -102,13 +123,14 @@ def decode_verified_phone(token: str) -> str | None:
 
 
 def set_verified_phone_cookie(response: Response, mobile: str) -> None:
+    samesite, secure = _cookie_policy()
     response.set_cookie(
         key=VERIFIED_PHONE_COOKIE,
         value=issue_verified_phone(mobile),
         max_age=VERIFIED_PHONE_MAX_AGE_SEC,
         httponly=True,
-        samesite="lax",
-        secure=not settings.debug,
+        samesite=samesite,
+        secure=secure,
         path="/",
     )
 

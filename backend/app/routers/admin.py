@@ -56,13 +56,18 @@ async def admin_login(payload: LoginIn, response: Response) -> LoginOut:
     if not verify_password(payload.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = issue_session(settings.admin_email)
+    # Cross-site cookie policy — same rationale as user_session._cookie_policy:
+    # prod (DEBUG=false) → SameSite=None; Secure so the cookie flows from the
+    # frontend to the API across different *.up.railway.app sites over HTTPS;
+    # dev (DEBUG=true) → lax + insecure for same-origin localhost.
+    samesite = "lax" if settings.debug else "none"
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
         value=token,
         max_age=settings.admin_session_max_age_hours * 3600,
         httponly=True,
-        samesite="lax",
-        secure=False,  # flip to True once we're on HTTPS
+        samesite=samesite,
+        secure=not settings.debug,
         path="/",
     )
     return LoginOut(email=settings.admin_email)
