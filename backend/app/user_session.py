@@ -65,24 +65,22 @@ def decode_session(token: str) -> str | None:
     return uid if isinstance(uid, str) else None
 
 
-# Cookie cross-site policy.
+# Cookie cross-site policy — driven by `cross_site_cookies`, NOT DEBUG.
 #
-# In production (DEBUG=false) the frontend and backend are on DIFFERENT sites
-# — e.g. two *.up.railway.app subdomains, where up.railway.app is a public
-# suffix, so each subdomain is its own site. A SameSite=lax cookie is NOT sent
-# on cross-site requests, so the session/bridge cookies must be
-# `SameSite=None; Secure` to flow from the frontend to the API over HTTPS.
+# On any HTTPS deployment where the frontend and backend are different sites
+# (e.g. two *.up.railway.app subdomains — up.railway.app is a public suffix,
+# so each subdomain is its own site), a SameSite=lax cookie is never sent on
+# the cross-site frontend→API request. Set CROSS_SITE_COOKIES=true there so
+# the cookies are `SameSite=None; Secure` and flow over HTTPS.
 #
-# In dev (DEBUG=true) we serve over plain http:// on localhost, where
-# SameSite=None would be rejected (it requires Secure, and Secure needs
-# HTTPS). So dev uses SameSite=lax + insecure, which works same-origin.
-#
-# NB: SameSite=None therefore REQUIRES DEBUG=false in production. If you deploy
-# with DEBUG=true, browsers drop the cookie and login silently fails.
+# Local http://localhost dev leaves it false: SameSite=None requires Secure,
+# and Secure cookies are dropped over plain http, so dev uses lax + insecure.
+# This is independent of DEBUG so a testing env can keep DEBUG=true (OTP stub,
+# relaxed limits) while still issuing working cross-site cookies.
 def _cookie_policy() -> tuple[str, bool]:
-    if settings.debug:
-        return "lax", False
-    return "none", True
+    if settings.cross_site_cookies:
+        return "none", True
+    return "lax", False
 
 
 def set_session_cookie(response: Response, user_id: str) -> None:

@@ -39,9 +39,19 @@ class Settings(BaseSettings):
     # forgeable. Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
     session_secret: str = "dev-only-session-secret-change-me"
 
-    # When true, cookies are set with Secure=false (dev over http://) and rate
-    # limits are relaxed. Off in production.
+    # When true, rate limits are relaxed (dev/testing). Off for real prod.
+    # NOTE: this no longer controls the cookie Secure/SameSite flags — that is
+    # `cross_site_cookies` below, so a testing deploy can keep DEBUG=true (OTP
+    # stub + loose limits) while still issuing cross-site cookies over HTTPS.
     debug: bool = True
+
+    # Set true on ANY HTTPS deployment where the frontend and backend are on
+    # different sites (e.g. two *.up.railway.app subdomains). Issues cookies as
+    # `SameSite=None; Secure` so they flow frontend→API across sites. Leave
+    # false for local http://localhost dev (Secure cookies need HTTPS).
+    # Independent of DEBUG on purpose — a testing env is HTTPS + cross-site but
+    # still wants the dev OTP stub and relaxed limits.
+    cross_site_cookies: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
