@@ -29,7 +29,7 @@ app.add_middleware(
     allow_origins=settings.cors_origin_list,
     # Allow any localhost/127.0.0.1 with any port (dev ergonomics — a browser
     # visiting http://127.0.0.1:3000 vs http://localhost:3000 is a different
-    # CORS origin, and we don't want to chase which one it picked). Safe in
+    # CORS origin, and we don't want to chase which one it picked). Safe in test data
     # prod because prod origins are never localhost.
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
