@@ -49,10 +49,32 @@ class Settings(BaseSettings):
 
     @property
     def resolved_database_url(self) -> str:
-        """SQLite paths are relative to the process cwd unless rewritten. Anchor
-        `sqlite+aiosqlite:///./name.db` to backend/ so uvicorn works whether it's
-        launched from the project root or from backend/."""
+        """Normalize DATABASE_URL for the async stack.
+
+        1. Coerce Postgres URLs to the asyncpg driver. Managed providers
+           (Railway, Heroku, Supabase, …) hand out `postgres://` or
+           `postgresql://`, which SQLAlchemy pairs with the *sync* psycopg2
+           driver — but the whole app (and Alembic) runs on an async engine,
+           which needs `postgresql+asyncpg://`. Without this, `alembic upgrade
+           head` fails at boot ("the asyncio extension requires an async
+           driver"), the `&&` blocks uvicorn, and the healthcheck sees nothing.
+           `?sslmode=`/`?ssl=` query args (libpq-style) are stripped — asyncpg
+           doesn't accept them; it uses TLS automatically for managed hosts.
+        2. Anchor relative SQLite paths to backend/ so the dev DB is found
+           regardless of the launch cwd.
+        """
         url = self.database_url
+
+        if url.startswith("postgres://") or url.startswith("postgresql://"):
+            # scheme swap → asyncpg
+            url = url.split("://", 1)[1]
+            url = f"postgresql+asyncpg://{url}"
+        if url.startswith("postgresql+asyncpg://") and "?" in url:
+            # drop libpq-only query params asyncpg rejects (e.g. sslmode)
+            url = url.split("?", 1)[0]
+        if url.startswith("postgresql+asyncpg://"):
+            return url
+
         prefix = "sqlite+aiosqlite:///./"
         if url.startswith(prefix):
             backend_dir = Path(__file__).resolve().parent.parent

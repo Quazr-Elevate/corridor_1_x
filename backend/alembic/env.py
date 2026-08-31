@@ -33,14 +33,14 @@ if config.config_file_name is not None:
 
 # Inject DATABASE_URL from settings into the alembic config so both offline
 # and online migrations pick it up.
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.resolved_database_url)
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=settings.resolved_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

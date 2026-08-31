@@ -1,8 +1,12 @@
-# Railway service defaults for the backend.
-# Health check + restart policy so a bad deploy doesn't loop forever.
+# Railway service config for the backend (root directory = backend).
+# Build + start come from railpack.json (pip install → alembic upgrade head
+# && uvicorn). This pins the DEPLOY settings.
+#
+# Healthcheck hits /health (returns {"status":"ok"}). The timeout is generous
+# because the start command runs `alembic upgrade head` against Postgres
+# before uvicorn binds — a cold start (first Postgres connect + migrations)
+# can take longer than the 30s default, which would otherwise fail the deploy.
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 5
+healthcheckTimeout = 300
