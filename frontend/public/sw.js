@@ -1,17 +1,19 @@
-// Cor1x service worker — cache-first shell, network-first API.
+// Cor1x service worker — NETWORK-FIRST HTML, cache-first immutable assets.
 //
-// SHELL cache: HTML shell + all Next.js static assets. Served instantly on
-// repeat visits; new versions come in via activate() when we bump VERSION.
-// API cache: never; API calls stay network-first and fail hard offline so
-// the UI can render its own "you're offline" state instead of stale JSON.
+// HTML (navigations): always try the network first so a new deploy is picked
+// up immediately; fall back to cache only when offline. This is what keeps
+// the app from serving a stale build after a redeploy.
+// Next.js static assets (/_next/static/*): content-hashed + immutable, so
+// cache-first is safe — new builds emit new URLs.
+// API: never cached (cookie-authed; would leak between viewers).
 
-const VERSION = "cor1x-v1";
+const VERSION = "cor1x-v2";
 const SHELL_CACHE = `cor1x-shell-${VERSION}`;
 const RUNTIME_CACHE = `cor1x-runtime-${VERSION}`;
 
-// Minimal precache — the important thing is that same-origin static assets
-// get cached on-demand as the user visits pages, which we handle in fetch().
-const PRECACHE_URLS = ["/", "/login", "/signup", "/products", "/privacy", "/terms"];
+// Cache "/" so a cold offline load still shows the shell. Everything else is
+// filled on demand.
+const PRECACHE_URLS = ["/"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -20,6 +22,11 @@ self.addEventListener("install", (event) => {
       .then((cache) => cache.addAll(PRECACHE_URLS))
       .then(() => self.skipWaiting()),
   );
+});
+
+// Let the page tell a waiting SW to activate immediately (used on update).
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -56,30 +63,29 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Navigation requests (HTML) → cache-first with background revalidate.
-  // Serves the shell instantly offline; new HTML lands on next visit.
+  // Navigation requests (HTML) → NETWORK-FIRST. Always fetch fresh so a new
+  // deploy shows immediately; cache the copy for offline; fall back to cache
+  // (or "/") only when the network fails.
   if (req.mode === "navigate") {
     event.respondWith(
-      caches.match(req).then((cached) => {
-        const fetchAndCache = fetch(req)
-          .then((res) => {
-            if (res.ok) {
-              const clone = res.clone();
-              caches.open(SHELL_CACHE).then((c) => c.put(req, clone));
-            }
-            return res;
-          })
-          .catch(
-            () =>
-              cached ||
-              caches.match("/") ||
-              new Response("You're offline", {
-                status: 503,
-                headers: { "Content-Type": "text/plain" },
-              }),
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(SHELL_CACHE).then((c) => c.put(req, clone));
+          }
+          return res;
+        })
+        .catch(async () => {
+          const cached = (await caches.match(req)) || (await caches.match("/"));
+          return (
+            cached ||
+            new Response("You're offline", {
+              status: 503,
+              headers: { "Content-Type": "text/plain" },
+            })
           );
-        return cached || fetchAndCache;
-      }),
+        }),
     );
     return;
   }

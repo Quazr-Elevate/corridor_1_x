@@ -3,22 +3,41 @@
 import { useEffect } from "react";
 
 /**
- * Registers the cache-first service worker on mount. Skipped in dev to
- * avoid stale-content headaches; enabled anywhere the origin is served
- * over HTTPS or on localhost in production build. No install prompt
- * here — the browser handles that on its own once the manifest is valid.
+ * Registers the service worker (production only — a SW would fight Next's dev
+ * HMR). Navigation is network-first in the SW, so new deploys are picked up
+ * on the next load. This component adds two things for a seamless update:
+ *
+ *  1. checks for a new SW on load and when the tab regains focus, and
+ *  2. reloads the page once when a new SW takes control, so the fresh HTML +
+ *     assets replace the old ones without a manual hard-refresh.
+ *
+ * The reload is guarded by a flag so it can never loop.
  */
 export function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!("serviceWorker" in navigator)) return;
-    // Only register the SW in production builds. Next dev serves through
-    // HMR and a SW would fight it (stale bundles, blocked reloads).
     if (process.env.NODE_ENV !== "production") return;
-    navigator.serviceWorker.register("/sw.js").catch(() => {
-      // Registration failures are non-fatal — the app just falls back to
-      // network-only. Nothing to surface to the user.
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
     });
+
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        // Check for an update immediately, and again whenever the tab is
+        // refocused — so a redeploy is caught without a full restart.
+        reg.update().catch(() => {});
+        const onFocus = () => reg.update().catch(() => {});
+        window.addEventListener("focus", onFocus);
+      })
+      .catch(() => {
+        // Non-fatal — the app just falls back to network-only.
+      });
   }, []);
   return null;
 }
