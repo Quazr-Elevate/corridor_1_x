@@ -158,7 +158,7 @@ export function photoUrl(rel: string): string {
   return `${API_BASE}${rel}`;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 const USER_ID_KEY = "cor1x.userId";
 const SESSION_EXPIRES_KEY = "cor1x.sessionExpiresAt";
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
