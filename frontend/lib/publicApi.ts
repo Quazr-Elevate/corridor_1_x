@@ -6,7 +6,7 @@
  * as api.ts so misconfig is impossible.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
 async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const qs = params
