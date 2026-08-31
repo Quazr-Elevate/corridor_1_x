@@ -1,7 +1,12 @@
-# Railway service defaults for the frontend.
+# Railway service config for the frontend (root directory = frontend).
+# Build + start come from railpack.json; this pins the DEPLOY settings.
+#
+# Healthcheck MUST target a route that returns 200. The default here is
+# /login — a static, redirect-free page. Do NOT point it at /seller/onboarding
+# or /buyer/onboarding: those are retired stubs that 307-redirect to /signup,
+# and a 307 makes Railway mark the replica unhealthy and keep serving the old
+# deploy (i.e. "the frontend won't update").
 
 [deploy]
-healthcheckPath = "/seller/onboarding"
-healthcheckTimeout = 30
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 5
+healthcheckPath = "/login"
+healthcheckTimeout = 120
