@@ -8,18 +8,15 @@ from app.schemas.base import CamelModel
 class RevealedContact(CamelModel):
     """What a verified buyer sees when they unlock a seller's contact.
 
-    Deliberately narrow — mobile + primary email + business email + full
-    address + company name. No Aadhaar, no PAN, no GSTIN, no bank. Those
-    stay admin-only.
+    Deliberately narrow — work email + business name + full address.
+    No bank, no regulated IDs. Those stay admin-only.
     """
 
     seller_id: str
     full_name: str | None
-    company_name: str | None
+    business_name: str | None
     business_type: str | None
-    mobile: str | None
     email: str | None
-    business_email: str | None
     address_line: str | None
     city: str | None
     state: str | None
@@ -36,7 +33,7 @@ class AdminRecentReveal(CamelModel):
     buyer_id: str
     buyer_name: str | None
     seller_id: str
-    seller_company: str | None
+    seller_business_name: str | None
     product_id: str
     product_name: str
     revealed_at: datetime

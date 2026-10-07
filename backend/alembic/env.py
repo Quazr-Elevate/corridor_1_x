@@ -20,11 +20,10 @@ from app.models.base import Base
 from app.models import (  # noqa: F401
     business_profile,
     contact_reveal,
-    identity,
-    otp,
     product,
     profile,
     user,
+    verification_doc,
 )
 
 config = context.config

@@ -11,11 +11,11 @@ from app.models.user import User
 
 
 class Profile(Base):
-    """Personal profile — every user has exactly one.
+    """Personal profile — created lazily after signup / on onboarding.
 
-    Holds the person's name, contact info, address, and any public social /
-    business URLs. Role-neutral: buyers and sellers both live here. Business
-    identity (GSTIN, company, bank) lives in `business_profiles`.
+    Holds the person's name + contact + address + socials. Every user has at
+    most one profile. Business identity (bank, KYB metadata) lives in
+    ``business_profiles``.
     """
 
     __tablename__ = "profiles"
@@ -25,9 +25,11 @@ class Profile(Base):
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
 
-    # ─── Primary ───────────────────────────────────────────────
+    # ─── Primary contact ───────────────────────────────────────
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    position: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # ─── Address ───────────────────────────────────────────────
     address_line: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -35,29 +37,6 @@ class Profile(Base):
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pincode: Mapped[str | None] = mapped_column(CHAR(6), nullable=True)
     country: Mapped[str] = mapped_column(String(100), nullable=False, server_default="India")
-
-    # ─── Additional contacts (OTP-verified when set) ───────────
-    alt_mobile: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    alt_email: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    business_email: Mapped[str | None] = mapped_column(String(150), nullable=True)
-
-    # ─── Verification stamps ──────────────────────────────────
-    # Written by the atomic /verify/* endpoints. A NULL stamp means the
-    # paired value is either absent or unverified — the UI treats them the
-    # same. Never mutate the value column without also setting/clearing its
-    # stamp in the same commit.
-    email_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    alt_mobile_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    alt_email_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    business_email_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
 
     # ─── Social / trust signals ────────────────────────────────
     website_url: Mapped[str | None] = mapped_column(String(300), nullable=True)

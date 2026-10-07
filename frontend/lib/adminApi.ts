@@ -1,71 +1,113 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+
 export interface AdminMe {
   email: string;
 }
 
 export interface DashboardStats {
-  totalBuyers: number;
-  totalSellers: number;
-  totalVerified: number;
-  signupsThisWeek: number;
-  signupsPrevWeek: number;
-  funnel: Record<string, number>;
-  topStates: {
-    buyer: { state: string; count: number }[];
-    seller: { state: string; count: number }[];
-  };
-  duplicateAlerts: {
-    kind: string;
-    value: string;
-    users: { user_id: string; label: string }[];
-  }[];
+  totalUsers: number;
+  verifiedUsers: number;
+  pendingVerificationUsers: number;
+  activeUsers: number;
+  signedUpUsers: number;
+  emailVerifiedUsers: number;
+  rejectedUsers: number;
+  totalProducts: number;
+  recentSignups24H: number;
+  stuckSignups: number;
+  onboardedUsers: number;
+  pendingDocs: number;
 }
 
 export interface TimelinePoint {
   date: string;
-  buyer: number;
-  seller: number;
+  count: number;
 }
 
-export interface RecentSignup {
+export interface StuckUser {
   userId: string;
+  email: string;
+  businessName: string | null;
+  createdAt: string;
+  hoursWaiting: number;
+}
+
+export interface VerifyDoc {
+  id: string;
+  certType: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string | null;
+  uploadedAt: string;
+  reviewedAt: string | null;
+  url: string;
+}
+
+export interface PendingDocRow {
+  doc: VerifyDoc;
+  userId: string;
+  userEmail: string;
+  userBusinessName: string | null;
+  userFullName: string | null;
+  userCountry: string | null;
+}
+
+export interface VerifyQueueRow {
+  userId: string;
+  email: string;
   fullName: string | null;
-  userType: "buyer" | "seller";
+  businessName: string | null;
+  country: string | null;
+  industry: string | null;
+  tradePosition: string | null;
+  operatingCountries: string[] | null;
+  onboardedAt: string | null;
+  submittedAt: string | null;
+  createdAt: string;
+  missingFields: string[];
+  docs: VerifyDoc[];
+}
+
+export interface UserDetail {
+  userId: string;
+  email: string;
+  emailVerifiedAt: string | null;
+  businessName: string | null;
   status: string;
   createdAt: string;
-  mobile: string | null;
+  updatedAt: string;
+  hasPassword: boolean;
+  profile: Record<string, unknown> | null;
+  businessProfile: Record<string, unknown> | null;
+  productCount: number;
+  docs: VerifyDoc[];
+  verificationSubmittedAt: string | null;
+  verifiedAt: string | null;
+  verificationRejectedReason: string | null;
+  missingMandatoryFields: string[];
+}
+
+export interface UserPatch {
+  businessName?: string | null;
+  profile?: Record<string, unknown>;
+  businessProfile?: Record<string, unknown>;
 }
 
 export interface UserRow {
   userId: string;
-  fullName: string | null;
-  userType: "buyer" | "seller";
+  email: string;
+  businessName: string | null;
   status: string;
-  stage: string;
-  mobile: string | null;
-  email: string | null;
-  state: string | null;
+  emailVerified: boolean;
+  hasPassword: boolean;
   createdAt: string;
 }
 
 export interface UsersListOut {
   total: number;
   items: UserRow[];
-}
-
-export interface UserDetail {
-  userId: string;
-  userType: "buyer" | "seller";
-  status: string;
-  stage: string;
-  createdAt: string;
-  updatedAt: string;
-  mobile: string | null;
-  hasBuyerData: boolean;
-  hasSellerData: boolean;
-  buyer: Record<string, string | null> | null;
-  seller: Record<string, string | null> | null;
-  bank: Record<string, string | null> | null;
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -99,77 +141,45 @@ export const adminApi = {
   stats: () => req<DashboardStats>("/admin/dashboard/stats"),
   timeline: (days = 30) =>
     req<TimelinePoint[]>(`/admin/dashboard/timeline?days=${days}`),
-  recent: (limit = 8) =>
-    req<RecentSignup[]>(`/admin/dashboard/recent?limit=${limit}`),
+  stuck: (limit = 10) =>
+    req<StuckUser[]>(`/admin/dashboard/stuck?limit=${limit}`),
+  verifyQueue: () => req<VerifyQueueRow[]>("/admin/verify/queue"),
+  pendingDocs: () => req<PendingDocRow[]>("/admin/docs/pending"),
+  approveDoc: (docId: string) =>
+    req<{ docId: string; status: string }>(`/admin/docs/${docId}/approve`, {
+      method: "POST",
+    }),
+  rejectDoc: (docId: string, reason: string) =>
+    req<{ docId: string; status: string }>(`/admin/docs/${docId}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  user: (id: string) => req<UserDetail>(`/admin/users/${id}`),
+  patchUser: (id: string, patch: UserPatch) =>
+    req<UserDetail>(`/admin/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   users: (params: {
-    type?: "buyer" | "seller";
     status?: string;
     q?: string;
     limit?: number;
     offset?: number;
   }) => {
     const qs = new URLSearchParams();
-    if (params.type) qs.set("type", params.type);
     if (params.status) qs.set("status", params.status);
     if (params.q) qs.set("q", params.q);
     qs.set("limit", String(params.limit ?? 50));
     qs.set("offset", String(params.offset ?? 0));
     return req<UsersListOut>(`/admin/users?${qs}`);
   },
-  user: (id: string) => req<UserDetail>(`/admin/users/${id}`),
-  updateUser: (
-    id: string,
-    patch: {
-      buyer?: Record<string, string | null>;
-      seller?: Record<string, string | null>;
-      bank?: Record<string, string | null>;
-    },
-  ) =>
-    req<UserDetail>(`/admin/users/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    }),
-
-  // Sprint 4 quick actions
-  verifyQueue: () => req<VerificationQueue>("/admin/verify/queue"),
   verifyUser: (id: string) =>
-    req<UserDetail>(`/admin/users/${id}/verify`, { method: "POST" }),
-  rejectUser: (id: string) =>
-    req<UserDetail>(`/admin/users/${id}/reject`, { method: "POST" }),
-  bulkVerify: (userIds: string[]) =>
-    req<{ verified: number; skipped: string[] }>("/admin/users/bulk-verify", {
+    req<{ userId: string; status: string }>(`/admin/users/${id}/verify`, {
       method: "POST",
-      body: JSON.stringify({ userIds }),
     }),
-
-  reveals: (limit = 10) =>
-    req<RecentReveal[]>(`/admin/dashboard/reveals?limit=${limit}`),
+  rejectUser: (id: string, reason: string) =>
+    req<{ userId: string; status: string }>(`/admin/users/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
 };
-
-export interface QueueRow {
-  userId: string;
-  fullName: string | null;
-  mobile: string | null;
-  companyName: string | null;
-  state: string | null;
-  dwellDays: number;
-  updatedAt: string;
-}
-
-export interface VerificationQueue {
-  signedUp: QueueRow[];
-  primaryPending: QueueRow[];
-  businessPending: QueueRow[];
-  bankPending: QueueRow[];
-}
-
-export interface RecentReveal {
-  revealId: string;
-  buyerId: string;
-  buyerName: string | null;
-  sellerId: string;
-  sellerCompany: string | null;
-  productId: string;
-  productName: string;
-  revealedAt: string;
-}

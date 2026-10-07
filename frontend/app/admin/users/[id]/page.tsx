@@ -1,581 +1,920 @@
 "use client";
 
-import {
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
-  Building2,
   Check,
-  Landmark,
-  MapPin,
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Loader2,
   Pencil,
-  Save,
   ShieldCheck,
-  UserRound,
+  Shield,
+  Undo2,
   X,
 } from "lucide-react";
-import { adminApi, type UserDetail } from "@/lib/adminApi";
-import { cn } from "@/lib/cn";
-import { useDirtyFlag, useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import {
+  adminApi,
+  type UserDetail,
+  type UserPatch,
+  type VerifyDoc,
+} from "@/lib/adminApi";
+import { RejectReasonModal } from "@/components/admin/RejectReasonModal";
 
-// ── Field taxonomy ─────────────────────────────────────────────────────────
-// Each field: which section, which key on the API block, label, mono-font flag.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
-interface FieldSpec {
+// Field layout drives the admin user detail page. The user asked that
+// the Verified-badge mandatory fields appear first (so the admin can
+// decide on approve/reject at a glance), with everything else grouped
+// below as a secondary section.
+//
+// ``source`` tells FieldGrid which draft bucket (profile vs business)
+// to write back into on edit, so the single top-of-page layout can mix
+// fields from both tables.
+
+type FieldSource = "profile" | "business";
+
+interface AdminField {
   key: string;
   label: string;
-  mono?: boolean;
-  wide?: boolean;
+  source: FieldSource;
+  type?: "text" | "textarea";
+  cols?: 1 | 2;
 }
 
-const BUYER_IDENTITY: FieldSpec[] = [
-  { key: "fullName", label: "Full name" },
-  { key: "email", label: "Email" },
-  { key: "businessEmail", label: "Business email" },
-  { key: "altMobile", label: "Alt mobile" },
-  { key: "altEmail", label: "Alt email" },
+// Keys the backend treats as mandatory for the Verified badge. Mirrors
+// backend/app/verification.py — update both in lockstep.
+const MANDATORY_KEYS = new Set<string>([
+  "fullName",
+  "position",
+  "phone",
+  "legalName",
+  "industry",
+  "operatingCountries",
+  "tradePosition",
+]);
+
+const MANDATORY_FIELDS_LIST: AdminField[] = [
+  { key: "fullName",           label: "Full name",           source: "profile" },
+  { key: "position",           label: "Position",            source: "profile" },
+  { key: "phone",              label: "Phone",               source: "profile" },
+  { key: "legalName",          label: "Legal company name",  source: "business" },
+  { key: "industry",           label: "Industry",            source: "business" },
+  { key: "operatingCountries", label: "Operating countries", source: "business" },
+  { key: "tradePosition",      label: "Trade position",      source: "business" },
 ];
 
-const BUYER_ADDRESS: FieldSpec[] = [
-  { key: "addressLine", label: "Address", wide: true },
-  { key: "city", label: "City" },
-  { key: "state", label: "State" },
-  { key: "pincode", label: "Pincode" },
+// Everything the user *can* edit on My Account but is not required for
+// the badge. We skipped these before (website, department, seller
+// polish fields, long-form intro) because they're nice-to-haves, not
+// hygiene checks.
+const OPTIONAL_FIELDS_LIST: AdminField[] = [
+  { key: "department",         label: "Department",          source: "profile" },
+  { key: "websiteUrl",         label: "Website",             source: "business" },
+  { key: "sellerType",         label: "Seller type",         source: "business" },
+  { key: "exportStatus",       label: "Export status",       source: "business" },
+  { key: "targetMarkets",      label: "Target markets",      source: "business" },
+  { key: "mainObjective",      label: "Main objective",      source: "business", cols: 2 },
+  { key: "companyIntroduction",label: "Company introduction",source: "business", type: "textarea", cols: 2 },
 ];
 
-const BUYER_WEB: FieldSpec[] = [
-  { key: "websiteUrl", label: "Website" },
-  { key: "googleBusinessUrl", label: "Google Business" },
-  { key: "facebookUrl", label: "Facebook" },
-];
-
-const SELLER_FIELDS: FieldSpec[] = [
-  { key: "companyName", label: "Company" },
-  { key: "gstin", label: "GSTIN", mono: true },
-  { key: "pan", label: "PAN", mono: true },
-  { key: "udyam", label: "Udyam", mono: true },
-  { key: "aadhaar", label: "Aadhaar", mono: true },
-  { key: "tan", label: "TAN", mono: true },
-];
-
-const BANK_FIELDS: FieldSpec[] = [
-  { key: "holderName", label: "Holder" },
-  { key: "bankName", label: "Bank" },
-  { key: "branchName", label: "Branch" },
-  { key: "ifsc", label: "IFSC", mono: true },
-  { key: "accountNumber", label: "Account #", mono: true },
-];
+// Union of every editable key — used by the PATCH builder below.
+const ALL_PROFILE_KEYS = [...MANDATORY_FIELDS_LIST, ...OPTIONAL_FIELDS_LIST]
+  .filter((f) => f.source === "profile")
+  .map((f) => f.key);
+const ALL_BUSINESS_KEYS = [...MANDATORY_FIELDS_LIST, ...OPTIONAL_FIELDS_LIST]
+  .filter((f) => f.source === "business")
+  .map((f) => f.key);
 
 export default function AdminUserDetailPage() {
-  return (
-    <Suspense fallback={<p className="text-sm text-paper-muted">Loading…</p>}>
-      <UserDetailBody />
-    </Suspense>
-  );
-}
+  const params = useParams();
+  const id = params?.id as string;
 
-function UserDetailBody() {
-  const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const { confirmIfDirty } = useUnsavedGuard();
   const [user, setUser] = useState<UserDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [draft, setDraft] = useState<{
-    buyer: Record<string, string>;
-    seller: Record<string, string>;
-    bank: Record<string, string>;
-  }>({ buyer: {}, seller: {}, bank: {} });
+  const [busyAction, setBusyAction] = useState<"verify" | "reject" | null>(null);
+  const [preview, setPreview] = useState<VerifyDoc | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<VerifyDoc | null>(null);
 
-  // Dirty = actively editing AND at least one field differs from the server
-  // snapshot. We recompute the diff via buildPatch below; guard against user
-  // being null so the effect can run pre-fetch without exploding.
-  const hasChanges = useMemo(() => {
-    if (!user) return false;
-    const patch = buildPatch(user, draft);
-    return !!(patch.buyer || patch.seller || patch.bank);
-  }, [user, draft]);
-  useDirtyFlag(editing && hasChanges);
+  // Local draft state for edit mode. We clone the server data into these on
+  // "Edit", push whatever's set when Save is clicked. Hitting Cancel discards.
+  // Two buckets instead of three (previously profile/company/biz) because
+  // the backend only has two tables — the "Mandatory" vs "Optional"
+  // grouping on screen is purely cosmetic.
+  const [businessName, setBusinessName] = useState("");
+  const [profileDraft, setProfileDraft] = useState<Record<string, unknown>>({});
+  const [businessDraft, setBusinessDraft] = useState<Record<string, unknown>>({});
+  const [rejectUser, setRejectUser] = useState(false);
 
-  useEffect(() => {
-    if (!params?.id) return;
-    adminApi
-      .user(params.id)
-      .then((u) => {
-        setUser(u);
-        setDraft(buildDraft(u));
-      })
-      .catch((e) => setErr(e instanceof Error ? e.message : "Load failed"));
-  }, [params?.id]);
-
-  useEffect(() => {
-    if (!savedAt) return;
-    const t = window.setTimeout(() => setSavedAt(null), 3000);
-    return () => window.clearTimeout(t);
-  }, [savedAt]);
-
-  const startEdit = () => {
-    if (!user) return;
-    setDraft(buildDraft(user));
-    setErr(null);
-    setEditing(true);
-  };
-  const cancelEdit = () => {
-    if (hasChanges) {
-      const ok = window.confirm(
-        "Discard your changes?",
-      );
-      if (!ok) return;
-    }
-    if (user) setDraft(buildDraft(user));
-    setErr(null);
-    setEditing(false);
-  };
-
-  const handleChange =
-    (section: "buyer" | "seller" | "bank", key: string) =>
-    (e: ChangeEvent<HTMLInputElement>) => {
-      setDraft((prev) => ({
-        ...prev,
-        [section]: { ...prev[section], [key]: e.target.value },
-      }));
-    };
-
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setErr(null);
-    setSaving(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const patch = buildPatch(user, draft);
-      if (!patch.buyer && !patch.seller && !patch.bank) {
-        setEditing(false);
-        setSaving(false);
-        return;
-      }
-      const updated = await adminApi.updateUser(user.userId, patch);
+      const u = await adminApi.user(id);
+      setUser(u);
+      resetDraft(u);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Load failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (id) void load();
+  }, [id, load]);
+
+  function resetDraft(u: UserDetail) {
+    setBusinessName(u.businessName ?? "");
+    const prof: Record<string, unknown> = {};
+    const biz: Record<string, unknown> = {};
+    for (const k of ALL_PROFILE_KEYS) {
+      prof[k] = (u.profile ?? {})[k] ?? "";
+    }
+    for (const k of ALL_BUSINESS_KEYS) {
+      biz[k] = (u.businessProfile ?? {})[k] ?? "";
+    }
+    setProfileDraft(prof);
+    setBusinessDraft(biz);
+  }
+
+  async function save() {
+    if (!user) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const patch: UserPatch = {
+        businessName: businessName.trim() || null,
+        profile: cleanDraft(profileDraft, ALL_PROFILE_KEYS),
+        businessProfile: cleanDraft(businessDraft, ALL_BUSINESS_KEYS),
+      };
+      const updated = await adminApi.patchUser(user.userId, patch);
       setUser(updated);
-      setDraft(buildDraft(updated));
+      resetDraft(updated);
       setEditing(false);
-      setSavedAt(Date.now());
-    } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : "Save failed");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  if (err && !user) return <p className="text-sm text-danger">Could not load: {err}</p>;
-  if (!user) return <p className="text-sm text-paper-muted">Loading…</p>;
+  async function doVerify() {
+    if (!user) return;
+    setBusyAction("verify");
+    try {
+      await adminApi.verifyUser(user.userId);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Verify failed");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function doReject(reason: string) {
+    if (!user) return;
+    setBusyAction("reject");
+    try {
+      await adminApi.rejectUser(user.userId, reason);
+      await load();
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex max-w-[1240px] justify-center px-6 py-16">
+        <Loader2
+          className="h-6 w-6 animate-spin"
+          style={{ color: "var(--sp-lime)" }}
+        />
+      </div>
+    );
+  }
+  if (err && !user) {
+    return (
+      <div className="mx-auto max-w-[1240px] px-6 py-8">
+        <p className="text-[13px]" style={{ color: "var(--sp-error)" }}>
+          {err}
+        </p>
+      </div>
+    );
+  }
+  if (!user) return null;
+
+  const initials = (user.profile?.fullName as string | undefined)
+    ?.split(/\s+/)
+    .map((s) => s[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
-    <form onSubmit={handleSave} className="space-y-6" noValidate>
-      <Link
-        href="/admin/users"
-        onClick={(e) => {
-          e.preventDefault();
-          confirmIfDirty(() => router.push("/admin/users"));
-        }}
-        className="inline-flex items-center gap-1.5 text-xs text-paper-muted transition-colors hover:text-paper"
-      >
-        <ArrowLeft aria-hidden className="h-3.5 w-3.5" />
-        Back to users
-      </Link>
-
+    <div className="mx-auto max-w-[1240px] px-6 py-8">
       {/* Header */}
-      <header className="surface p-5 sm:p-6">
-        <div className="flex flex-wrap items-start gap-4">
-          <span className="inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-line-soft bg-ink-elevated text-lg font-semibold text-paper">
-            {(user.buyer?.fullName || user.mobile || "?")
-              .slice(0, 2)
-              .toUpperCase()}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-              User · {user.userId.slice(0, 8)}
-            </p>
-            <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight text-paper">
-              {user.buyer?.fullName || user.mobile || "—"}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-              <RoleBadge type="buyer" active={user.hasBuyerData} />
-              <RoleBadge type="seller" active={user.hasSellerData} />
-              <span className="text-paper-muted">·</span>
-              <StatusBadge status={user.status} />
-              <span className="text-paper-muted">·</span>
-              <span className="text-paper-muted">
-                joined {formatDate(user.createdAt)}
-              </span>
-              {user.mobile ? (
-                <>
-                  <span className="text-paper-muted">·</span>
-                  <span className="text-paper">+91 {user.mobile}</span>
-                </>
-              ) : null}
-            </div>
-          </div>
-
-          {/* Edit / Save controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            {savedAt ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-accent">
-                <Check className="h-3.5 w-3.5" aria-hidden />
-                Saved
-              </span>
-            ) : null}
-            {editing ? (
-              <>
-                <button
-                  type="button"
-                  onClick={cancelEdit}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-line-soft px-3 py-1.5 text-xs text-paper-muted transition-colors hover:text-paper"
-                >
-                  <X aria-hidden className="h-3.5 w-3.5" />
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="btn-primary inline-flex items-center gap-1.5 !py-1.5 !text-xs"
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Save aria-hidden className="h-3.5 w-3.5" />
-                    {saving ? "Saving…" : "Save changes"}
-                  </span>
-                </button>
-              </>
-            ) : (
+      <div className="flex flex-wrap items-start justify-between gap-5">
+        <div className="flex items-start gap-4">
+          <Link
+            href="/admin/users"
+            className="sp-chip"
+            style={{ paddingLeft: "0.75rem" }}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Users
+          </Link>
+        </div>
+        <div className="flex items-center gap-2">
+          {editing ? (
+            <>
               <button
                 type="button"
-                onClick={startEdit}
-                className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-xs text-paper transition-colors hover:border-accent hover:bg-accent-soft"
+                onClick={() => {
+                  resetDraft(user);
+                  setEditing(false);
+                }}
+                className="sp-chip"
               >
-                <Pencil aria-hidden className="h-3.5 w-3.5" />
-                Edit
+                <Undo2 className="h-3.5 w-3.5" aria-hidden /> Cancel
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
+                style={{
+                  background: "var(--sp-lime)",
+                  color: "var(--sp-lime-fg)",
+                }}
+              >
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Save changes
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setRejectUser(true)}
+                disabled={!!busyAction || user.status === "rejected"}
+                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
+                style={{
+                  borderColor: "var(--sp-border)",
+                  color: "var(--sp-error)",
+                }}
+              >
+                {busyAction === "reject" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Shield className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={doVerify}
+                disabled={!!busyAction || user.status === "verified"}
+                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
+                style={{
+                  background: "var(--sp-lime)",
+                  color: "var(--sp-lime-fg)",
+                }}
+              >
+                {busyAction === "verify" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Verify
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="sp-chip"
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
+              </button>
+            </>
+          )}
         </div>
-
-        {err && editing ? (
-          <p className="mt-4 text-sm font-medium text-danger" role="alert">
-            {err}
-          </p>
-        ) : null}
-      </header>
-
-      {/* Buyer identity + address side-by-side */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <SectionCard
-          icon={<UserRound className="h-4 w-4" />}
-          title="Buyer identity"
-          span={2}
-        >
-          <FieldGrid
-            fields={BUYER_IDENTITY}
-            block={user.buyer}
-            draft={draft.buyer}
-            editing={editing}
-            onChange={handleChange}
-            section="buyer"
-          />
-        </SectionCard>
-
-        <SectionCard
-          icon={<MapPin className="h-4 w-4" />}
-          title="Address"
-        >
-          <FieldGrid
-            fields={BUYER_ADDRESS}
-            block={user.buyer}
-            draft={draft.buyer}
-            editing={editing}
-            onChange={handleChange}
-            section="buyer"
-            singleCol
-          />
-        </SectionCard>
       </div>
 
-      <SectionCard title="Web presence">
-        <FieldGrid
-          fields={BUYER_WEB}
-          block={user.buyer}
-          draft={draft.buyer}
+      {err && (
+        <div
+          className="sp-airy mt-5 p-4 text-[13px]"
+          style={{ color: "var(--sp-error)" }}
+        >
+          {err}
+        </div>
+      )}
+
+      {/* Identity card */}
+      <section className="sp-airy mt-6 p-6">
+        <div className="flex flex-wrap items-start gap-4">
+          <div
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold"
+            style={{ background: "var(--sp-lime-14)", color: "var(--sp-lime)" }}
+          >
+            {initials || "?"}
+          </div>
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <input
+                type="text"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Business name"
+                className="w-full rounded-field px-3 py-2 text-[18px] font-semibold"
+                style={{
+                  background: "var(--sp-card-2)",
+                  color: "var(--sp-text)",
+                  border: "1px solid var(--sp-border)",
+                }}
+              />
+            ) : (
+              <p
+                className="text-[22px] font-semibold tracking-[-0.015em]"
+                style={{ color: "var(--sp-text)" }}
+              >
+                {user.businessName || "— no business name —"}
+              </p>
+            )}
+            <p
+              className="mt-1 text-[13px]"
+              style={{ color: "var(--sp-text-2)" }}
+            >
+              {user.email}
+            </p>
+            <div
+              className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]"
+              style={{ color: "var(--sp-text-3)" }}
+            >
+              <StatusPill status={user.status} />
+              {(user.profile?.country as string | undefined) && (
+                <span>{user.profile?.country as string}</span>
+              )}
+              <span>
+                Joined {new Date(user.createdAt).toLocaleDateString()}
+              </span>
+              <span>
+                Email {user.emailVerifiedAt ? "verified" : "not verified"}
+              </span>
+              <span>{user.productCount} products</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Verification band — approve/reject timeline + rejection note */}
+      <VerificationBand user={user} />
+
+      {/* Mandatory fields — grouped so the admin can judge the badge at a glance */}
+      <SectionCard
+        title={`Mandatory fields · ${MANDATORY_FIELDS_LIST.length - user.missingMandatoryFields.length}/${MANDATORY_FIELDS_LIST.length} filled`}
+        subtitle="Required to earn the Verified badge."
+      >
+        <MixedFieldGrid
+          fields={MANDATORY_FIELDS_LIST}
+          missing={user.missingMandatoryFields}
+          profileValues={editing ? profileDraft : (user.profile ?? {})}
+          businessValues={editing ? businessDraft : (user.businessProfile ?? {})}
           editing={editing}
-          onChange={handleChange}
-          section="buyer"
-          cols={3}
+          onChangeProfile={(k, v) => setProfileDraft((p) => ({ ...p, [k]: v }))}
+          onChangeBusiness={(k, v) => setBusinessDraft((p) => ({ ...p, [k]: v }))}
         />
       </SectionCard>
 
-      {/* Seller + Bank */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <SectionCard
-          icon={<Building2 className="h-4 w-4" />}
-          title="Business identity"
-          span={2}
-        >
-          <FieldGrid
-            fields={SELLER_FIELDS}
-            block={user.seller}
-            draft={draft.seller}
-            editing={editing}
-            onChange={handleChange}
-            section="seller"
-          />
-        </SectionCard>
+      {/* Optional / supporting fields */}
+      <SectionCard
+        title="Additional profile fields"
+        subtitle="Not required for the badge — kept for context and buyer messaging."
+      >
+        <MixedFieldGrid
+          fields={OPTIONAL_FIELDS_LIST}
+          missing={user.missingMandatoryFields}
+          profileValues={editing ? profileDraft : (user.profile ?? {})}
+          businessValues={editing ? businessDraft : (user.businessProfile ?? {})}
+          editing={editing}
+          onChangeProfile={(k, v) => setProfileDraft((p) => ({ ...p, [k]: v }))}
+          onChangeBusiness={(k, v) => setBusinessDraft((p) => ({ ...p, [k]: v }))}
+        />
+      </SectionCard>
 
-        <SectionCard
-          icon={<Landmark className="h-4 w-4" />}
-          title="Bank account"
-        >
-          <FieldGrid
-            fields={BANK_FIELDS}
-            block={user.bank}
-            draft={draft.bank}
-            editing={editing}
-            onChange={handleChange}
-            section="bank"
-            singleCol
-          />
-        </SectionCard>
-      </div>
-    </form>
+      {/* Verification docs */}
+      <SectionCard title={`Verification documents · ${user.docs.length}`}>
+        {user.docs.length === 0 ? (
+          <p
+            className="text-[12.5px]"
+            style={{ color: "var(--sp-text-3)" }}
+          >
+            This user hasn&apos;t uploaded any documents yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {user.docs.map((d) => (
+              <DocRow
+                key={d.id}
+                doc={d}
+                onPreview={() => setPreview(d)}
+                onApprove={async () => {
+                  await adminApi.approveDoc(d.id);
+                  await load();
+                }}
+                onReject={() => setRejectTarget(d)}
+              />
+            ))}
+          </ul>
+        )}
+      </SectionCard>
+
+      {preview && (
+        <PreviewModal doc={preview} onClose={() => setPreview(null)} />
+      )}
+
+      <RejectReasonModal
+        open={rejectTarget !== null}
+        title={rejectTarget ? `Reject ${rejectTarget.certType}?` : ""}
+        subtitle={
+          rejectTarget
+            ? `User will see this reason the next time they log in.`
+            : undefined
+        }
+        onClose={() => setRejectTarget(null)}
+        onSubmit={async (reason) => {
+          if (!rejectTarget) return;
+          await adminApi.rejectDoc(rejectTarget.id, reason);
+          await load();
+        }}
+      />
+
+      <RejectReasonModal
+        open={rejectUser}
+        onClose={() => setRejectUser(false)}
+        onSubmit={doReject}
+        title="Reject Verified-badge application"
+        subtitle={`${user.businessName || "This user"} will see this note on their next login.`}
+        quickReasons={[
+          "Legal company name doesn't match what we can verify online.",
+          "Phone number looks personal — please provide a business line.",
+          "Operating countries list is empty or clearly incorrect.",
+          "Position / role is missing or appears not to be a decision-making title.",
+          "Industry mismatch with the trade position you selected.",
+        ]}
+        submitLabel="Reject user"
+      />
+    </div>
   );
 }
 
-// ── Draft <-> data helpers ────────────────────────────────────────────────
+// ── Verification band ───────────────────────────────────────────────
 
-function buildDraft(u: UserDetail) {
-  const grab = (block: Record<string, string | null> | null | undefined) => {
-    const out: Record<string, string> = {};
-    if (!block) return out;
-    for (const [k, v] of Object.entries(block)) {
-      out[k] = v ?? "";
-    }
-    return out;
-  };
-  return {
-    buyer: grab(u.buyer),
-    seller: grab(u.seller),
-    bank: grab(u.bank),
-  };
-}
-
-function buildPatch(
-  user: UserDetail,
-  draft: ReturnType<typeof buildDraft>,
-) {
-  const diffSection = (
-    original: Record<string, string | null> | null | undefined,
-    next: Record<string, string>,
-    fields: FieldSpec[],
-  ): Record<string, string | null> | null => {
-    const changes: Record<string, string | null> = {};
-    for (const f of fields) {
-      const before = (original?.[f.key] ?? "") as string;
-      const after = (next[f.key] ?? "").trim();
-      if (before.trim() === after) continue;
-      changes[f.key] = after === "" ? null : after;
-    }
-    return Object.keys(changes).length ? changes : null;
-  };
-  const buyerFields = [...BUYER_IDENTITY, ...BUYER_ADDRESS, ...BUYER_WEB];
-  const patch: {
-    buyer?: Record<string, string | null>;
-    seller?: Record<string, string | null>;
-    bank?: Record<string, string | null>;
-  } = {};
-  const b = diffSection(user.buyer, draft.buyer, buyerFields);
-  if (b) patch.buyer = b;
-  const s = diffSection(user.seller, draft.seller, SELLER_FIELDS);
-  if (s) patch.seller = s;
-  const bk = diffSection(user.bank, draft.bank, BANK_FIELDS);
-  if (bk) patch.bank = bk;
-  return patch;
-}
-
-// ── UI bits ────────────────────────────────────────────────────────────────
-
-function SectionCard({
-  icon,
-  title,
-  children,
-  span,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-  span?: 2 | 3;
-}) {
+function VerificationBand({ user }: { user: UserDetail }) {
+  const total = 7; // mirror of backend's MANDATORY_FIELDS length
+  const filled = total - user.missingMandatoryFields.length;
   return (
-    <section
-      className={cn(
-        "surface p-5 sm:p-6",
-        span === 2 && "lg:col-span-2",
-        span === 3 && "lg:col-span-3",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        {icon ? (
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent/10 text-accent">
-            {icon}
+    <section className="sp-airy mt-4 p-5">
+      <div className="flex flex-wrap items-center gap-3">
+        <p
+          className="text-[11px] font-bold uppercase tracking-[0.12em]"
+          style={{ color: "var(--sp-text-3)" }}
+        >
+          Verified badge
+        </p>
+        <StatusPill status={user.status} />
+        <span
+          className="text-[11.5px]"
+          style={{ color: "var(--sp-text-3)" }}
+        >
+          {filled} / {total} mandatory fields filled
+        </span>
+        {user.verificationSubmittedAt && (
+          <span
+            className="text-[11.5px]"
+            style={{ color: "var(--sp-text-3)" }}
+          >
+            · Submitted {new Date(user.verificationSubmittedAt).toLocaleString()}
           </span>
-        ) : null}
-        <p className="text-title text-paper">{title}</p>
+        )}
+        {user.verifiedAt && (
+          <span
+            className="text-[11.5px]"
+            style={{ color: "var(--sp-text-3)" }}
+          >
+            · Approved {new Date(user.verifiedAt).toLocaleString()}
+          </span>
+        )}
       </div>
-      <div className="mt-4">{children}</div>
+      {user.status === "rejected" && user.verificationRejectedReason && (
+        <div
+          className="mt-3 rounded-field p-3 text-[12.5px]"
+          style={{
+            background: "rgba(229,107,111,0.1)",
+            color: "var(--sp-error)",
+            border: "1px solid rgba(229,107,111,0.3)",
+          }}
+        >
+          <span className="font-semibold">Previous rejection reason: </span>
+          {user.verificationRejectedReason}
+        </div>
+      )}
     </section>
   );
 }
 
-function FieldGrid({
+// ── Mixed field grid ─────────────────────────────────────────────────
+
+function MixedFieldGrid({
   fields,
-  block,
-  draft,
+  missing,
+  profileValues,
+  businessValues,
   editing,
-  onChange,
-  section,
-  cols = 2,
-  singleCol,
+  onChangeProfile,
+  onChangeBusiness,
 }: {
-  fields: FieldSpec[];
-  block: Record<string, string | null> | null | undefined;
-  draft: Record<string, string>;
+  fields: AdminField[];
+  missing: string[];
+  profileValues: Record<string, unknown>;
+  businessValues: Record<string, unknown>;
   editing: boolean;
-  onChange: (
-    section: "buyer" | "seller" | "bank",
-    key: string,
-  ) => (e: ChangeEvent<HTMLInputElement>) => void;
-  section: "buyer" | "seller" | "bank";
-  cols?: 2 | 3;
-  singleCol?: boolean;
+  onChangeProfile: (key: string, value: unknown) => void;
+  onChangeBusiness: (key: string, value: unknown) => void;
 }) {
   return (
-    <div
-      className={cn(
-        "grid gap-x-4 gap-y-3",
-        !singleCol && cols === 3 && "sm:grid-cols-3",
-        !singleCol && cols === 2 && "sm:grid-cols-2",
-      )}
-    >
-      {fields.map((f) => (
-        <FieldCell
-          key={f.key}
-          spec={f}
-          value={block?.[f.key] ?? null}
-          draftValue={draft[f.key] ?? ""}
-          editing={editing}
-          onChange={onChange(section, f.key)}
-          wide={f.wide}
-        />
-      ))}
+    <div className="grid gap-5 sm:grid-cols-2">
+      {fields.map((f) => {
+        const values = f.source === "profile" ? profileValues : businessValues;
+        const onChange =
+          f.source === "profile" ? onChangeProfile : onChangeBusiness;
+        const raw = values[f.key];
+        const display =
+          raw === null || raw === undefined || raw === ""
+            ? ""
+            : Array.isArray(raw)
+            ? raw.join(", ")
+            : String(raw);
+        const isMandatory = MANDATORY_KEYS.has(f.key);
+        const isFilled = !missing.includes(f.key);
+        return (
+          <div
+            key={f.key}
+            className={f.cols === 2 ? "sm:col-span-2" : undefined}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className="text-[10.5px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--sp-text-3)" }}
+              >
+                {f.label}
+              </span>
+              {isMandatory && (
+                <span
+                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
+                  style={
+                    isFilled
+                      ? {
+                          background: "var(--sp-lime-14)",
+                          color: "var(--sp-lime)",
+                        }
+                      : {
+                          background: "rgba(229,107,111,0.1)",
+                          color: "var(--sp-error)",
+                        }
+                  }
+                >
+                  {isFilled ? "Filled" : "Not filled"}
+                </span>
+              )}
+            </div>
+            {editing ? (
+              f.type === "textarea" ? (
+                <textarea
+                  value={display}
+                  onChange={(e) => onChange(f.key, e.target.value)}
+                  rows={3}
+                  className="mt-1.5 w-full rounded-field px-3 py-2 text-[13px]"
+                  style={{
+                    background: "var(--sp-card-2)",
+                    color: "var(--sp-text)",
+                    border: "1px solid var(--sp-border)",
+                  }}
+                />
+              ) : (
+                <input
+                  type="text"
+                  value={display}
+                  onChange={(e) =>
+                    onChange(
+                      f.key,
+                      f.key === "operatingCountries" ||
+                        f.key === "targetMarkets" ||
+                        f.key === "targetBuyerTypes"
+                        ? e.target.value
+                            .split(",")
+                            .map((x) => x.trim())
+                            .filter(Boolean)
+                        : e.target.value,
+                    )
+                  }
+                  className="mt-1.5 w-full rounded-field px-3 py-2 text-[13px]"
+                  style={{
+                    background: "var(--sp-card-2)",
+                    color: "var(--sp-text)",
+                    border: "1px solid var(--sp-border)",
+                  }}
+                />
+              )
+            ) : display === "" ? (
+              <p
+                className="mt-1.5 text-[13px] italic"
+                style={{ color: "var(--sp-text-3)" }}
+              >
+                — not filled —
+              </p>
+            ) : (
+              <p
+                className="mt-1.5 text-[13px]"
+                style={{ color: "var(--sp-text)" }}
+              >
+                {display}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function FieldCell({
-  spec,
-  value,
-  draftValue,
-  editing,
-  onChange,
-  wide,
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function cleanDraft(d: Record<string, unknown>, allowed: string[]) {
+  const out: Record<string, unknown> = {};
+  for (const k of allowed) {
+    if (k in d) out[k] = d[k] ?? "";
+  }
+  return out;
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  children,
 }: {
-  spec: FieldSpec;
-  value: string | null;
-  draftValue: string;
-  editing: boolean;
-  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  wide?: boolean;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className={cn(wide && "sm:col-span-2")}>
-      <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-        {spec.label}
+    <section className="sp-airy mt-4 p-6">
+      <p
+        className="text-[11px] font-bold uppercase tracking-[0.12em]"
+        style={{ color: "var(--sp-text-3)" }}
+      >
+        {title}
       </p>
-      {editing ? (
-        <input
-          className={cn("field mt-1", spec.mono && "font-mono")}
-          value={draftValue}
-          onChange={onChange}
-          placeholder="—"
-          spellCheck={false}
-          autoComplete="off"
-        />
-      ) : (
+      {subtitle && (
         <p
-          className={cn(
-            "mt-1 text-sm text-paper",
-            !value && "text-paper-muted/70",
-            spec.mono && value && "font-mono",
-          )}
+          className="mt-1 text-[11.5px]"
+          style={{ color: "var(--sp-text-3)" }}
         >
-          {value ?? "—"}
+          {subtitle}
         </p>
       )}
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const label = status.replace(/_/g, " ");
+  const tone =
+    status === "verified"
+      ? { bg: "var(--sp-lime-14)", fg: "var(--sp-lime)" }
+      : status === "rejected"
+      ? { bg: "rgba(229,107,111,0.12)", fg: "var(--sp-error)" }
+      : status === "active"
+      ? { bg: "rgba(126,159,255,0.12)", fg: "var(--sp-info)" }
+      : { bg: "var(--sp-card-2)", fg: "var(--sp-text-2)" };
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+      style={{ background: tone.bg, color: tone.fg }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function DocRow({
+  doc,
+  onPreview,
+  onApprove,
+  onReject,
+}: {
+  doc: VerifyDoc;
+  onPreview: () => void;
+  onApprove: () => Promise<void>;
+  onReject: () => void;
+}) {
+  const Icon = doc.mimeType.startsWith("image/") ? ImageIcon : FileText;
+  const sizeKb = Math.round(doc.sizeBytes / 1024);
+  const [busy, setBusy] = useState(false);
+  const tone =
+    doc.status === "approved"
+      ? { bg: "var(--sp-lime-14)", fg: "var(--sp-lime)" }
+      : doc.status === "rejected"
+      ? { bg: "rgba(229,107,111,0.12)", fg: "var(--sp-error)" }
+      : { bg: "rgba(139,92,246,0.14)", fg: "#9f75ff" };
+
+  return (
+    <li
+      className="rounded-[14px] p-3"
+      style={{
+        background: "var(--sp-card-2)",
+        border: "1px solid var(--sp-border)",
+      }}
+    >
+    <div className="flex flex-wrap items-center gap-3">
+      <Icon
+        className="h-4 w-4 shrink-0"
+        aria-hidden
+        style={{ color: "var(--sp-text-2)" }}
+      />
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-[13px] font-semibold"
+          style={{ color: "var(--sp-text)" }}
+        >
+          {doc.certType}
+        </p>
+        <button
+          type="button"
+          onClick={onPreview}
+          className="truncate text-[11.5px] hover:underline"
+          style={{ color: "var(--sp-text-2)" }}
+        >
+          {doc.filename} · {sizeKb} KB
+        </button>
+      </div>
+      <span
+        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+        style={{ background: tone.bg, color: tone.fg }}
+      >
+        {doc.status}
+      </span>
+      <a
+        href={`${API_BASE}${doc.url}`}
+        download={doc.filename}
+        className="sp-icon-btn"
+        style={{ height: "32px", width: "32px" }}
+        aria-label={`Download ${doc.filename}`}
+      >
+        <Download className="h-3.5 w-3.5" aria-hidden />
+      </a>
+      {doc.status === "pending" && (
+        <>
+          <button
+            type="button"
+            onClick={onReject}
+            className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
+            style={{
+              borderColor: "var(--sp-border)",
+              color: "var(--sp-error)",
+            }}
+          >
+            <X className="h-3 w-3" aria-hidden /> Reject
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await onApprove();
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
+            style={{
+              background: "var(--sp-lime)",
+              color: "var(--sp-lime-fg)",
+            }}
+          >
+            {busy ? (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            ) : (
+              <Check className="h-3 w-3" aria-hidden />
+            )}
+            Approve
+          </button>
+        </>
+      )}
+    </div>
+    {doc.status === "rejected" && doc.rejectionReason && (
+      <p
+        className="mt-2 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--sp-error)" }}
+      >
+        <span className="font-semibold">Reason:</span> {doc.rejectionReason}
+      </p>
+    )}
+    </li>
+  );
+}
+
+function PreviewModal({
+  doc,
+  onClose,
+}: {
+  doc: VerifyDoc;
+  onClose: () => void;
+}) {
+  const src = `${API_BASE}${doc.url}`;
+  const isImage = doc.mimeType.startsWith("image/");
+  const isPdf = doc.mimeType === "application/pdf";
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-3xl rounded-[22px] overflow-hidden"
+        style={{
+          background: "var(--sp-card)",
+          border: "1px solid var(--sp-border)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between p-4"
+          style={{ borderBottom: "1px solid var(--sp-border)" }}
+        >
+          <p
+            className="truncate text-[14px] font-semibold"
+            style={{ color: "var(--sp-text)" }}
+          >
+            {doc.filename}
+          </p>
+          <div className="flex items-center gap-2">
+            <a
+              href={src}
+              download={doc.filename}
+              className="sp-icon-btn"
+              aria-label="Download"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="sp-icon-btn"
+              aria-label="Close preview"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+        </div>
+        <div style={{ background: "var(--sp-canvas)", height: "70vh" }}>
+          {isImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={src}
+              alt={doc.filename}
+              className="h-full w-full object-contain"
+            />
+          ) : isPdf ? (
+            <iframe
+              src={src}
+              title={doc.filename}
+              className="h-full w-full"
+              style={{ border: 0 }}
+            />
+          ) : (
+            <div
+              className="flex h-full flex-col items-center justify-center gap-3 text-[13px]"
+              style={{ color: "var(--sp-text-2)" }}
+            >
+              <FileText className="h-10 w-10" aria-hidden />
+              Preview not available. Use the download button above.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
-}
-
-function RoleBadge({ type, active }: { type: "buyer" | "seller"; active: boolean }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest",
-        active
-          ? "border-line bg-ink-elevated text-paper"
-          : "border-line-soft bg-transparent text-paper-muted/60",
-      )}
-      style={
-        active
-          ? {
-              color: type === "seller" ? "var(--violet)" : "var(--accent)",
-            }
-          : undefined
-      }
-    >
-      {type}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const verified = status === "verified";
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest",
-        verified
-          ? "border-accent/30 bg-accent-soft text-paper"
-          : "border-line-soft bg-ink-elevated text-paper-muted",
-      )}
-    >
-      {verified ? (
-        <ShieldCheck aria-hidden className="h-3 w-3 text-accent" />
-      ) : null}
-      {status}
-    </span>
-  );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }

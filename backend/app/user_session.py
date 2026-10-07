@@ -1,19 +1,13 @@
-"""User session cookies — signed JWT-ish tokens for /login and /signup.
+"""Signed cookies for the app.
 
-Two cookie kinds:
+Two token kinds, both HMAC-signed by :data:`settings.session_secret`:
 
-1. ``cor1x_session``       — set on login and on successful /auth/signup.
-                             Carries the user's UUID. Verified on every
-                             authenticated request via `get_current_user`
-                             (deps.py) as a fallback to the X-User-Id header.
+1. ``cor1x_session`` — set on login and after set-password. Carries the
+   user's UUID. Verified on every authenticated request via
+   :func:`get_current_user` (deps.py). 24-hour TTL.
 
-2. ``cor1x_verified_phone`` — set after OTP verification on a mobile that
-                              doesn't yet have an account. Carries the
-                              mobile number for the next 10 minutes so
-                              /auth/signup can finalize the account.
-
-Both are HttpOnly, SameSite=lax, and Secure when not in debug mode. Signed
-with `settings.session_secret` via itsdangerous URLSafeTimedSerializer.
+2. Signup verification tokens — the value embedded in the click-to-verify
+   URL emailed to the user. Carries the user's UUID. 24-hour TTL.
 """
 from __future__ import annotations
 
@@ -25,28 +19,20 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from app.config import settings
 
 SESSION_COOKIE = "cor1x_session"
-VERIFIED_PHONE_COOKIE = "cor1x_verified_phone"
 
-# Session lives 24h — matches the frontend localStorage expiry the pulled
-# commit set up. Verified-phone cookie is much shorter because it's a step
-# in the signup flow, not a durable login.
 SESSION_MAX_AGE_SEC = 24 * 3600
-VERIFIED_PHONE_MAX_AGE_SEC = 10 * 60
+VERIFY_TOKEN_MAX_AGE_SEC = 24 * 3600
 
 
 def _session_serializer() -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        settings.session_secret, salt="cor1x-user-session"
-    )
+    return URLSafeTimedSerializer(settings.session_secret, salt="cor1x-user-session")
 
 
-def _verified_phone_serializer() -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        settings.session_secret, salt="cor1x-verified-phone"
-    )
+def _verify_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.session_secret, salt="cor1x-email-verify")
 
 
-# ── Session ──────────────────────────────────────────────────────────
+# ── Session cookie ───────────────────────────────────────────────────
 
 
 def issue_session(user_id: str) -> str:
@@ -100,38 +86,21 @@ def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE, path="/")
 
 
-# ── Verified-phone bridge ────────────────────────────────────────────
+# ── Email verification token ─────────────────────────────────────────
 
 
-def issue_verified_phone(mobile: str) -> str:
-    return _verified_phone_serializer().dumps({"mobile": mobile})
+def issue_verify_token(user_id: str) -> str:
+    return _verify_serializer().dumps({"uid": user_id})
 
 
-def decode_verified_phone(token: str) -> str | None:
+def decode_verify_token(token: str) -> str | None:
     try:
-        payload: Any = _verified_phone_serializer().loads(
-            token, max_age=VERIFIED_PHONE_MAX_AGE_SEC
+        payload: Any = _verify_serializer().loads(
+            token, max_age=VERIFY_TOKEN_MAX_AGE_SEC
         )
     except (BadSignature, SignatureExpired):
         return None
     if not isinstance(payload, dict):
         return None
-    mobile = payload.get("mobile")
-    return mobile if isinstance(mobile, str) else None
-
-
-def set_verified_phone_cookie(response: Response, mobile: str) -> None:
-    samesite, secure = _cookie_policy()
-    response.set_cookie(
-        key=VERIFIED_PHONE_COOKIE,
-        value=issue_verified_phone(mobile),
-        max_age=VERIFIED_PHONE_MAX_AGE_SEC,
-        httponly=True,
-        samesite=samesite,
-        secure=secure,
-        path="/",
-    )
-
-
-def clear_verified_phone_cookie(response: Response) -> None:
-    response.delete_cookie(VERIFIED_PHONE_COOKIE, path="/")
+    uid = payload.get("uid")
+    return uid if isinstance(uid, str) else None

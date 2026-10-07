@@ -2,7 +2,13 @@
 
 import { ReactNode, useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { api, clearUserId, getStoredUserId, type Me } from "@/lib/api";
+import {
+  api,
+  clearUserId,
+  getStoredUserId,
+  storeUserId,
+  type Me,
+} from "@/lib/api";
 import { MeContext } from "@/lib/useMe";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { Drawer } from "./Drawer";
@@ -43,11 +49,35 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
   }, [router]);
 
   useEffect(() => {
-    if (!getStoredUserId()) {
-      router.replace("/");
-      return;
-    }
-    fetchMe();
+    // The user may have landed here via the magic-link redirect, which
+    // only sets the HttpOnly session cookie — localStorage is empty.
+    // Bootstrap it from /auth/session before deciding to bounce.
+    let cancelled = false;
+    (async () => {
+      if (!getStoredUserId()) {
+        try {
+          const { userId } = await api.session();
+          if (cancelled) return;
+          if (userId) {
+            storeUserId(userId);
+          } else {
+            router.replace("/");
+            return;
+          }
+        } catch {
+          if (cancelled) return;
+          router.replace("/");
+          return;
+        }
+      }
+      if (cancelled) return;
+      fetchMe();
+    })();
+
+    // Guard: if a prior fetch flagged mustChangePassword, make sure the
+    // user is on the password screen before touching anything else.
+    // Done here rather than in a separate effect to keep the gate close
+    // to the fetch that produced the flag.
 
     // Watch for session expiry: re-check periodically, on tab focus, and when
     // the browser's storage changes (e.g. sign out from another tab).
@@ -64,6 +94,7 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("storage", bounce);
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("storage", bounce);
@@ -109,7 +140,7 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
           <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
             <HamburgerButton
               onClick={() => setDrawerOpen(true)}
-              fullName={me?.fullName ?? null}
+              fullName={me?.primary.fullName ?? null}
             />
             <div className="min-w-0 flex-1">
               <p className="text-[10px] uppercase tracking-widest text-paper-muted">
@@ -129,10 +160,9 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
         <Drawer
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          status={me?.status}
-          completion={me?.completion}
-          mobile={me?.mobile ?? ""}
-          fullName={me?.fullName ?? null}
+          email={me?.email ?? ""}
+          businessName={me?.businessName ?? null}
+          fullName={me?.primary.fullName ?? null}
           onSignOut={handleSignOut}
         />
 
@@ -149,14 +179,8 @@ function DashboardShellInner({ children }: { children: ReactNode }) {
 
 function titleForPath(pathname: string): { eyebrow: string; title: string } {
   if (pathname === "/dashboard") return { eyebrow: "home", title: "Dashboard" };
-  if (pathname.startsWith("/dashboard/profile")) {
-    return { eyebrow: "profile", title: "Your profile" };
-  }
-  if (pathname.startsWith("/dashboard/trust-score")) {
-    return { eyebrow: "trust score", title: "Boost your trust" };
-  }
-  if (pathname.startsWith("/dashboard/products")) {
-    return { eyebrow: "products", title: "Your listings" };
+  if (pathname.startsWith("/dashboard/account")) {
+    return { eyebrow: "account", title: "My Account" };
   }
   return { eyebrow: "dashboard", title: "Cor1x" };
 }

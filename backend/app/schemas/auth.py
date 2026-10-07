@@ -1,39 +1,70 @@
+from pydantic import EmailStr, Field
+
 from app.schemas.base import CamelModel
 
 
 class SignupRequest(CamelModel):
-    """POST /auth/signup — completes account creation after phone OTP.
+    """POST /auth/signup — email-only signup.
 
-    The mobile isn't in the payload; it comes from the cor1x_verified_phone
-    cookie that /otp/verify set. Consent must be true (DPDP / UAE PDPL).
-
-    Email is intentionally NOT collected here — an unverified email is worse
-    than no email. Users add + OTP-verify it from the profile page via
-    /verify/email once inside.
+    No password here — the backend generates a temp one and emails it.
+    The user types that temp password at the login screen (or clicks
+    the magic link in the same mail) and is then forced to set a real
+    password inside the portal.
     """
 
-    full_name: str
-    consent: bool
-    # Frontend can pin the specific policy version the user agreed to so we
-    # have a durable audit trail if we change the docs.
-    consent_version: str | None = None
+    email: EmailStr
+    first_name: str = Field(min_length=1, max_length=60)
+    last_name: str = Field(min_length=1, max_length=60)
+    country_of_residence: str = Field(min_length=2, max_length=60)
 
 
 class SignupResponse(CamelModel):
+    """Echo the address for the 'check your inbox' popup.
+
+    In dev mode (``settings.debug=True``), also returns ``dev_temp_password``
+    + ``dev_magic_url`` so the frontend doesn't need to open the .eml file
+    to run the flow. Never set in production.
+    """
+
+    email: str
+    message: str = "Check your inbox for your temporary password."
+    dev_temp_password: str | None = None
+    dev_magic_url: str | None = None
+
+
+class ResendSignupRequest(CamelModel):
+    """POST /auth/signup/resend — issue a fresh temp credential.
+
+    Invalidates the previous one. Rate-limited by email at the handler.
+    """
+
+    email: EmailStr
+
+
+class LoginRequest(CamelModel):
+    email: EmailStr
+    password: str
+
+
+class LoginResponse(CamelModel):
     user_id: str
-    is_new: bool = True
+    email: str
+    business_name: str | None = None
+    # True when the login used the temp credential — the frontend must
+    # route the user to /dashboard/settings/password and lock everything
+    # else behind it.
+    must_change_password: bool = False
 
 
-# Kept for BC — the frontend still imports these from the old /auth/verify
-# stub. New signups don't use them; can be removed once the pulled UI is
-# fully migrated to the cookie flow.
-class AuthVerifyRequest(CamelModel):
-    otp_id: str
-    code: str
-    mobile: str
+class ChangePasswordRequest(CamelModel):
+    """POST /auth/change-password — set or rotate a real password.
 
+    ``current_password`` is required only when the user already has a
+    real password (rotation). On first-time setup — the session was
+    issued via a temp credential — the backend ignores it, so the
+    frontend can send an empty string. Keeping the field present in
+    both modes keeps the TypeScript type simple.
+    """
 
-class AuthVerifyResponse(CamelModel):
-    user_id: str
-    is_new: bool
-    needs_profile: bool
+    current_password: str = Field(default="", max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)

@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { CheckSquare, LayoutDashboard, LogOut, Menu, Moon, Sun, Users, X } from "lucide-react";
+import { CheckSquare, FileText, LayoutDashboard, LogOut, Menu, Moon, Sun, Users, X } from "lucide-react";
 import { adminApi } from "@/lib/adminApi";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { RouteTransition, SpatialField, useAdminTheme, type AdminTheme } from "./spatial";
@@ -14,8 +14,9 @@ interface Props {
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, match: (p: string) => p === "/admin" },
-  { href: "/admin/verify", label: "Verify queue", icon: CheckSquare, match: (p: string) => p.startsWith("/admin/verify") },
   { href: "/admin/users", label: "Users", icon: Users, match: (p: string) => p.startsWith("/admin/users") },
+  { href: "/admin/verify", label: "Verify", icon: CheckSquare, match: (p: string) => p.startsWith("/admin/verify") },
+  { href: "/admin/docs", label: "Docs", icon: FileText, match: (p: string) => p.startsWith("/admin/docs") },
 ];
 
 export function AdminShell({ children }: Props) {

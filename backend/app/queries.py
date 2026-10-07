@@ -14,7 +14,6 @@ from sqlalchemy import Select, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business_profile import BusinessProfile
-from app.models.identity import Identity
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
@@ -83,27 +82,23 @@ def public_products_stmt(
     return stmt
 
 
-async def primary_mobile(db: AsyncSession, user_id: UUID) -> str | None:
-    """A user's phone identity (digit-only), preferred over email. Used
-    wherever a "call this seller" or "who is this account" display needs
-    to surface the mobile. Never derived from any profile column — mobile
-    only lives on identities."""
-    rows = list(
-        await db.scalars(select(Identity.value).where(Identity.user_id == user_id))
-    )
-    for v in rows:
-        if v and v.isdigit():
-            return v
-    return rows[0] if rows else None
+async def primary_email(db: AsyncSession, user_id: UUID) -> str | None:
+    """A user's work email — the login handle. Callers use this for the
+    "contact this seller" display."""
+    return await db.scalar(select(User.email).where(User.id == user_id))
 
 
 async def hydrate_sellers(
     db: AsyncSession, seller_ids: Sequence[UUID]
-) -> dict[UUID, tuple[Profile | None, BusinessProfile | None]]:
-    """Bulk-load Profile + BusinessProfile for a list of user IDs — used
-    by the catalog list to avoid N+1 lookups per product card."""
+) -> dict[UUID, tuple[User | None, Profile | None, BusinessProfile | None]]:
+    """Bulk-load User + Profile + BusinessProfile for a list of user IDs —
+    used by the catalog list to avoid N+1 lookups per product card."""
     if not seller_ids:
         return {}
+    users = {
+        u.id: u
+        for u in await db.scalars(select(User).where(User.id.in_(seller_ids)))
+    }
     profiles = {
         p.user_id: p
         for p in await db.scalars(
@@ -116,4 +111,7 @@ async def hydrate_sellers(
             select(BusinessProfile).where(BusinessProfile.user_id.in_(seller_ids))
         )
     }
-    return {uid: (profiles.get(uid), businesses.get(uid)) for uid in seller_ids}
+    return {
+        uid: (users.get(uid), profiles.get(uid), businesses.get(uid))
+        for uid in seller_ids
+    }

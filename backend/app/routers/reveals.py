@@ -5,12 +5,8 @@ info leaves the backend. Gated by:
 
   1. Caller must be signed in (session cookie or X-User-Id header).
   2. Caller's `users.status` must be `verified`.
-  3. Target product's seller must also be verified (public-catalog rule).
+  3. Target product's seller must also be verified.
   4. Rate limit: 20 successful reveals per buyer per hour.
-
-Idempotent: the (buyer, product) UNIQUE means a second reveal of the
-same product is free and returns the same card. The audit row is created
-on first reveal only.
 """
 from __future__ import annotations
 
@@ -28,21 +24,16 @@ from app.models.contact_reveal import ContactReveal
 from app.models.product import Product
 from app.models.profile import Profile
 from app.models.user import User, UserStatus
-from app.queries import primary_mobile, visible_users_clause
+from app.queries import visible_users_clause
 from app.schemas.reveal import RevealedContact
 
 router = APIRouter(prefix="/products", tags=["reveals"])
 
-# Buyers get 20 reveals/hour. Legitimate use is 1-3 per session; anything
-# above signals scraping and hits this cap.
 REVEAL_WINDOW_SEC = 60 * 60
 REVEAL_MAX_PER_WINDOW = 20
 
 
 async def _check_buyer_gate(user: User) -> None:
-    """Buyer must be verified to reveal ANY contact — this is the whole
-    point of the platform. Soft-deleted users can't even reach this
-    handler (deps.get_current_user filters them out)."""
     if user.status != UserStatus.verified:
         raise HTTPException(
             status_code=403,
@@ -75,20 +66,17 @@ async def _check_reveal_rate(user: User, db: AsyncSession) -> None:
 
 
 def _to_dto(
-    seller_id: uuid.UUID,
+    seller: User,
     profile: Profile | None,
     business: BusinessProfile | None,
-    mobile: str | None,
     revealed_at: datetime,
 ) -> RevealedContact:
     return RevealedContact(
-        seller_id=str(seller_id),
+        seller_id=str(seller.id),
         full_name=profile.full_name if profile else None,
-        company_name=business.company_name if business else None,
+        business_name=seller.business_name,
         business_type=business.business_type if business else None,
-        mobile=mobile,
-        email=profile.email if profile else None,
-        business_email=profile.business_email if profile else None,
+        email=seller.email,
         address_line=profile.address_line if profile else None,
         city=profile.city if profile else None,
         state=profile.state if profile else None,
@@ -116,7 +104,6 @@ async def reveal_contact(
 
     await _check_buyer_gate(user)
 
-    # Product must exist and belong to a visible (verified, non-deleted) seller.
     stmt = (
         select(Product)
         .join(User, User.id == Product.user_id)
@@ -127,15 +114,12 @@ async def reveal_contact(
         raise HTTPException(status_code=404, detail="Product not found")
 
     seller_id = product.user_id
-    # A user cannot "reveal" their own listing — surface a clear message
-    # so the UI can hide the reveal button in this case.
     if seller_id == user.id:
         raise HTTPException(
             status_code=400,
             detail="This is your own listing — nothing to reveal.",
         )
 
-    # Idempotent: return the existing row if the buyer already unlocked.
     existing = await db.scalar(
         select(ContactReveal).where(
             ContactReveal.buyer_id == user.id, ContactReveal.product_id == pid
@@ -143,8 +127,6 @@ async def reveal_contact(
     )
     revealed_at: datetime
     if existing is None:
-        # New reveal — rate-check before creating the row so a burst of
-        # duplicate requests doesn't consume the quota.
         await _check_reveal_rate(user, db)
         reveal = ContactReveal(
             buyer_id=user.id, seller_id=seller_id, product_id=pid
@@ -156,9 +138,10 @@ async def reveal_contact(
     else:
         revealed_at = existing.revealed_at
 
+    seller = await db.get(User, seller_id)
+    assert seller is not None  # guarded by visible_users_clause above
     profile = await db.scalar(select(Profile).where(Profile.user_id == seller_id))
     business = await db.scalar(
         select(BusinessProfile).where(BusinessProfile.user_id == seller_id)
     )
-    mobile = await primary_mobile(db, seller_id)
-    return _to_dto(seller_id, profile, business, mobile, revealed_at)
+    return _to_dto(seller, profile, business, revealed_at)

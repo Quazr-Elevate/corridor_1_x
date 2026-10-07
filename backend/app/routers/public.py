@@ -1,8 +1,8 @@
 """Public catalog — anonymous-safe reads.
 
 Contract: nothing here requires auth, and no response ever exposes contact
-info (phone / email / address / bank / regulatory IDs). That gate lives on
-the Sprint 3 /contact-reveal endpoint, which requires a verified session.
+info (email / address / bank / regulatory IDs). That gate lives on
+the /contact-reveal endpoint, which requires a verified session.
 """
 from __future__ import annotations
 
@@ -35,18 +35,24 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 
 def _seller_dto(
-    profile: Profile | None, business: BusinessProfile | None, user_id
+    user: User | None,
+    profile: Profile | None,
+    business: BusinessProfile | None,
+    seller_id,
 ) -> PublicSeller:
     return PublicSeller(
-        seller_id=str(user_id),
-        company_name=(business.company_name if business else None) or "Verified seller",
+        seller_id=str(seller_id),
+        business_name=(user.business_name if user else None) or "Verified seller",
         city=profile.city if profile else None,
         state=profile.state if profile else None,
     )
 
 
 def _card_dto(
-    p: Product, profile: Profile | None, business: BusinessProfile | None
+    p: Product,
+    user: User | None,
+    profile: Profile | None,
+    business: BusinessProfile | None,
 ) -> PublicProductCard:
     return PublicProductCard(
         id=str(p.id),
@@ -60,7 +66,7 @@ def _card_dto(
         moq=p.moq,
         price_per_unit=p.price_per_unit,
         photo=(p.photos or [None])[0],
-        seller=_seller_dto(profile, business, p.user_id),
+        seller=_seller_dto(user, profile, business, p.user_id),
     )
 
 
@@ -100,7 +106,7 @@ async def list_products(
     )
     seller_map = await hydrate_sellers(db, [r.user_id for r in rows])
     items = [
-        _card_dto(r, *seller_map.get(r.user_id, (None, None))) for r in rows
+        _card_dto(r, *seller_map.get(r.user_id, (None, None, None))) for r in rows
     ]
     return PublicProductList(total=total, items=items)
 
@@ -127,8 +133,8 @@ async def get_product(
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
     seller_map = await hydrate_sellers(db, [p.user_id])
-    profile, business = seller_map.get(p.user_id, (None, None))
-    card = _card_dto(p, profile, business)
+    user, profile, business = seller_map.get(p.user_id, (None, None, None))
+    card = _card_dto(p, user, profile, business)
     return PublicProductDetail(
         **card.model_dump(by_alias=False),
         description=p.description,
@@ -142,8 +148,6 @@ async def get_product(
     response_model_by_alias=True,
 )
 async def catalog_facets(db: AsyncSession = Depends(get_db)) -> CatalogFacets:
-    """Small aggregate for driving the filter bar. One roundtrip on page
-    load; no need to re-fetch per filter change."""
     base = public_products_stmt()
 
     cats = list(

@@ -54,3 +54,15 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.pem
+
+# Email module dev outbox — generated .eml files from the console provider.
+# Never commit; they contain temp passwords in cleartext.
+backend/outbox/
+
+# Dev session captures and ad-hoc API-probe scratch files.
+backend/cookies.txt
+*.pre-pull-backup
+/cert.json
+/me.json
+/patch.json
+/pend.json

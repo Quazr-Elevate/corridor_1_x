@@ -1,78 +1,45 @@
-export interface GstinLookup {
-  gstin: string;
-  legalName: string;
-  tradeName?: string;
-  pan: string;
-  businessType: string;
-  natureOfBusiness?: string;
-  maskedMobile: string;
-  address: {
-    building?: string;
-    city: string;
-    district?: string;
-    state: string;
-    pincode: string;
-  };
-}
-
-export interface PanLookup {
-  pan: string;
-  name: string;
-}
-
-export interface OtpSendResponse {
-  otpId: string;
-  destination: string;
-  expiresInSec: number;
-  devHint?: string;
-}
-
-export interface OtpVerifyResponse {
-  ok: boolean;
-  error?: string;
-}
-
-export interface PincodeLookup {
-  pincode: string;
-  city: string;
-  district?: string;
-  state: string;
-}
-
-// ── Dashboard shapes ────────────────────────────────────────────────────────
+// ── Shared response shapes ─────────────────────────────────────────────
 
 export interface Completion {
   primary: boolean;
   business: boolean;
   bank: boolean;
-  seller: boolean;
 }
 
 export interface PrimaryData {
   fullName?: string | null;
-  email?: string | null;
-  emailVerifiedAt?: string | null;
+  phone?: string | null;
+  department?: string | null;
+  position?: string | null;
   addressLine?: string | null;
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
-  altMobile?: string | null;
-  altMobileVerifiedAt?: string | null;
-  altEmail?: string | null;
-  altEmailVerifiedAt?: string | null;
-  businessEmail?: string | null;
-  businessEmailVerifiedAt?: string | null;
+  country?: string | null;
   websiteUrl?: string | null;
   googleBusinessUrl?: string | null;
   facebookUrl?: string | null;
 }
 
 export interface BusinessData {
-  gstin?: string | null;
-  gstinVerifiedAt?: string | null;
-  pan?: string | null;
-  panVerifiedAt?: string | null;
-  companyName?: string | null;
+  // Company info
+  legalName?: string | null;
+  industry?: string | null;
+  operatingCountries?: string[] | null;
+  websiteUrl?: string | null;
+  // Business profile
+  tradePosition?: string | null;
+  sellerType?: string | null;
+  businessRole?: string | null;
+  exportStatus?: string | null;
+  targetMarkets?: string[] | null;
+  targetBuyerTypes?: string[] | null;
+  mainObjective?: string | null;
+  companyIntroduction?: string | null;
+  // Free-text extras
+  businessType?: string | null;
+  natureOfBusiness?: string | null;
+  udyam?: string | null;
 }
 
 export interface BankData {
@@ -84,41 +51,51 @@ export interface BankData {
   bankName?: string | null;
 }
 
-export interface SellerData {
-  udyam?: string | null;
-  aadhaar?: string | null;
-  tan?: string | null;
+// Mirrors the server's UserStatus enum. "pending_verification" lands
+// here between "active" and "verified": the user has filled all seven
+// mandatory profile fields and is waiting on an admin decision.
+export type VerificationStatus =
+  | "signed_up"
+  | "email_verified"
+  | "active"
+  | "pending_verification"
+  | "verified"
+  | "rejected";
+
+export interface VerificationState {
+  status: VerificationStatus;
+  // camelCase keys of mandatory fields still blank. Order matches the
+  // backend's MANDATORY_FIELDS tuple, so the first entry is always the
+  // next field to prompt for.
+  missing: string[];
+  mandatoryTotal: number;
+  submittedAt: string | null;
+  verifiedAt: string | null;
+  rejectedReason: string | null;
 }
 
 export interface Me {
   userId: string;
+  email: string;
+  emailVerifiedAt: string | null;
+  businessName: string | null;
   userType: "buyer" | "seller";
   status: string;
-  mobile: string;
-  fullName: string | null;
+  /** True until the user replaces their temp credential with a real password. */
+  mustChangePassword: boolean;
   completion: Completion;
+  verification: VerificationState;
   primary: PrimaryData;
   business: BusinessData;
   bank: BankData;
-  seller: SellerData;
-}
-
-export interface OtpVerifyResponse {
-  ok: boolean;
-  error?: string;
-  // Phone-channel verify only. See routers/otp.py.
-  isNew?: boolean;
-  userId?: string;
 }
 
 export interface RevealedContact {
   sellerId: string;
   fullName: string | null;
-  companyName: string | null;
+  businessName: string | null;
   businessType: string | null;
-  mobile: string | null;
   email: string | null;
-  businessEmail: string | null;
   addressLine: string | null;
   city: string | null;
   state: string | null;
@@ -136,6 +113,26 @@ export interface IfscLookup {
   state?: string;
 }
 
+export interface PincodeLookup {
+  pincode: string;
+  city: string;
+  district?: string;
+  state: string;
+}
+
+export interface VerificationDoc {
+  id: string;
+  certType: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string | null;
+  uploadedAt: string;
+  reviewedAt: string | null;
+  url: string;
+}
+
 export interface ProductRead {
   id: string;
   name: string;
@@ -151,23 +148,76 @@ export interface ProductRead {
   photos: string[];
 }
 
-/** Prepend API base to a relative photo URL like `/uploads/products/xxx.jpg`. */
-export function photoUrl(rel: string): string {
-  if (!rel) return rel;
-  if (rel.startsWith("http")) return rel;
-  return `${API_BASE}${rel}`;
+// ── Auth flow shapes ───────────────────────────────────────────────────
+
+export interface SignupResponse {
+  email: string;
+  message: string;
+  /**
+   * Only populated when the backend is running with debug=true — the
+   * literal temp password that was emailed, and the magic-login URL.
+   * Lets the "check your inbox" screen show both without the user
+   * having to open the .eml file. Never present in production.
+   */
+  devTempPassword?: string | null;
+  devMagicUrl?: string | null;
 }
+
+export interface LoginResponse {
+  userId: string;
+  email: string;
+  businessName: string | null;
+  // True when the login used the temp credential. The frontend must
+  // route the user to /dashboard/settings/password and gate every
+  // other protected page behind it until a real password is set.
+  mustChangePassword: boolean;
+}
+
+// ── Onboarding wizard shapes ───────────────────────────────────────────
+
+export interface OnboardingStatus {
+  companyInfoDone: boolean;
+  primaryContactDone: boolean;
+  businessProfileDone: boolean;
+  onboardedAt: string | null;
+}
+
+export interface CompanyInfoIn {
+  legalName: string;
+  industry: string;
+  operatingCountries: string[];
+  websiteUrl?: string;
+}
+
+export interface PrimaryContactIn {
+  fullName: string;
+  phone?: string;
+  department?: string;
+  position?: string;
+}
+
+export interface BusinessProfileIn {
+  tradePosition: string;
+  sellerType?: string;
+  businessRole?: string;
+  exportStatus?: string;
+  targetMarkets: string[];
+  targetBuyerTypes: string[];
+  mainObjective?: string;
+  companyIntroduction?: string;
+}
+
+// ── HTTP helper ────────────────────────────────────────────────────────
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 const USER_ID_KEY = "cor1x.userId";
 const SESSION_EXPIRES_KEY = "cor1x.sessionExpiresAt";
-export const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function getStoredUserId(): string | null {
   if (typeof window === "undefined") return null;
   const uid = window.localStorage.getItem(USER_ID_KEY);
   if (!uid) return null;
-  // If we recorded an expiry and it's in the past, treat the session as gone.
   const expStr = window.localStorage.getItem(SESSION_EXPIRES_KEY);
   if (expStr) {
     const exp = Number(expStr);
@@ -202,23 +252,24 @@ export function sessionExpiresAt(): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Prepend API base to a relative photo URL like `/uploads/products/xxx.jpg`. */
+export function photoUrl(rel: string): string {
+  if (!rel) return rel;
+  if (rel.startsWith("http")) return rel;
+  return `${API_BASE}${rel}`;
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const userId = getStoredUserId();
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    // Include cookies so cor1x_session (login/signup) + cor1x_verified_phone
-    // (signup bridge) flow with every call. Requires CORS allow_credentials
-    // + a concrete origin (not *) on the backend — already set.
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      // Legacy header — kept while pulled dashboard code still reads
-      // userId from localStorage. Cookie auth takes precedence on backend.
       ...(userId ? { "X-User-Id": userId } : {}),
       ...(init?.headers ?? {}),
     },
   });
-  // 204 No Content (e.g. DELETE /me) has no body to parse.
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -232,107 +283,65 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Public (no auth header needed, but harmless if sent)
-  lookupGstin: (gstin: string) => jsonFetch<GstinLookup>(`/gstin/${gstin}`),
-  lookupPan: (pan: string) => jsonFetch<PanLookup>(`/pan/${pan}`),
+  // ─── Auth ───
+  signup: (payload: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    countryOfResidence: string;
+  }) =>
+    jsonFetch<SignupResponse>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  signupResend: (email: string) =>
+    jsonFetch<SignupResponse>("/auth/signup/resend", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  login: (payload: { email: string; password: string }) =>
+    jsonFetch<LoginResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  changePassword: (payload: { currentPassword: string; newPassword: string }) =>
+    jsonFetch<{ ok: true }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
+  logout: () => jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+
+  // ─── Onboarding wizard ───
+  onboardingStatus: () => jsonFetch<OnboardingStatus>("/onboarding/status"),
+  saveCompanyInfo: (payload: CompanyInfoIn) =>
+    jsonFetch<{ ok: true; status: OnboardingStatus }>("/onboarding/company", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  savePrimaryContact: (payload: PrimaryContactIn) =>
+    jsonFetch<{ ok: true; status: OnboardingStatus }>("/onboarding/contact", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  saveBusinessProfile: (payload: BusinessProfileIn) =>
+    jsonFetch<{ ok: true; status: OnboardingStatus }>("/onboarding/business", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // ─── Field-verify (still needed for IFSC) ───
   lookupPincode: (pincode: string) => jsonFetch<PincodeLookup>(`/pincode/${pincode}`),
   lookupIfsc: (ifsc: string) => jsonFetch<IfscLookup>(`/ifsc/${ifsc}`),
-  sendOtp: (payload: {
-    channel: "phone" | "email";
-    value: string;
-    purpose: "gstin" | "phone" | "email";
-    // 'signup' → 409 if mobile already registered; 'login' → 409 if not.
-    // Prevents burning an SMS on a mobile whose state doesn't match intent.
-    mode?: "signup" | "login";
-  }) =>
-    jsonFetch<OtpSendResponse>("/otp/send", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  // Phone-channel /otp/verify sets one of two cookies on success:
-  //   isNew=false → cor1x_session (login done, dashboard-ready)
-  //   isNew=true  → cor1x_verified_phone (10-min bridge to /auth/signup)
-  verifyOtp: (payload: {
-    otpId: string;
-    code: string;
-    channel?: "phone" | "email";
-    mobile?: string;
-    email?: string;
-    mode?: "signup" | "login";
-  }) =>
-    jsonFetch<OtpVerifyResponse>("/otp/verify", {
-      method: "POST",
-      body: JSON.stringify({ channel: "phone", ...payload }),
-    }),
 
-  // Complete signup — reads the cor1x_verified_phone cookie set moments
-  // ago by /otp/verify, creates User + Identity + Profile atomically,
-  // swaps to a durable cor1x_session cookie.
-  signup: (payload: {
-    fullName: string;
-    consent: boolean;
-    consentVersion?: string;
-  }) =>
-    jsonFetch<{ userId: string; isNew: boolean }>("/auth/signup", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  // Atomic OTP-verify + write for a profile contact field. Server checks
-  // the code and stamps *_verified_at in one commit — /profile/primary no
-  // longer accepts these fields directly, so this is the only writer.
-  verifyContact: (payload: {
-    target: "email" | "altMobile" | "altEmail" | "businessEmail";
-    value: string;
-    code: string;
-  }) =>
-    jsonFetch<{ ok: boolean; verifiedAt: string }>("/verify/contact", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  // Atomic Masters India lookup + write for GSTIN. Returns the lookup so
-  // the form can auto-fill company_name / business_type / nature.
-  verifyGstin: (value: string) =>
-    jsonFetch<{ ok: boolean; verifiedAt: string; lookup: GstinLookup }>(
-      "/verify/gstin",
-      { method: "POST", body: JSON.stringify({ value }) },
-    ),
-
-  verifyPan: (value: string) =>
-    jsonFetch<{ ok: boolean; verifiedAt: string; pan: string; name: string }>(
-      "/verify/pan",
-      { method: "POST", body: JSON.stringify({ value }) },
-    ),
-
-  verifyIfsc: (value: string) =>
-    jsonFetch<{
-      ok: boolean;
-      verifiedAt: string;
-      ifsc: string;
-      bank: string;
-      branch: string;
-    }>("/verify/ifsc", { method: "POST", body: JSON.stringify({ value }) }),
-
-  // Cheap probe used by middleware and page loaders — returns
-  // { userId: "..." } if a valid session cookie is present, else null.
-  session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
-
-  logout: () =>
-    jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
-
-  deleteMe: () =>
-    jsonFetch<void>("/me", { method: "DELETE" }),
-
-  // Verified-only. Idempotent — second call for the same product returns
-  // the same card with the original revealed_at.
-  revealContact: (productId: string) =>
-    jsonFetch<RevealedContact>(`/products/${productId}/contact-reveal`, {
-      method: "POST",
-    }),
-
-  // Dashboard — authenticated
+  // ─── Me ───
   me: () => jsonFetch<Me>("/me"),
+  deleteMe: () => jsonFetch<void>("/me", { method: "DELETE" }),
+
   saveProfilePrimary: (payload: unknown) =>
     jsonFetch<{ ok: true }>("/profile/primary", {
       method: "POST",
@@ -348,10 +357,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  saveProfileSeller: (payload: unknown) =>
-    jsonFetch<{ ok: true }>("/profile/seller", {
+
+  // ─── Verification docs ───
+  submitForVerification: () =>
+    jsonFetch<VerificationState>("/me/submit-verification", {
       method: "POST",
-      body: JSON.stringify(payload),
+    }),
+  listVerificationDocs: () =>
+    jsonFetch<VerificationDoc[]>("/me/verification-docs"),
+  uploadVerificationDoc: async (
+    certType: string,
+    file: File,
+  ): Promise<VerificationDoc> => {
+    const userId = getStoredUserId();
+    const form = new FormData();
+    form.append("cert_type", certType);
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/me/verification-docs`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+      headers: userId ? { "X-User-Id": userId } : {},
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg =
+        (body as { detail?: string }).detail || `Upload failed (${res.status})`;
+      throw new Error(msg);
+    }
+    return body as VerificationDoc;
+  },
+  deleteVerificationDoc: (id: string) =>
+    jsonFetch<void>(`/me/verification-docs/${id}`, { method: "DELETE" }),
+
+  // ─── Products / reveals ───
+  revealContact: (productId: string) =>
+    jsonFetch<RevealedContact>(`/products/${productId}/contact-reveal`, {
+      method: "POST",
     }),
   listProducts: () => jsonFetch<ProductRead[]>("/products"),
   createProduct: (payload: unknown) =>
@@ -366,7 +408,6 @@ export const api = {
     const res = await fetch(`${API_BASE}/products/upload-photo`, {
       method: "POST",
       body: form,
-      // Don't set Content-Type — the browser adds the multipart boundary.
       headers: userId ? { "X-User-Id": userId } : {},
     });
     const body = await res.json().catch(() => ({}));

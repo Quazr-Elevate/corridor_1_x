@@ -18,13 +18,6 @@ class Settings(BaseSettings):
     # Comma-separated list, e.g. "http://localhost:3000,https://cor1x.com"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    # Masters India (GSTIN search)
-    masters_india_access_token: str | None = None
-
-    # MSG91 (OTP / SMS)
-    msg91_auth_key: str | None = None
-    msg91_template_id: str | None = None
-
     # Admin console — single-operator MVP. Keep the hash out of git; put
     # `ADMIN_PASSWORD_HASH` in .env. Generate with:
     #     python -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt()).decode())"
@@ -52,6 +45,16 @@ class Settings(BaseSettings):
     # Independent of DEBUG on purpose — a testing env is HTTPS + cross-site but
     # still wants the dev OTP stub and relaxed limits.
     cross_site_cookies: bool = False
+
+    # ─── Email module (see app/email_module/) ────────────────────
+    # Default to the console provider so dev requires no credentials —
+    # every email prints and lands as an .eml file in backend/outbox/.
+    # Prod sets EMAIL_PROVIDER=resend and EMAIL_API_KEY=re_... in .env.
+    email_provider: str = "console"
+    email_api_key: str = ""
+    email_from: str = "no-reply@cor1x.local"
+    email_from_name: str = "Cor1x"
+    email_reply_to: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

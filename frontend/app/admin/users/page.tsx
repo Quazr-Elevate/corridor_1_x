@@ -1,185 +1,178 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUpRight, Search } from "lucide-react";
-import { Rise } from "@/components/admin/spatial";
-import { adminApi, type UserRow, type UsersListOut } from "@/lib/adminApi";
-
-const STATUS_OPTIONS = [
-  { value: "", label: "All statuses" },
-  { value: "signed_up", label: "Signed up" },
-  { value: "verified", label: "Verified" },
-];
-
-const STAGE_LABELS: Record<string, string> = {
-  signed_up: "Signed up",
-  primary_pending: "Primary pending",
-  business_pending: "Business pending",
-  bank_pending: "Bank pending",
-  verified: "Verified",
-};
+import { ArrowLeft, RefreshCw, Search } from "lucide-react";
+import { adminApi, type UserRow } from "@/lib/adminApi";
 
 export default function AdminUsersPage() {
-  return (
-    <Suspense fallback={<p className="text-sm" style={{ color: "var(--sp-text-3)" }}>Loading…</p>}>
-      <UsersBody />
-    </Suspense>
-  );
-}
-
-function UsersBody() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const type = searchParams.get("type") ?? "";
-  const status = searchParams.get("status") ?? "";
-  const [q, setQ] = useState(searchParams.get("q") ?? "");
-  const [data, setData] = useState<UsersListOut | null>(null);
+  const [q, setQ] = useState("");
+  const [items, setItems] = useState<UserRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    setErr(null);
-    adminApi
-      .users({
-        type: type === "buyer" || type === "seller" ? type : undefined,
-        status: status || undefined,
-        q: q.trim() || undefined,
-        limit: 100,
-      })
-      .then(setData)
-      .catch((e) => setErr(e instanceof Error ? e.message : "Load failed"));
-  }, [type, status, q]);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await adminApi.users({ q, limit: 100 });
+      setItems(res.items);
+      setTotal(res.total);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Load failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [q]);
 
-  const setFilter = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams.toString());
-    if (value) next.set(key, value);
-    else next.delete(key);
-    router.replace(`/admin/users?${next.toString()}`);
-  };
+  useEffect(() => {
+    const t = setTimeout(load, 200);
+    return () => clearTimeout(t);
+  }, [load]);
 
   return (
-    <div className="mx-auto max-w-[1100px]">
-      <Rise i={0} className="flex flex-wrap items-baseline justify-between gap-3">
+    <div className="mx-auto max-w-[1240px] px-6 py-8">
+      <div className="flex flex-wrap items-start justify-between gap-5">
         <div>
-          <p className="text-[12px]" style={{ color: "var(--sp-text-3)" }}>Admin console</p>
-          <h1 className="mt-1 text-[34px] font-semibold tracking-[-0.025em]" style={{ color: "var(--sp-text)" }}>Users</h1>
-        </div>
-        {data && (
-          <p className="text-[13px]" style={{ color: "var(--sp-text-3)" }}>
-            {data.total} match{data.total === 1 ? "" : "es"}
+          <p className="text-[12px]" style={{ color: "var(--sp-text-3)" }}>
+            Admin console · Users
           </p>
-        )}
-      </Rise>
-
-      {/* Filter row */}
-      <Rise i={1} className="sp-airy mt-6 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip label="All" active={!type} onClick={() => setFilter("type", "")} />
-          <Chip label="Buyers" active={type === "buyer"} onClick={() => setFilter("type", "buyer")} />
-          <Chip label="Sellers" active={type === "seller"} onClick={() => setFilter("type", "seller")} />
-
-          <span className="mx-1.5 h-4 w-px" style={{ background: "var(--sp-border)" }} aria-hidden />
-
-          <select
-            value={status}
-            onChange={(e) => setFilter("status", e.target.value)}
-            className="h-9 rounded-full px-3 text-[12.5px] outline-none"
-            style={{ background: "var(--sp-card)", border: "1px solid var(--sp-airy-border)", color: "var(--sp-text-2)", maxWidth: 180 }}
+          <h1
+            className="mt-1 text-[34px] font-semibold tracking-[-0.025em]"
+            style={{ color: "var(--sp-text)" }}
           >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-
-          <div className="ml-auto flex items-center gap-2 rounded-full px-3.5 py-2" style={{ background: "var(--sp-card)", border: "1px solid var(--sp-airy-border)" }}>
-            <Search aria-hidden className="h-3.5 w-3.5" style={{ color: "var(--sp-text-3)" }} />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Name, mobile, email, GSTIN, PAN"
-              className="min-w-[200px] bg-transparent text-[12.5px] outline-none placeholder:opacity-60"
-              style={{ color: "var(--sp-text)" }}
-            />
-          </div>
+            {total} user{total === 1 ? "" : "s"}
+          </h1>
         </div>
-      </Rise>
+        <Link
+          href="/admin"
+          className="sp-chip"
+          style={{ paddingLeft: "0.75rem" }}
+        >
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Dashboard
+        </Link>
+      </div>
 
-      {err ? (
-        <p className="mt-6 text-sm" style={{ color: "var(--sp-error)" }}>{err}</p>
-      ) : !data ? (
-        <p className="mt-6 text-sm" style={{ color: "var(--sp-text-3)" }}>Loading…</p>
-      ) : data.items.length === 0 ? (
-        <div className="sp-airy mt-4 p-10 text-center">
-          <p className="text-[13px]" style={{ color: "var(--sp-text-3)" }}>No users match this filter yet.</p>
+      <div className="sp-airy mt-7 p-4">
+        <div className="relative">
+          <Search
+            className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2"
+            aria-hidden
+            style={{ color: "var(--sp-text-3)" }}
+          />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by email or business name…"
+            className="w-full rounded-[14px] py-3 pl-11 pr-4 text-[14px] focus:outline-none"
+            style={{
+              background: "var(--sp-card-2)",
+              color: "var(--sp-text)",
+              border: "1px solid var(--sp-border)",
+            }}
+          />
         </div>
+      </div>
+
+      {err && (
+        <div
+          className="sp-airy mt-4 p-4 text-[13px]"
+          style={{ color: "var(--sp-error)" }}
+        >
+          {err}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="mt-6 flex justify-center py-12">
+          <RefreshCw
+            className="h-6 w-6 animate-spin"
+            style={{ color: "var(--sp-lime)" }}
+          />
+        </div>
+      ) : items.length === 0 ? (
+        <p
+          className="sp-airy mt-4 p-10 text-center text-[13px]"
+          style={{ color: "var(--sp-text-3)" }}
+        >
+          No users match.
+        </p>
       ) : (
-        <Rise i={2} className="sp-airy mt-4 overflow-hidden">
-          <ul>
-            {data.items.map((u, i) => (
-              <UserListItem key={u.userId} u={u} first={i === 0} />
-            ))}
-          </ul>
-        </Rise>
+        <div className="sp-airy mt-4 overflow-hidden">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr
+                className="text-left text-[11px] font-bold uppercase tracking-[0.12em]"
+                style={{
+                  color: "var(--sp-text-3)",
+                  background: "var(--sp-card-2)",
+                }}
+              >
+                <th className="px-5 py-4">Email</th>
+                <th className="px-5 py-4">Business</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4 text-right">Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((u, i) => (
+                <tr
+                  key={u.userId}
+                  onClick={() => (window.location.href = `/admin/users/${u.userId}`)}
+                  style={{
+                    borderTop: "1px solid var(--sp-border)",
+                    background: i % 2 === 1 ? "var(--sp-card-2)" : "transparent",
+                    cursor: "pointer",
+                  }}
+                >
+                  <td className="px-5 py-3" style={{ color: "var(--sp-text)" }}>
+                    {u.email}
+                  </td>
+                  <td
+                    className="px-5 py-3"
+                    style={{ color: "var(--sp-text-2)" }}
+                  >
+                    {u.businessName || "—"}
+                  </td>
+                  <td className="px-5 py-3">
+                    <StatusPill status={u.status} />
+                  </td>
+                  <td
+                    className="px-5 py-3 text-right text-[12px]"
+                    style={{ color: "var(--sp-text-3)" }}
+                  >
+                    {new Date(u.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
 }
 
-function UserListItem({ u, first }: { u: UserRow; first: boolean }) {
-  return (
-    <li style={{ borderTop: first ? "none" : "1px solid var(--sp-border)" }}>
-      <Link
-        href={`/admin/users/${u.userId}?view=${u.userType}`}
-        className="group flex items-center gap-4 px-5 py-3.5 transition-colors"
-        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--sp-card-2)")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-      >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold" style={{ background: "var(--sp-lime-10)", color: "var(--sp-lime)" }}>
-          {(u.fullName || u.mobile || "?").slice(0, 2).toUpperCase()}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium" style={{ color: "var(--sp-text)" }}>
-            {u.fullName || u.mobile || "—"}
-            <span className="ml-1.5 align-middle text-[9px] font-bold uppercase tracking-[0.1em]" style={{ color: u.userType === "seller" ? "var(--sp-seller)" : "var(--sp-lime)" }}>
-              · {u.userType}
-            </span>
-          </p>
-          <p className="mt-0.5 truncate text-[11px]" style={{ color: "var(--sp-text-3)" }}>
-            {u.mobile ? <>+91 {u.mobile}</> : null}
-            {u.email ? <span className="mx-1.5">·</span> : null}
-            {u.email ? u.email : null}
-            {u.state ? <span className="mx-1.5">·</span> : null}
-            {u.state ? u.state : null}
-          </p>
-        </div>
-        <StagePill stage={u.stage} />
-        <ArrowUpRight aria-hidden className="hidden h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 sm:inline" style={{ color: "var(--sp-text-3)" }} />
-      </Link>
-    </li>
-  );
-}
-
-function StagePill({ stage }: { stage: string }) {
-  const verified = stage === "verified";
+function StatusPill({ status }: { status: string }) {
+  const label = status.replace(/_/g, " ");
+  const tone =
+    status === "verified"
+      ? { bg: "var(--sp-lime-14)", fg: "var(--sp-lime)" }
+      : status === "rejected"
+      ? { bg: "rgba(229,107,111,0.12)", fg: "var(--sp-error)" }
+      : status === "active"
+      ? { bg: "rgba(126,159,255,0.12)", fg: "var(--sp-info)" }
+      : status === "email_verified"
+      ? { bg: "var(--sp-card-2)", fg: "var(--sp-text-2)" }
+      : { bg: "var(--sp-card-2)", fg: "var(--sp-text-3)" };
   return (
     <span
-      className="hidden shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] sm:inline"
-      style={
-        verified
-          ? { background: "var(--sp-lime-14)", color: "var(--sp-lime)" }
-          : { background: "var(--sp-card-2)", color: "var(--sp-text-3)", border: "1px solid var(--sp-border)" }
-      }
+      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.08em]"
+      style={{ background: tone.bg, color: tone.fg }}
     >
-      {STAGE_LABELS[stage] ?? stage}
-    </span>
-  );
-}
-
-function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="sp-chip" data-active={active || undefined}>
       {label}
-    </button>
+    </span>
   );
 }

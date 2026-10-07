@@ -13,11 +13,11 @@ from app.schemas.base import CamelModel
 
 
 class PublicSeller(CamelModel):
-    """The seller-facing side of a card. Company + city + verified badge
-    only — no name, mobile, email, address, or IDs."""
+    """The seller-facing side of a card. Business name + city + verified
+    badge only — no personal name, email, address, or IDs."""
 
     seller_id: str
-    company_name: str
+    business_name: str
     city: str | None = None
     state: str | None = None
     verified: bool = True  # Reserved for when we differentiate tiers.
