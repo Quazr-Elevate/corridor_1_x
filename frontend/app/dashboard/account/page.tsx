@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Loader2, Save } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useMe } from "@/lib/useMe";
 import { api } from "@/lib/api";
 import {
-  AuthButton,
   AuthField,
   AuthInput,
   AuthSelect,
@@ -26,6 +33,25 @@ const SECTIONS: { key: SectionKey; label: string }[] = [
   { key: "business", label: "Business profile" },
   { key: "certifications", label: "Certifications" },
 ];
+
+// ─── Section-handle contract ─────────────────────────────────────────
+// Each editable section exposes this handle via forwardRef so the page's
+// one Save button at the bottom can ask "is this section dirty?" and
+// "save your changes". Validation errors become thrown exceptions from
+// save() so Promise.allSettled gives us a per-section outcome without
+// polluting the return type.
+export type FormKey = "primary" | "company" | "business";
+
+export interface SectionHandle {
+  save(): Promise<void>;
+}
+
+// Props every editable section accepts. Dirty state is lifted up so the
+// save bar can show "N unsaved changes · Primary, Company" without
+// re-reading state out of imperative handles on every keystroke.
+interface SectionProps {
+  onDirtyChange(dirty: boolean): void;
+}
 
 const COUNTRIES = [
   "India", "United Arab Emirates", "Saudi Arabia", "Oman", "Qatar", "Kuwait",
@@ -136,6 +162,76 @@ export default function MyAccountPage() {
   const params = useSearchParams();
   const [active, setActive] = useState<SectionKey>("primary");
 
+  // Refs give the Save bar an imperative handle to each section. The
+  // dirty flags are lifted via ``onDirtyChange`` so the bar can show
+  // "N unsaved changes · Primary, Company" without poking into refs on
+  // every keystroke.
+  const primaryRef = useRef<SectionHandle>(null);
+  const companyRef = useRef<SectionHandle>(null);
+  const businessRef = useRef<SectionHandle>(null);
+
+  const [dirty, setDirty] = useState<Record<FormKey, boolean>>({
+    primary: false,
+    company: false,
+    business: false,
+  });
+  const [savingAll, setSavingAll] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  // Stable per-key dirty callbacks — new identity on every render would
+  // churn the sections' useEffect dependencies for no reason.
+  const onPrimaryDirty = useMemo(
+    () => (d: boolean) => setDirty((s) => (s.primary === d ? s : { ...s, primary: d })),
+    [],
+  );
+  const onCompanyDirty = useMemo(
+    () => (d: boolean) => setDirty((s) => (s.company === d ? s : { ...s, company: d })),
+    [],
+  );
+  const onBusinessDirty = useMemo(
+    () => (d: boolean) => setDirty((s) => (s.business === d ? s : { ...s, business: d })),
+    [],
+  );
+
+  const dirtyLabels = SECTIONS.filter(
+    (s) => s.key !== "certifications" && dirty[s.key as FormKey],
+  ).map((s) => s.label);
+  const anyDirty = dirtyLabels.length > 0;
+
+  async function saveAll() {
+    if (!anyDirty) return;
+    setSavingAll(true);
+    setSaveError(null);
+    const jobs: Promise<void>[] = [];
+    if (dirty.primary && primaryRef.current) jobs.push(primaryRef.current.save());
+    if (dirty.company && companyRef.current) jobs.push(companyRef.current.save());
+    if (dirty.business && businessRef.current) jobs.push(businessRef.current.save());
+
+    const results = await Promise.allSettled(jobs);
+    const failures = results.filter((r) => r.status === "rejected");
+    setSavingAll(false);
+    if (failures.length === 0) {
+      setSavedAt(Date.now());
+    } else {
+      const msg = failures
+        .map((r) => (r as PromiseRejectedResult).reason?.message ?? "Save failed")
+        .join(" · ");
+      setSaveError(msg);
+    }
+  }
+
+  // Guard against accidental tab-close with unsaved changes.
+  useEffect(() => {
+    if (!anyDirty) return;
+    function beforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [anyDirty]);
+
   // Deep-links: ?tab= jumps to a section; ?doc= scrolls to one of the
   // uploaded doc rows inside the Certifications card. Both come from
   // the dashboard rejection popups.
@@ -244,21 +340,21 @@ export default function MyAccountPage() {
         id="section-primary"
         className="scroll-mt-28 rounded-card border border-line-soft bg-ink-soft/70 p-6 md:p-8"
       >
-        <PrimarySection />
+        <PrimarySection ref={primaryRef} onDirtyChange={onPrimaryDirty} />
       </section>
 
       <section
         id="section-company"
         className="scroll-mt-28 rounded-card border border-line-soft bg-ink-soft/70 p-6 md:p-8"
       >
-        <CompanySection />
+        <CompanySection ref={companyRef} onDirtyChange={onCompanyDirty} />
       </section>
 
       <section
         id="section-business"
         className="scroll-mt-28 rounded-card border border-line-soft bg-ink-soft/70 p-6 md:p-8"
       >
-        <BusinessSection />
+        <BusinessSection ref={businessRef} onDirtyChange={onBusinessDirty} />
       </section>
 
       <section
@@ -277,11 +373,101 @@ export default function MyAccountPage() {
         <CertificationsBlock />
       </section>
 
-      {/* Verification submission — one place at the end of the page,
-          renders differently based on verification state (disabled
-          button / enabled button / "Under review" / "Verified"). */}
-      <div className="flex justify-end pt-2">
+      {/* Spacer so the last section's content isn't clipped behind the
+          sticky save bar. ~96px matches the bar's rendered height. */}
+      <div className="h-24" aria-hidden />
+
+      <AccountSaveBar
+        dirtyLabels={dirtyLabels}
+        anyDirty={anyDirty}
+        saving={savingAll}
+        error={saveError}
+        savedAt={savedAt}
+        onSave={saveAll}
+      />
+    </div>
+  );
+}
+
+// ─── Sticky save bar ────────────────────────────────────────────────
+
+/**
+ * One Save button for the whole page.
+ *
+ * Shown fixed to the bottom of the viewport so wherever the user is
+ * scrolled, they can see what's unsaved and commit it. Left side is
+ * informational ("3 unsaved changes · Primary, Company"), right side
+ * is the Save action next to the Send-for-verification control.
+ *
+ * Rules:
+ *   * Disabled when nothing's dirty (no accidental empty saves).
+ *   * Clicking fans out per-section saves in parallel and reports
+ *     partial failure inline.
+ *   * "Saved ✓" blips green for 3 seconds after a clean save.
+ */
+function AccountSaveBar({
+  dirtyLabels,
+  anyDirty,
+  saving,
+  error,
+  savedAt,
+  onSave,
+}: {
+  dirtyLabels: string[];
+  anyDirty: boolean;
+  saving: boolean;
+  error: string | null;
+  savedAt: number | null;
+  onSave: () => void | Promise<void>;
+}) {
+  const justSaved = savedAt != null && Date.now() - savedAt < 3000;
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-line-soft bg-ink/90 backdrop-blur px-4 py-3"
+      role="region"
+      aria-label="Account save bar"
+    >
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          {anyDirty ? (
+            <p className="text-xs text-paper leading-snug">
+              <span className="font-semibold text-amber-400">
+                {dirtyLabels.length} unsaved change
+                {dirtyLabels.length === 1 ? "" : "s"}
+              </span>
+              <span className="text-paper-muted"> · {dirtyLabels.join(", ")}</span>
+            </p>
+          ) : justSaved ? (
+            <p className="text-xs font-semibold text-accent">All changes saved ✓</p>
+          ) : (
+            <p className="text-xs text-paper-muted">No unsaved changes.</p>
+          )}
+          {error && (
+            <p className="mt-1 text-xs text-danger leading-snug line-clamp-2">
+              {error}
+            </p>
+          )}
+        </div>
+
         <SendForVerificationControl />
+
+        <button
+          type="button"
+          onClick={() => void onSave()}
+          disabled={!anyDirty || saving}
+          className={`inline-flex items-center gap-2 rounded-field px-5 py-2.5 text-sm font-semibold shadow-cta transition ${
+            anyDirty && !saving
+              ? "bg-accent text-accent-fg hover:bg-accent-hover cursor-pointer"
+              : "bg-line-soft/40 text-paper-muted cursor-not-allowed"
+          }`}
+        >
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Save className="h-4 w-4" aria-hidden />
+          )}
+          Save changes
+        </button>
       </div>
     </div>
   );
@@ -289,66 +475,90 @@ export default function MyAccountPage() {
 
 // ─── Primary info ────────────────────────────────────────────────────
 
-function PrimarySection() {
+const PrimarySection = forwardRef<SectionHandle, SectionProps>(
+  function PrimarySection({ onDirtyChange }, ref) {
   const { me, refetch } = useMe();
   const [fullName, setFullName] = useState("");
   const [position, setPosition] = useState("");
   const [phoneDial, setPhoneDial] = useState("+91");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [department, setDepartment] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const hydrated = useRef(false);
+  // Snapshot of the hydrated values, as a stringified blob. We compare
+  // the current blob against this to decide "is this section dirty?"
+  // without a per-field delta. Null means "not yet hydrated" — in that
+  // case we never report dirty.
+  const initial = useRef<string | null>(null);
 
-  // Hydrate once per user. Repeated /me refetches would otherwise reset
-  // every field the user hasn't committed yet.
   useEffect(() => {
     if (hydrated.current || !me) return;
-    setFullName(me.primary.fullName ?? "");
-    setPosition(me.primary.position ?? "");
     const parsed = parsePhone(me.primary.phone);
-    setPhoneDial(parsed.dial);
-    setPhoneNumber(parsed.rest);
-    setDepartment(me.primary.department ?? "");
+    const data = {
+      fullName: me.primary.fullName ?? "",
+      position: me.primary.position ?? "",
+      phoneDial: parsed.dial,
+      phoneNumber: parsed.rest,
+      department: me.primary.department ?? "",
+    };
+    setFullName(data.fullName);
+    setPosition(data.position);
+    setPhoneDial(data.phoneDial);
+    setPhoneNumber(data.phoneNumber);
+    setDepartment(data.department);
+    initial.current = JSON.stringify(data);
     hydrated.current = true;
   }, [me]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (/\d/.test(fullName)) {
-      setError("Name should not contain numbers.");
-      return;
-    }
-    const phone = phoneNumber.trim()
-      ? `${phoneDial} ${phoneNumber.trim()}`
-      : undefined;
-    setSaving(true);
-    try {
-      await api.savePrimaryContact({
-        fullName: fullName.trim(),
-        phone,
-        department: department || undefined,
-        position: position.trim() || undefined,
-      });
-      await refetch();
-      setSavedAt(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const currentJson = JSON.stringify({
+    fullName,
+    position,
+    phoneDial,
+    phoneNumber,
+    department,
+  });
+  const isDirty =
+    initial.current !== null && initial.current !== currentJson;
+
+  // Mirror dirty state up to the page so the save bar can show the
+  // "N unsaved changes · Primary, …" summary without reaching into refs.
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      async save() {
+        setError(null);
+        if (/\d/.test(fullName)) {
+          const msg = "Name should not contain numbers.";
+          setError(msg);
+          throw new Error(`Primary info: ${msg}`);
+        }
+        const phone = phoneNumber.trim()
+          ? `${phoneDial} ${phoneNumber.trim()}`
+          : undefined;
+        await api.savePrimaryContact({
+          fullName: fullName.trim(),
+          phone,
+          department: department || undefined,
+          position: position.trim() || undefined,
+        });
+        await refetch();
+        // Mark clean — the committed values become the new baseline.
+        initial.current = currentJson;
+        onDirtyChange(false);
+      },
+    }),
+    [fullName, position, phoneDial, phoneNumber, department, currentJson, refetch, onDirtyChange],
+  );
 
   return (
     <SectionForm
       title="Primary info"
       subtitle="You and how buyers reach you."
       error={error}
-      saving={saving}
-      savedAt={savedAt}
-      onSubmit={onSubmit}
     >
       <AuthField label="Email" hint="Managed by Cor1x — contact support to change.">
         <AuthInput type="email" value={me?.email ?? ""} readOnly disabled />
@@ -411,61 +621,75 @@ function PrimarySection() {
       </AuthField>
     </SectionForm>
   );
-}
+});
 
 // ─── Company info ────────────────────────────────────────────────────
 
-function CompanySection() {
+const CompanySection = forwardRef<SectionHandle, SectionProps>(
+  function CompanySection({ onDirtyChange }, ref) {
   const { me, refetch } = useMe();
   const [legalName, setLegalName] = useState("");
   const [industry, setIndustry] = useState("");
   const [operatingCountries, setOperatingCountries] = useState<string[]>([]);
   const [websiteUrl, setWebsiteUrl] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const hydrated = useRef(false);
+  const initial = useRef<string | null>(null);
 
-  // Hydrate once per user. We intentionally skip `business` as a dep so
-  // the form doesn't clobber the user's edits every /me refetch.
   useEffect(() => {
     if (hydrated.current || !me) return;
     const business = me.business;
-    setLegalName(me.businessName ?? business?.legalName ?? "");
-    setIndustry(business?.industry ?? "");
-    setOperatingCountries(business?.operatingCountries ?? []);
-    setWebsiteUrl(business?.websiteUrl ?? "");
+    const data = {
+      legalName: me.businessName ?? business?.legalName ?? "",
+      industry: business?.industry ?? "",
+      operatingCountries: business?.operatingCountries ?? [],
+      websiteUrl: business?.websiteUrl ?? "",
+    };
+    setLegalName(data.legalName);
+    setIndustry(data.industry);
+    setOperatingCountries(data.operatingCountries);
+    setWebsiteUrl(data.websiteUrl);
+    initial.current = JSON.stringify(data);
     hydrated.current = true;
   }, [me]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
-    try {
-      await api.saveCompanyInfo({
-        legalName: legalName.trim(),
-        industry,
-        operatingCountries,
-        websiteUrl: websiteUrl.trim() || undefined,
-      });
-      await refetch();
-      setSavedAt(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const currentJson = JSON.stringify({
+    legalName,
+    industry,
+    operatingCountries,
+    websiteUrl,
+  });
+  const isDirty =
+    initial.current !== null && initial.current !== currentJson;
+
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      async save() {
+        setError(null);
+        await api.saveCompanyInfo({
+          legalName: legalName.trim(),
+          industry,
+          operatingCountries,
+          websiteUrl: websiteUrl.trim() || undefined,
+        });
+        await refetch();
+        initial.current = currentJson;
+        onDirtyChange(false);
+      },
+    }),
+    [legalName, industry, operatingCountries, websiteUrl, currentJson, refetch, onDirtyChange],
+  );
 
   return (
     <SectionForm
       title="Company info"
       subtitle="The public identity buyers see on your listings."
       error={error}
-      saving={saving}
-      savedAt={savedAt}
-      onSubmit={onSubmit}
     >
       <AuthField
         label="Legal company name"
@@ -515,11 +739,12 @@ function CompanySection() {
       </AuthField>
     </SectionForm>
   );
-}
+});
 
 // ─── Business profile ────────────────────────────────────────────────
 
-function BusinessSection() {
+const BusinessSection = forwardRef<SectionHandle, SectionProps>(
+  function BusinessSection({ onDirtyChange }, ref) {
   const { me, refetch } = useMe();
   const [tradePosition, setTradePosition] = useState("");
   const [sellerType, setSellerType] = useState("");
@@ -527,60 +752,87 @@ function BusinessSection() {
   const [targetMarkets, setTargetMarkets] = useState<string[]>([]);
   const [mainObjective, setMainObjective] = useState("");
   const [companyIntro, setCompanyIntro] = useState("");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const hydrated = useRef(false);
+  const initial = useRef<string | null>(null);
 
-  // Hydrate once per user. We DELIBERATELY avoid `[business]` as the dep —
-  // every /me refetch returns a fresh object reference, which would wipe
-  // the user's unsaved edits (e.g. a half-selected country list).
   useEffect(() => {
     if (hydrated.current) return;
     const business = me?.business;
     if (!me || !business) return;
-    setTradePosition(business.tradePosition ?? "");
-    setSellerType(business.sellerType ?? "");
-    setExportStatus(business.exportStatus ?? "");
-    setTargetMarkets(business.targetMarkets ?? []);
-    setMainObjective(business.mainObjective ?? "");
-    setCompanyIntro(business.companyIntroduction ?? "");
+    const data = {
+      tradePosition: business.tradePosition ?? "",
+      sellerType: business.sellerType ?? "",
+      exportStatus: business.exportStatus ?? "",
+      targetMarkets: business.targetMarkets ?? [],
+      mainObjective: business.mainObjective ?? "",
+      companyIntro: business.companyIntroduction ?? "",
+    };
+    setTradePosition(data.tradePosition);
+    setSellerType(data.sellerType);
+    setExportStatus(data.exportStatus);
+    setTargetMarkets(data.targetMarkets);
+    setMainObjective(data.mainObjective);
+    setCompanyIntro(data.companyIntro);
+    initial.current = JSON.stringify(data);
     hydrated.current = true;
   }, [me]);
 
   const isSellerSide = tradePosition === "seller" || tradePosition === "both";
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
-    try {
-      await api.saveBusinessProfile({
-        tradePosition,
-        sellerType: isSellerSide ? sellerType || undefined : undefined,
-        exportStatus: isSellerSide ? exportStatus || undefined : undefined,
-        targetMarkets,
-        targetBuyerTypes: [],
-        mainObjective: mainObjective.trim() || undefined,
-        companyIntroduction: companyIntro.trim() || undefined,
-      });
-      await refetch();
-      setSavedAt(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const currentJson = JSON.stringify({
+    tradePosition,
+    sellerType,
+    exportStatus,
+    targetMarkets,
+    mainObjective,
+    companyIntro,
+  });
+  const isDirty =
+    initial.current !== null && initial.current !== currentJson;
+
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      async save() {
+        setError(null);
+        await api.saveBusinessProfile({
+          tradePosition,
+          sellerType: isSellerSide ? sellerType || undefined : undefined,
+          exportStatus: isSellerSide ? exportStatus || undefined : undefined,
+          targetMarkets,
+          targetBuyerTypes: [],
+          mainObjective: mainObjective.trim() || undefined,
+          companyIntroduction: companyIntro.trim() || undefined,
+        });
+        await refetch();
+        initial.current = currentJson;
+        onDirtyChange(false);
+      },
+    }),
+    [
+      tradePosition,
+      sellerType,
+      exportStatus,
+      targetMarkets,
+      mainObjective,
+      companyIntro,
+      isSellerSide,
+      currentJson,
+      refetch,
+      onDirtyChange,
+    ],
+  );
 
   return (
     <SectionForm
       title="Business profile"
       subtitle="How Cor1x matches you with the right counterparties."
       error={error}
-      saving={saving}
-      savedAt={savedAt}
-      onSubmit={onSubmit}
     >
       <AuthField
         label="What do you want to do on Cor1x?"
@@ -669,30 +921,32 @@ function BusinessSection() {
       </AuthField>
     </SectionForm>
   );
-}
+});
 
 // ─── Shared bits ─────────────────────────────────────────────────────
 
+/**
+ * Section wrapper — just the header + fields + inline error band. The
+ * per-section Save button is gone; a single Save bar at the bottom of
+ * the page handles every dirty section at once, so each section's own
+ * footer is dead weight. Submits are blocked (the ``<form>`` tag is
+ * kept purely so native field validation + Enter-to-submit still work;
+ * we hijack onSubmit to be a no-op since the real save path is through
+ * the imperative handle).
+ */
 function SectionForm({
   title,
   subtitle,
   error,
-  saving,
-  savedAt,
-  onSubmit,
   children,
 }: {
   title: string;
   subtitle: string;
   error: string | null;
-  saving: boolean;
-  savedAt: number | null;
-  onSubmit: (e: React.FormEvent) => void;
   children: React.ReactNode;
 }) {
-  const showSaved = savedAt && Date.now() - savedAt < 3000;
   return (
-    <form onSubmit={onSubmit} className="grid gap-5">
+    <form onSubmit={(e) => e.preventDefault()} className="grid gap-5">
       <div className="border-b border-line-soft pb-4 mb-2">
         <h2 className="text-display text-paper tracking-tight">{title}</h2>
         <p className="mt-1 text-sm text-paper-muted">{subtitle}</p>
@@ -703,14 +957,6 @@ function SectionForm({
           {error}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-3 pt-2">
-        <AuthButton type="submit" loading={saving} className="sm:w-auto sm:px-6">
-          Save changes
-        </AuthButton>
-        {showSaved && (
-          <span className="text-xs text-accent">Saved ✓</span>
-        )}
-      </div>
     </form>
   );
 }
