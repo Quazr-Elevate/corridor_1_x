@@ -1,25 +1,28 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope } from "next/font/google";
+import { Fragment_Mono } from "next/font/google";
 import "./globals.css";
 import { ServiceWorkerRegister } from "@/components/pwa/ServiceWorkerRegister";
+import { MotionProvider } from "@/components/providers/MotionProvider";
 
-const sans = Manrope({
+// Fragment Mono — codes, labels, IDs. Switzer (the sans) is served by
+// Fontshare, which next/font can't self-host, so it's linked in <head>.
+const mono = Fragment_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-sans",
+  weight: "400",
+  variable: "--font-mono",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Cor1x — Trade Direct. Settle Certain.",
+  title: "Corridor One X — Trade direct. Settle certain.",
   description:
-    "Verified B2B commodity marketplace. AI matching, identity protected until escrow funds, autonomous settlement.",
-  applicationName: "Cor1x",
+    "Verified commodity trade between India and the Gulf. Verified before contact, masked until escrow, released on delivery.",
+  applicationName: "Corridor One X",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "Cor1x",
-    statusBarStyle: "black-translucent",
+    title: "Corridor One X",
+    statusBarStyle: "default",
   },
   icons: {
     icon: [
@@ -39,18 +42,26 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // Allow zoom — accessibility. maximumScale=1 was hostile.
   maximumScale: 5,
   viewportFit: "cover",
-  themeColor: "#0E0E10",
-  colorScheme: "dark",
+  themeColor: "#F4F1EC",
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={sans.variable}>
+    <html lang="en" className={mono.variable}>
+      <head>
+        <link rel="preconnect" href="https://api.fontshare.com" />
+        <link rel="preconnect" href="https://cdn.fontshare.com" crossOrigin="" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+        <link
+          rel="stylesheet"
+          href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600,700&display=swap"
+        />
+      </head>
       <body>
-        {children}
+        <MotionProvider>{children}</MotionProvider>
         <ServiceWorkerRegister />
       </body>
     </html>

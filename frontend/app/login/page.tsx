@@ -1,151 +1,153 @@
 "use client";
 
-import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api, storeUserId } from "@/lib/api";
-import { AuthButton, AuthCard, AuthField, AuthInput } from "@/components/auth/AuthCard";
+import { Suspense, useState, type FormEvent } from "react";
+import { api, ApiError } from "@/lib/api";
+import {
+  NightCard,
+  NightCardFoot,
+  NightDivider,
+  NightEyebrow,
+  NightShell,
+  nightLinkClass,
+} from "@/components/shell/NightShell";
+import { Button, LinkButton } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Field";
+import { Notice, Skeleton } from "@/components/ui/Surface";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 
-function LoginInner() {
+/** Only same-origin paths are valid `next` targets. */
+function safeNext(raw: string | null): string {
+  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return "/dashboard";
+}
+
+function loginError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "That email and password don’t match.";
+    if (err.status === 429) return "Too many attempts. Wait a minute, then try again.";
+    return err.message;
+  }
+  return "We couldn’t reach the corridor. Check your connection and try again.";
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const nextTarget = params.get("next") || "/dashboard";
+  const next = safeNext(params.get("next"));
   const verified = params.get("verified") === "1";
-  const magicInvalid = params.get("magic") === "invalid";
-  const fromMagic = params.get("from") === "magic";
-  const prefillEmail = params.get("email") ?? "";
+  const prefill = params.get("email") ?? "";
 
-  const [email, setEmail] = useState(prefillEmail);
+  const [email, setEmail] = useState(prefill);
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     setError(null);
     setSubmitting(true);
     try {
-      const res = await api.login({
-        email: email.trim().toLowerCase(),
-        password,
-      });
-      storeUserId(res.userId);
-      // Temp-password login lands in the dashboard like any other
-      // login — the user is nudged (not forced) to swap the credential
-      // for a real password under Settings → Security &amp; Privacy.
-      router.replace(nextTarget);
+      await api.login({ email: email.trim().toLowerCase(), password });
+      router.replace(next);
+      // Keep the button busy until the route changes.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
-    } finally {
+      setError(loginError(err));
       setSubmitting(false);
     }
   }
 
   return (
-    <AuthCard
-      title="Welcome back"
-      subtitle="Sign in with your work email."
-      footer={
-        <>
-          New to Cor1x?{" "}
-          <Link href="/signup" className="text-accent hover:text-accent-hover underline">
-            Create an account
-          </Link>
-        </>
-      }
-    >
-      {verified && (
-        <div className="mb-4 rounded-lg border border-lime-500/40 bg-lime-500/10 p-3 text-sm text-lime-200">
-          Email verified. Please log in to continue.
+    <>
+      {verified ? (
+        <div className="mt-6">
+          <Notice tone="verified">Email verified. Sign in to continue.</Notice>
         </div>
-      )}
-      {magicInvalid && (
-        <div className="mb-4 rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
-          That magic link is invalid or expired. Type the temp password from
-          the email, or request a new one.
-        </div>
-      )}
-      {fromMagic && (
-        <div className="mb-4 rounded-lg border border-accent/30 bg-accent/10 p-3 text-sm text-paper">
-          Paste the temporary password from the welcome email. You can set a
-          real password after signing in, under <strong>Settings → Security
-          &amp; Privacy</strong>.
-        </div>
-      )}
-      <form onSubmit={onSubmit} className="space-y-4">
-        <AuthField label="Work email">
-          <AuthInput
-            type="email"
-            autoComplete="email"
-            required
-            placeholder="you@yourcompany.in"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </AuthField>
-        <AuthField label="Password">
-          <div className="relative">
-            <AuthInput
-              type={showPassword ? "text" : "password"}
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pr-11"
-            />
-            <EyeToggle on={showPassword} onClick={() => setShowPassword((v) => !v)} />
-          </div>
-        </AuthField>
-        {error && (
-          <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
-            {error}
-          </div>
-        )}
-        <AuthButton type="submit" loading={submitting}>
-          Log in
-        </AuthButton>
+      ) : null}
+
+      <form onSubmit={onSubmit} className="mt-8 space-y-5">
+        <Input
+          night
+          size="lg"
+          label="Work email"
+          type="email"
+          name="email"
+          autoComplete="username"
+          inputMode="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          required
+          autoFocus={!prefill}
+          placeholder="you@company.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <PasswordInput
+          night
+          size="lg"
+          label="Password"
+          name="password"
+          autoComplete="current-password"
+          required
+          autoFocus={!!prefill}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        {error ? (
+          <Notice tone="frozen">{error}</Notice>
+        ) : null}
+
+        <Button type="submit" variant="night" size="lg" block loading={submitting} iconRight="arrow-right">
+          Sign in
+        </Button>
       </form>
-    </AuthCard>
+
+      <NightDivider />
+      <LinkButton href="/products" variant="night-quiet" size="lg" block icon="grid">
+        Browse the market
+      </LinkButton>
+    </>
   );
 }
 
-function EyeToggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+function FormFallback() {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={on ? "Hide password" : "Show password"}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-paper-muted hover:text-paper transition"
-      tabIndex={-1}
-    >
-      {on ? (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a19.4 19.4 0 0 1 4.05-5.47" />
-          <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a19.5 19.5 0 0 1-3.16 4.16" />
-          <path d="M9.88 9.88a3 3 0 0 0 4.24 4.24" />
-          <line x1="1" y1="1" x2="23" y2="23" />
-        </svg>
-      ) : (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-      )}
-    </button>
+    <div className="mt-8 space-y-5" aria-hidden="true">
+      <Skeleton className="h-[78px] rounded-field opacity-40" />
+      <Skeleton className="h-[78px] rounded-field opacity-40" />
+      <Skeleton className="h-[52px] rounded-field opacity-40" />
+    </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense
-      fallback={
-        <AuthCard title="Loading…">
-          <div className="py-6" />
-        </AuthCard>
-      }
-    >
-      <LoginInner />
-    </Suspense>
+    <NightShell>
+      <NightCard as="main">
+        <NightEyebrow highlight="India ⇄ UAE">Welcome back</NightEyebrow>
+        <h1 className="t-large mt-3 text-cream">
+          Sign in to
+          <br />
+          the corridor.
+        </h1>
+        <p className="t-callout mt-3 text-fg-2">
+          Verified before contact. Masked until escrow. Released on delivery.
+        </p>
+
+        <Suspense fallback={<FormFallback />}>
+          <LoginForm />
+        </Suspense>
+
+        <NightCardFoot>
+          New to Corridor?{" "}
+          <Link href="/signup" className={nightLinkClass}>
+            Get your company verified
+          </Link>
+        </NightCardFoot>
+      </NightCard>
+    </NightShell>
   );
 }

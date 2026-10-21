@@ -1,73 +1,104 @@
 import Link from "next/link";
-import { CheckCircle2, MapPin } from "lucide-react";
-import type { PublicProductCard as Card } from "@/lib/publicApi";
+import type { ReactNode } from "react";
+import { ApproxPrice } from "@/components/fx/FxContext";
+import { Chip } from "@/components/ui/Chip";
+import { Skeleton } from "@/components/ui/Surface";
+import { LotCover } from "@/components/market/LotPhoto";
+import { FrostName } from "@/components/market/SellerFrost";
+import type { PublicProductCard as CardData } from "@/lib/publicApi";
 import { photoUrl } from "@/lib/publicApi";
+import { formatQty, joinDot, listingCode, packingLabel, priceFigure } from "./format";
 
 /**
- * Catalog card. Reused on /products and (later) the seller's own preview
- * of "how buyers see me". Deliberately minimal — no seller contact info.
+ * Market card (buying lens) — a relief card led by the lot's photograph:
+ * the seller's own photo, else the commodity's macro shot, else the drawn
+ * still-life. The seller stays frosted: identity only opens through the
+ * contact gate on the detail page.
  */
-export function PublicProductCard({ product: p }: { product: Card }) {
+export function PublicProductCard({ product: p, priority }: { product: CardData; priority?: boolean }) {
   const photo = photoUrl(p.photo);
-  const price = p.pricePerUnit ? `₹${p.pricePerUnit}/${p.unit}` : "On request";
+  const place = p.seller.city || p.seller.state || "India";
+  const volume = formatQty(p.quantity, p.unit);
+  const moq = formatQty(p.moq, p.unit);
+  const price = priceFigure(p.pricePerUnit, p.unit, p.currency);
+
   return (
     <Link
       href={`/products/${p.id}`}
-      className="group relative flex flex-col overflow-hidden rounded-card border border-line-soft bg-ink-soft/60 transition-all hover:border-line hover:shadow-cta"
+      className="relief relief-hover group flex h-full flex-col rounded-[30px] p-2.5 focus-visible:rounded-[30px]"
+      aria-label={`${p.name} — ${p.category}${p.originState ? `, ${p.originState}` : ""}`}
     >
-      {/* Photo tile — 4:3, dark placeholder when the URL 404s */}
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-ink-elevated">
-        {photo ? (
-          // Plain <img> — public backend photos change often; skipping next/image
-          // avoids the loader config dance for now. Move to <Image> once we're
-          // on a CDN.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photo}
-            alt={p.name}
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-widest text-paper-muted/60">
-            no photo
-          </div>
-        )}
-        <span className="absolute left-2 top-2 chip !py-1">
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-[22px] bg-[#e6dac2]">
+        <LotCover
+          src={photo}
+          category={p.category}
+          priority={priority}
+          imgClassName="transition-[filter] duration-700 ease-expo group-hover:brightness-[1.05]"
+        />
+        <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-ink/25 to-transparent" />
+        <span className="glass t-sub absolute left-3 top-3 inline-flex h-7 items-center rounded-full px-3 font-medium text-fg">
           {p.category}
+        </span>
+        <span className="glass t-code absolute right-3 top-3 inline-flex h-7 items-center rounded-full px-2.5 text-fg-2">
+          {listingCode(p.id)}
         </span>
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="flex items-baseline justify-between gap-2">
-          <h3 className="text-sm font-medium text-paper">{p.name}</h3>
-          <span className="whitespace-nowrap text-sm font-semibold text-gradient">
-            {price}
-          </span>
-        </div>
+      <div className="flex flex-1 flex-col px-2.5 pb-2.5 pt-4">
+        <h3 className="t-title3 line-clamp-2 break-words text-fg">{p.name}</h3>
+        <p className="t-sub mt-0.5 truncate text-fg-3">
+          {joinDot(p.variety || p.category, p.originState && `from ${p.originState}`, packingLabel(p.packaging))}
+        </p>
 
-        {p.variety ? (
-          <p className="text-xs text-paper-muted">
-            {p.variety}
-            {p.originState ? ` · ${p.originState}` : null}
-          </p>
-        ) : null}
+        <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4">
+          <Figure label="Volume" value={volume ?? "—"} muted={!volume} />
+          <Figure
+            label="Price"
+            value={price}
+            muted={price === "On request"}
+            sub={<ApproxPrice amount={p.pricePerUnit} currency={p.currency} variant="line" />}
+          />
+        </dl>
 
-        <div className="mt-auto flex items-center justify-between border-t border-line-soft pt-3 text-[11px] text-paper-muted">
-          <span className="inline-flex items-center gap-1">
-            <MapPin aria-hidden className="h-3 w-3 text-accent" />
-            {p.seller.companyName}
-            {p.seller.city ? ` · ${p.seller.city}` : ""}
-          </span>
-          <span
-            aria-label="Verified seller"
-            className="inline-flex items-center gap-1 text-accent"
-          >
-            <CheckCircle2 aria-hidden className="h-3 w-3" />
+        <div className="mt-auto flex min-w-0 items-center gap-2 pt-4">
+          <Chip tone="verified" size="sm">
             Verified
-          </span>
+          </Chip>
+          <FrostName width={78} />
+          <span className="t-sub min-w-0 truncate text-fg-3">· {place}</span>
+          {moq ? <span className="t-foot ml-auto shrink-0 text-fg-3">MOQ {moq}</span> : null}
         </div>
       </div>
     </Link>
+  );
+}
+
+function Figure({ label, value, muted, sub }: { label: string; value: string; muted?: boolean; sub?: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="t-label text-fg-3">{label}</dt>
+      <dd
+        className={`tabular mt-1 truncate text-[20px] font-medium leading-tight tracking-[-0.025em] ${muted ? "text-fg-3" : "text-fg"}`}
+        title={value}
+      >
+        {value}
+      </dd>
+      {sub ? <dd>{sub}</dd> : null}
+    </div>
+  );
+}
+
+/** Loading placeholder with the card's proportions. */
+export function PublicProductCardSkeleton() {
+  return (
+    <div className="relief rounded-[30px] p-2.5" aria-hidden="true">
+      <Skeleton className="aspect-[4/3] w-full rounded-[22px]" />
+      <div className="space-y-2.5 px-2.5 pb-2.5 pt-4">
+        <Skeleton className="h-5 w-3/4 rounded-full" />
+        <Skeleton className="h-3 w-1/2 rounded-full" />
+        <Skeleton className="mt-5 h-12 w-full rounded-[14px]" />
+        <Skeleton className="h-5 w-2/3 rounded-full" />
+      </div>
+    </div>
   );
 }

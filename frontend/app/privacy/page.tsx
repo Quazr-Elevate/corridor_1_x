@@ -2,15 +2,20 @@ import type { Metadata } from "next";
 import { PolicyShell } from "@/components/legal/PolicyShell";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Cor1x",
+  title: "Privacy Policy — Corridor One X",
   description:
     "How Corridor One X collects, uses, stores, and protects your personal data under India's DPDP Act and UAE's PDPL.",
 };
 
 export default function PrivacyPage() {
   return (
-    <PolicyShell title="Privacy Policy" updated="29 August 2026">
-      <p className="text-paper">
+    <PolicyShell
+      title="Privacy Policy"
+      updated="29 August 2026"
+      subtitle="How Corridor One X collects, uses, stores, and protects your personal data under India's DPDP Act and UAE's PDPL."
+      media="portDay"
+    >
+      <p className="text-fg">
         This policy explains what data Corridor One X (&quot;<b>Cor1x</b>,&quot;
         &quot;<b>we</b>,&quot; &quot;<b>us</b>&quot;) collects when you use our
         website and dashboard, why we collect it, and what rights you have over
@@ -138,7 +143,7 @@ export default function PrivacyPage() {
             <b>Grievance</b> — email{" "}
             <a
               href="mailto:privacy@cor1x.com"
-              className="text-accent underline-offset-4 hover:underline"
+              className="rounded-sm text-accent underline underline-offset-4"
             >
               privacy@cor1x.com
             </a>
@@ -171,8 +176,8 @@ export default function PrivacyPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
-      <h2 className="text-title text-paper mt-8">{title}</h2>
+    <section className="pt-2">
+      <h2 className="t-title3 text-fg">{title}</h2>
       <div className="mt-3 space-y-3">{children}</div>
     </section>
   );
@@ -180,7 +185,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Li({ children }: { children: React.ReactNode }) {
   return (
-    <li className="ml-4 list-disc marker:text-accent">
+    <li className="ml-5 list-disc pl-1 marker:text-fg-3">
       <div>{children}</div>
     </li>
   );

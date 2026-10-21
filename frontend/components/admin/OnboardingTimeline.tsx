@@ -1,74 +1,117 @@
 "use client";
 
-import type { TimelinePoint } from "@/lib/adminApi";
+import type { ReactNode } from "react";
+import { cn } from "@/lib/cn";
+import type { UserDetail } from "@/lib/adminApi";
+import { Icon } from "@/components/ui/Icon";
+import { fmtDateTime } from "./format";
 
-// Two-series, brand-aligned: buyer = lime, seller = muted olive (themed). No third hue.
-const BUYER = "var(--sp-lime)";
-const SELLER = "var(--sp-seller)";
+type StepState = "done" | "current" | "todo" | "blocked";
 
-export function OnboardingTimeline({ data }: { data: TimelinePoint[] }) {
-  const max = Math.max(1, ...data.map((d) => d.buyer + d.seller));
-  const totalBuyer = data.reduce((a, d) => a + d.buyer, 0);
-  const totalSeller = data.reduce((a, d) => a + d.seller, 0);
+interface Step {
+  key: string;
+  label: string;
+  meta?: ReactNode;
+  state: StepState;
+}
 
+function buildSteps(u: UserDetail): Step[] {
+  const raw: Array<Omit<Step, "state"> & { done: boolean; blocked?: boolean }> = [
+    { key: "signup", label: "Signed up", meta: fmtDateTime(u.createdAt), done: true },
+    {
+      key: "email",
+      label: "Email confirmed",
+      meta: u.emailVerifiedAt ? fmtDateTime(u.emailVerifiedAt) : "Not yet",
+      done: !!u.emailVerifiedAt,
+    },
+    {
+      key: "submitted",
+      label: "Sent for verification",
+      meta: u.verificationSubmittedAt ? fmtDateTime(u.verificationSubmittedAt) : "Not yet",
+      done: !!u.verificationSubmittedAt || u.status === "verified",
+    },
+    u.status === "rejected"
+      ? {
+          key: "decision",
+          label: "Rejected",
+          meta: u.verificationRejectedReason ?? "No reason recorded",
+          done: false,
+          blocked: true,
+        }
+      : {
+          key: "decision",
+          label: "Verified",
+          meta: u.verifiedAt ? fmtDateTime(u.verifiedAt) : u.status === "pending_verification" ? "In review" : "Not yet",
+          done: u.status === "verified",
+        },
+  ];
+
+  let currentSet = false;
+  return raw.map(({ done, blocked, ...s }) => {
+    if (blocked) return { ...s, state: "blocked" as const };
+    if (done) return { ...s, state: "done" as const };
+    if (!currentSet) {
+      currentSet = true;
+      return { ...s, state: "current" as const };
+    }
+    return { ...s, state: "todo" as const };
+  });
+}
+
+/** Vertical corridor rail for one account: behind = solid, here = lime, ahead = well. */
+export function OnboardingTimeline({ user, className }: { user: UserDetail; className?: string }) {
+  const steps = buildSteps(user);
   return (
-    <div className="mt-5">
-      <div className="flex h-40 items-end gap-[3px]">
-        {data.map((d, idx) => {
-          const buyerH = (d.buyer / max) * 100;
-          const sellerH = (d.seller / max) * 100;
-          const empty = buyerH === 0 && sellerH === 0;
-          return (
-            <div
-              key={d.date}
-              className="group relative flex flex-1 flex-col justify-end"
-              title={`${d.date}: ${d.buyer} buyer + ${d.seller} seller`}
+    <ol className={cn("relative", className)} aria-label="Onboarding timeline">
+      {steps.map((s, i) => {
+        const last = i === steps.length - 1;
+        return (
+          <li key={s.key} className="relative flex gap-4 pb-5 last:pb-0">
+            {!last ? (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  "absolute left-[13px] top-8 h-[calc(100%-2.25rem)] w-[3px] rounded-full",
+                  s.state === "done" ? "bg-[#edefea]" : "well",
+                )}
+              />
+            ) : null}
+            <span
+              className={cn(
+                "t-code relative z-10 grid size-7 shrink-0 place-items-center rounded-full text-[11px]",
+                s.state === "done" && "solid",
+                s.state === "current" && "bg-lime text-ink shadow-[0_0_0_5px_rgb(196_216_46/0.22)]",
+                s.state === "todo" && "well text-fg-3",
+                s.state === "blocked" && "bg-danger-soft text-danger",
+              )}
+              aria-current={s.state === "current" ? "step" : undefined}
             >
-              <div
-                className="flex flex-col justify-end"
-                style={{
-                  // Bars grow up on entry, staggered across the window.
-                  transformOrigin: "bottom",
-                  animation: `spBarGrow 0.5s var(--sp-ease) ${0.15 + idx * 0.012}s both`,
-                }}
-              >
-                {sellerH > 0 && (
-                  <div className="rounded-t-[3px]" style={{ height: `${sellerH * 1.6}px`, background: SELLER }} />
+              {s.state === "done" ? (
+                <Icon name="check" size={13} strokeWidth={2} />
+              ) : s.state === "blocked" ? (
+                <Icon name="alert" size={13} />
+              ) : (
+                i + 1
+              )}
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <p
+                className={cn(
+                  "t-callout font-medium",
+                  s.state === "todo" ? "text-fg-3" : s.state === "blocked" ? "text-danger" : "text-fg",
                 )}
-                {buyerH > 0 && (
-                  <div className={sellerH > 0 ? "" : "rounded-t-[3px]"} style={{ height: `${buyerH * 1.6}px`, background: BUYER }} />
-                )}
-                {empty && <div className="h-[2px] rounded-t-[3px]" style={{ background: "var(--sp-border)" }} />}
-              </div>
-
-              <div
-                className="pointer-events-none absolute -top-12 left-1/2 z-10 hidden -translate-x-1/2 whitespace-nowrap rounded-[8px] px-2.5 py-1.5 text-[10px] backdrop-blur group-hover:block"
-                style={{ border: "1px solid var(--sp-border)", background: "var(--sp-tooltip)", color: "var(--sp-text)" }}
               >
-                <p style={{ color: "var(--sp-text-3)" }}>{d.date}</p>
-                <p className="mt-0.5">
-                  <span style={{ color: BUYER }}>●</span> {d.buyer}
-                  <span className="mx-1.5" style={{ color: "var(--sp-text-3)" }}>·</span>
-                  <span style={{ color: SELLER }}>●</span> {d.seller}
-                </p>
-              </div>
+                {s.label}
+                <span className="sr-only">
+                  {" "}
+                  — {s.state === "done" ? "done" : s.state === "current" ? "current step" : s.state === "blocked" ? "blocked" : "to do"}
+                </span>
+              </p>
+              {s.meta ? <p className="t-sub mt-0.5 break-words text-fg-3">{s.meta}</p> : null}
             </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-2 flex justify-between text-[10px]" style={{ color: "var(--sp-text-3)" }}>
-        <span>{data[0]?.date ?? ""}</span>
-        <span>{data[Math.floor(data.length / 2)]?.date ?? ""}</span>
-        <span>{data[data.length - 1]?.date ?? ""}</span>
-      </div>
-
-      <p className="mt-3 text-[11px]" style={{ color: "var(--sp-text-3)" }}>
-        Total in window ·{" "}
-        <span style={{ color: BUYER }}>{totalBuyer} buyer</span>
-        <span className="mx-1.5">·</span>
-        <span style={{ color: SELLER }}>{totalSeller} seller</span>
-      </p>
-    </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

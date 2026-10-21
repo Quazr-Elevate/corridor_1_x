@@ -3,114 +3,133 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, String, Uuid, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import CHAR, CheckConstraint, Enum, ForeignKey, Index, Integer, String, Uuid, event, func, text
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
-from app.models.base import Base
-
-if TYPE_CHECKING:
-    from app.models.business_profile import BusinessProfile
-    from app.models.profile import Profile
-    from app.models.verification_doc import VerificationDoc
+from app.models.base import Base, UTCDateTime
+from app.models.business import Business
+from app.models.exchange_rate import SUPPORTED_CURRENCIES
+from app.shared.normalize import normalize_phone
 
 
-class UserStatus(str, enum.Enum):
-    """Onboarding + verification funnel.
+class UserRole(str, enum.Enum):
+    """What the person may do in the app (permissions). Only ``owner`` is
+    used today; ``admin``/``member`` arrive with team invites."""
 
-    signed_up            — account row exists, email not yet verified
-    email_verified       — link clicked; user is prompted to set a password
-    active               — password set; can log in but hasn't filled all 7
-                           mandatory profile fields for the Verified badge
-    pending_verification — all 7 mandatory fields are filled; admin has not
-                           yet decided. The user sits in the admin queue.
-    verified             — admin approved the business (badge visible)
-    rejected             — admin rejected; a reason is stored and shown
-    """
+    owner = "owner"
+    admin = "admin"
+    member = "member"
 
-    signed_up = "signed_up"
-    email_verified = "email_verified"
+
+class AccountStatus(str, enum.Enum):
     active = "active"
-    pending_verification = "pending_verification"
-    verified = "verified"
-    rejected = "rejected"
+    disabled = "disabled"
 
 
 class User(Base):
-    """Auth account.
+    """A person who logs in and belongs to exactly one business.
 
-    Signup captures work email + business name. A verification link is sent
-    to the email; clicking it flips ``email_verified_at``. The user then sets
-    a password (populates ``password_hash``) and can log in.
+    Created at signup only after the work email was proven with a 6-digit
+    code (``email_codes``), so ``email_verified_at`` and ``password_hash``
+    are always set.
     """
 
     __tablename__ = "users"
+    __table_args__ = (
+        Index("uq_users_email", "email", unique=True),
+        Index(
+            "uq_users_phone_normalized",
+            "phone_normalized",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_users_one_owner_per_business",
+            "business_id",
+            unique=True,
+            sqlite_where=text("role = 'owner' AND deleted_at IS NULL"),
+            postgresql_where=text("role = 'owner' AND deleted_at IS NULL"),
+        ),
+        Index("ix_users_business_id", "business_id"),
+        CheckConstraint("email = lower(email)", name="ck_users_email_lowercase"),
+        CheckConstraint("session_version >= 0", name="ck_users_session_version"),
+        CheckConstraint(
+            "display_currency IN (" + ", ".join(f"'{c}'" for c in SUPPORTED_CURRENCIES) + ")",
+            name="ck_users_display_currency",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="RESTRICT", name="fk_users_business_id"), nullable=False
+    )
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role"), nullable=False, default=UserRole.owner, server_default=UserRole.owner.value
+    )
 
-    # Work email — the login handle. Stored lowercased; unique across the table.
-    email: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
-    # Populated on onboarding step 1 (Company info) — nullable at signup because
-    # signup only captures personal identity now (Tridge-style flow).
-    business_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-
-    # bcrypt hash. NULL for a brand-new account that only has a
-    # temp credential — the user logs in with that, then is forced to
-    # set a real password at /dashboard/settings/password.
-    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
-    # Set to True when the active login used the temp credential (so the
-    # frontend knows to lock everything behind the change-password
-    # screen) and cleared when the user sets a real password.
-    must_change_password: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        server_default="false",
+    # Work email — the login handle. Stored lowercased.
+    email: Mapped[str] = mapped_column(String(200), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    account_status: Mapped[AccountStatus] = mapped_column(
+        Enum(AccountStatus, name="account_status"),
         nullable=False,
+        default=AccountStatus.active,
+        server_default=AccountStatus.active.value,
     )
+    email_verified_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
-    # Set once the verify link is clicked.
-    email_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    # ─── Person ────────────────────────────────────────────────
+    full_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Job title (display only) — unlike ``role`` it grants nothing.
+    position: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Canonical phone (digits + '+') backing a UNIQUE index; synced below.
+    phone_normalized: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    status: Mapped[UserStatus] = mapped_column(
-        Enum(UserStatus, name="user_status"), nullable=False, default=UserStatus.signed_up
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    # Bumped to revoke every outstanding session cookie (password change,
+    # logout-everywhere, account deletion). Embedded in the cookie as "sv".
+    session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    # ─── Consent (DPDP / PDPL trail) ──────────────────────────
+    consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    consent_version: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
+    # Currency the user sees converted prices and types filter amounts in.
+    # Defaults from the business country (see default_display_currency).
+    display_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False, server_default="USD")
+
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
     )
-    # ─── Verification audit ───────────────────────────────────
-    # Captures when the user completed the 7 mandatory fields (auto-flip
-    # into pending_verification), when an admin approved them, and the
-    # admin's reason if the badge is denied. All three are nullable;
-    # together they form the trail the UI needs to render the right
-    # verification card state.
-    verification_submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    verification_rejected_reason: Mapped[str | None] = mapped_column(
-        String(500), nullable=True
-    )
+    # Soft delete (DPDP erasure; email anonymised).
+    deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
-    # Soft-delete for DPDP right-to-erasure.
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    # Many-to-one, always loaded with the user (one JOIN) so services can
+    # read ``user.business`` without async lazy loads.
+    business: Mapped[Business] = relationship(lazy="joined", innerjoin=True)
 
-    profile: Mapped["Profile | None"] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan"
-    )
-    business_profile: Mapped["BusinessProfile | None"] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan"
-    )
-    verification_docs: Mapped[list["VerificationDoc"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
+    @validates("phone")
+    def _sync_phone(self, _key: str, value: str | None) -> str | None:
+        self.phone_normalized = normalize_phone(value)
+        return value
+
+
+#: Business country → default display currency (everything else: USD).
+COUNTRY_CURRENCY = {"IN": "INR", "AE": "AED"}
+
+
+def default_display_currency(country: str | None) -> str:
+    return COUNTRY_CURRENCY.get((country or "").strip().upper(), "USD")
+
+
+@event.listens_for(User, "before_insert")
+def _default_display_currency(_mapper, _conn, target: User) -> None:
+    """New users without an explicit choice get their business country's
+    currency (IN → INR, AE → AED, else USD)."""
+    if not target.display_currency:
+        business = target.__dict__.get("business")
+        target.display_currency = default_display_currency(business.country if business is not None else None)

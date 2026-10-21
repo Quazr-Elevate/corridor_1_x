@@ -1,0 +1,9 @@
+Hi {{ first_name }},
+
+Your document "{{ cert_type }}" could not be accepted. Reviewer's note:
+
+  {{ reason }}
+
+Please upload a corrected copy from your account: {{ account_url }}
+
+-- Cor1x

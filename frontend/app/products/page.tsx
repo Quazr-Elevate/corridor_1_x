@@ -1,90 +1,163 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { AmbientBackground } from "@/components/brand/AmbientBackground";
-import { PublicNav } from "@/components/products/PublicNav";
+import { LinkButton } from "@/components/ui/Button";
+import { EmptyState, Skeleton } from "@/components/ui/Surface";
+import { CategoryTiles } from "@/components/market/CategoryTiles";
+import { MarketAmbient } from "@/components/market/MarketAmbient";
+import { MarketHero } from "@/components/market/MarketHero";
+import { MarketPagination } from "@/components/products/MarketPagination";
 import { ProductFilters } from "@/components/products/ProductFilters";
 import { PublicProductCard } from "@/components/products/PublicProductCard";
-import { publicApi, type CatalogFilters } from "@/lib/publicApi";
-import { filtersFromSearchParams } from "@/lib/productFilters";
+import { MEDIA } from "@/lib/media";
+import {
+  publicApi,
+  type CatalogFacets,
+  type CatalogFilters,
+  type PublicProductList,
+} from "@/lib/publicApi";
+import {
+  activeFilterCount,
+  filtersFromRecord,
+  MARKET_PAGE_SIZE,
+  searchParamsFromFilters,
+} from "@/lib/productFilters";
 
 export const metadata: Metadata = {
-  title: "Catalog — Cor1x",
-  description: "Verified rice, sugar, wheat, and pulses from KYB-cleared Indian sellers.",
+  title: "The market — Corridor One X",
+  description:
+    "Rice, sugar, wheat, pulses, spices and more from sellers verified by Corridor ops.",
 };
 
-// Public catalog — no auth. Server component so the initial paint has
-// the grid already rendered (better perceived speed than a spinner).
-export default async function ProductsPage({
+export const dynamic = "force-dynamic";
+
+const EMPTY_FACETS: CatalogFacets = { categories: [], originStates: [], priceMin: null, priceMax: null };
+
+/**
+ * Public market — the buying lens. No auth; rendered on the server so the
+ * first paint already has the photographs and the grid. A photo-led hero
+ * band, commodity tiles that filter, search + refine, then the lots.
+ */
+export default async function MarketPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Record<string, string | string[] | undefined>;
 }) {
-  const sp = await searchParams;
-  const filters: CatalogFilters = filtersFromSearchParams(
-    new URLSearchParams(
-      Object.entries(sp).flatMap(([k, v]) =>
-        v === undefined ? [] : Array.isArray(v) ? v.map((x) => [k, x]) : [[k, v]],
-      ),
-    ),
-  );
+  const filters: CatalogFilters = filtersFromRecord(searchParams ?? {});
 
-  const [list, facets] = await Promise.all([
-    publicApi.listProducts(filters),
+  const [listRes, facetsRes] = await Promise.allSettled([
+    publicApi.listProducts({ ...filters, limit: MARKET_PAGE_SIZE }),
     publicApi.facets(),
   ]);
+  const list: PublicProductList | null = listRes.status === "fulfilled" ? listRes.value : null;
+  const facets = facetsRes.status === "fulfilled" ? facetsRes.value : EMPTY_FACETS;
+  const filtered = activeFilterCount(filters) > 0;
+  const live = facets.categories.reduce((n, c) => n + c.count, 0);
+
+  const stats =
+    facetsRes.status === "fulfilled"
+      ? [
+          { label: "Lots live", value: live },
+          { label: "Commodities", value: facets.categories.length },
+          { label: "Origin states", value: facets.originStates.length },
+        ]
+      : [];
 
   return (
-    <main className="relative min-h-dvh safe-x overflow-hidden bg-ink text-paper">
-      <AmbientBackground />
+    <div className="relative isolate">
+      <MarketAmbient media={MEDIA.portDay} opacity={0.24} />
 
-      <div className="relative mx-auto max-w-6xl px-5 py-8">
-        <PublicNav />
+      <MarketHero
+        eyebrow="Buying lens · verified sellers only"
+        title="The market"
+        subtitle="Every seller here is verified by Corridor ops. Their name and contact open once both sides are verified."
+        stats={stats}
+      />
 
-        <section className="mt-10 enter" data-delay="2">
-          <p className="chip">
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-            Public catalog · verified sellers only
-          </p>
-          <h1 className="mt-3 text-display sm:text-display-lg text-paper">
-            {list.total} listing{list.total === 1 ? "" : "s"}{" "}
-            <span className="text-gradient">from India</span>
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-paper-muted">
-            Every seller has been admin-verified. Contact details are shared only
-            after both sides pass verification.
-          </p>
-        </section>
+      <div className="mt-8 animate-rise" style={{ animationDelay: "80ms" }}>
+        <CategoryTiles facets={facets} filters={filters} />
+      </div>
 
-        <div className="mt-6 enter" data-delay="3">
-          <Suspense fallback={<div className="text-xs text-paper-muted">Loading filters…</div>}>
-            <ProductFilters facets={facets} />
-          </Suspense>
+      <div className="mt-6 animate-rise" style={{ animationDelay: "140ms" }}>
+        <Suspense fallback={<FiltersFallback />}>
+          <ProductFilters facets={facets} />
+        </Suspense>
+      </div>
+
+      <section aria-labelledby="lots-title" className="mt-10">
+        <div className="mb-5 flex items-baseline justify-between gap-4">
+          <h2 id="lots-title" className="t-title2 text-fg">
+            {filtered ? "Matching lots" : "Live lots"}
+          </h2>
+          {list ? (
+            <p className="t-code text-fg-3" aria-live="polite">
+              {list.total} {list.total === 1 ? "lot" : "lots"}
+              {filtered ? " match" : " live"}
+            </p>
+          ) : null}
         </div>
 
-        {list.items.length === 0 ? (
-          <p className="mt-16 rounded-card border border-dashed border-line px-6 py-10 text-center text-sm text-paper-muted enter" data-delay="4">
-            No listings match those filters. Try clearing them, or check back — the
-            catalog updates as new sellers are verified.
-          </p>
+        {!list ? (
+          <div className="relief rounded-[30px]">
+            <EmptyState
+              icon="alert"
+              title="We couldn’t reach the market"
+              action={
+                <LinkButton href={`/products${searchParamsFromFilters(filters)}`} variant="secondary">
+                  Try again
+                </LinkButton>
+              }
+            >
+              {listRes.status === "rejected" && listRes.reason instanceof Error
+                ? listRes.reason.message
+                : "Please try again in a moment."}
+            </EmptyState>
+          </div>
+        ) : list.items.length === 0 ? (
+          <div className="relief rounded-[30px]">
+            {filtered ? (
+              <EmptyState
+                icon="search"
+                title="No lots match"
+                action={
+                  <LinkButton href="/products" variant="secondary" icon="close">
+                    Clear filters
+                  </LinkButton>
+                }
+              >
+                Widen the filters — new lots land as sellers are verified.
+              </EmptyState>
+            ) : (
+              <EmptyState icon="grain" title="The market is quiet">
+                No live lots yet. New ones land as sellers are verified.
+              </EmptyState>
+            )}
+          </div>
         ) : (
-          <div className="mt-6 grid grid-cols-1 gap-4 enter sm:grid-cols-2 lg:grid-cols-3" data-delay="4">
-            {list.items.map((p) => (
-              <PublicProductCard key={p.id} product={p} />
-            ))}
-          </div>
+          <>
+            <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {list.items.map((p, i) => (
+                <li
+                  key={p.id}
+                  className="min-w-0 animate-rise"
+                  style={{ animationDelay: `${180 + Math.min(i, 8) * 60}ms` }}
+                >
+                  <PublicProductCard product={p} priority={i < 3} />
+                </li>
+              ))}
+            </ul>
+            <MarketPagination filters={filters} total={list.total} pageSize={MARKET_PAGE_SIZE} />
+          </>
         )}
+      </section>
+    </div>
+  );
+}
 
-        <footer className="mt-16 border-t border-line-soft pt-6 text-xs text-paper-muted">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>© 2026 Corridor One X</span>
-            <div className="flex items-center gap-4">
-              <a href="/privacy" className="hover:text-paper">Privacy</a>
-              <a href="/terms" className="hover:text-paper">Terms</a>
-              <a href="mailto:privacy@cor1x.com" className="hover:text-paper">Grievance</a>
-            </div>
-          </div>
-        </footer>
-      </div>
-    </main>
+function FiltersFallback() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      <Skeleton className="h-[52px] w-full rounded-field" />
+      <Skeleton className="h-9 w-full max-w-xs rounded-full" />
+    </div>
   );
 }

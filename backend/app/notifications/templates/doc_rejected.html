@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p>Hi {{ first_name }},</p>
+<p>Your document <strong>{{ cert_type }}</strong> could not be accepted. Reviewer's note:</p>
+<blockquote style="margin:12px 0;padding:12px 16px;background:#f6f6f4;border-left:3px solid #CEE94A;">{{ reason }}</blockquote>
+<p>Please upload a corrected copy from your account.</p>
+<p><a href="{{ account_url }}" style="display:inline-block;padding:10px 18px;background:#CEE94A;color:#0b0b0b;text-decoration:none;border-radius:8px;font-weight:600;">Upload again</a></p>
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p>Your Cor1x verification code is:</p>
+<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:16px 0;">{{ code }}</p>
+<p>Enter it on the signup screen to confirm <strong>{{ email }}</strong>.</p>
+<p style="color:#666;font-size:12px;">The code expires in {{ valid_minutes }} minutes and can only be used once.</p>
+<p style="color:#666;font-size:12px;">If you didn't try to sign up for Cor1x, you can ignore this message — no account is created until the code is entered.</p>
+{% endblock %}

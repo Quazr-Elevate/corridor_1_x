@@ -2,15 +2,20 @@ import type { Metadata } from "next";
 import { PolicyShell } from "@/components/legal/PolicyShell";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Cor1x",
+  title: "Terms of Service — Corridor One X",
   description:
     "The agreement between you and Corridor One X when you use our marketplace.",
 };
 
 export default function TermsPage() {
   return (
-    <PolicyShell title="Terms of Service" updated="29 August 2026">
-      <p className="text-paper">
+    <PolicyShell
+      title="Terms of Service"
+      updated="29 August 2026"
+      subtitle="The agreement between you and Corridor One X when you use our marketplace."
+      media="warehouse"
+    >
+      <p className="text-fg">
         These Terms govern your use of Corridor One X (&quot;<b>Cor1x</b>&quot;).
         By creating an account you agree to them. If you disagree with any
         clause, don&apos;t use the service.
@@ -130,14 +135,14 @@ export default function TermsPage() {
           Reach us at{" "}
           <a
             href="mailto:legal@cor1x.com"
-            className="text-accent underline-offset-4 hover:underline"
+            className="rounded-sm text-accent underline underline-offset-4"
           >
             legal@cor1x.com
           </a>{" "}
           for anything Terms-related. Privacy matters are best sent to{" "}
           <a
             href="mailto:privacy@cor1x.com"
-            className="text-accent underline-offset-4 hover:underline"
+            className="rounded-sm text-accent underline underline-offset-4"
           >
             privacy@cor1x.com
           </a>
@@ -150,8 +155,8 @@ export default function TermsPage() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
-      <h2 className="text-title text-paper mt-8">{title}</h2>
+    <section className="pt-2">
+      <h2 className="t-title3 text-fg">{title}</h2>
       <div className="mt-3 space-y-3">{children}</div>
     </section>
   );
@@ -159,7 +164,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Li({ children }: { children: React.ReactNode }) {
   return (
-    <li className="ml-4 list-disc marker:text-accent">
+    <li className="ml-5 list-disc pl-1 marker:text-fg-3">
       <div>{children}</div>
     </li>
   );

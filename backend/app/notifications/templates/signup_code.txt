@@ -1,0 +1,11 @@
+Your Cor1x verification code is:
+
+    {{ code }}
+
+Enter it on the signup screen to confirm {{ email }}.
+The code expires in {{ valid_minutes }} minutes and can only be used once.
+
+If you didn't try to sign up for Cor1x, you can ignore this message —
+no account is created until the code is entered.
+
+-- Cor1x

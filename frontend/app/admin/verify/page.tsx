@@ -1,46 +1,96 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowLeft,
-  Check,
-  Loader2,
-  RefreshCw,
-  ShieldCheck,
-  X,
-} from "lucide-react";
-import { adminApi, type VerifyQueueRow } from "@/lib/adminApi";
-import { RejectReasonModal } from "@/components/admin/RejectReasonModal";
+  adminApi,
+  errorMessage,
+  type UserDetail,
+  type VerifyQueueRow,
+} from "@/lib/adminApi";
+import { entityTypeLabel } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { MANDATORY_FIELDS } from "@/lib/verification";
+import { useTower } from "@/components/shell/TowerShell";
+import { Reveal } from "@/components/motion";
+import { Button, LinkButton } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
+import { HoldButton, Segmented } from "@/components/ui/Controls";
+import { Icon } from "@/components/ui/Icon";
+import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
+import { useToast } from "@/components/ui/Toast";
+import { RejectSheet, USER_REJECT_REASONS } from "@/components/admin/RejectSheet";
+import { ClearQueue } from "@/components/admin/ClearQueue";
+import { LaneHeader } from "@/components/admin/tower";
+import {
+  DocPaper,
+  KbdHints,
+  Paper,
+  PaperRow,
+  PaperRows,
+  PillTabs,
+  QueueList,
+  useNow,
+  useQueueKeys,
+  type PillDot,
+  type PillTab,
+  type QueueItem,
+} from "@/components/admin/parts";
+import {
+  displayValue,
+  dueState,
+  fmtAgo,
+  fmtDateTime,
+  plural,
+  refId,
+  tradeLabel,
+} from "@/components/admin/format";
 
-const USER_REJECT_QUICK_REASONS = [
-  "Legal company name doesn't match what we can verify online.",
-  "Phone number looks personal — please provide a business line.",
-  "Operating countries list is empty or clearly incorrect.",
-  "Position / role is missing or appears not to be a decision-making title.",
-  "Industry mismatch with the trade position you selected.",
-] as const;
+type View = "queue" | "decided";
+type Outcome = "approved" | "rejected";
 
-export default function VerifyQueuePage() {
-  const [rows, setRows] = useState<VerifyQueueRow[]>([]);
-  const [loading, setLoading] = useState(true);
+interface Decided {
+  row: VerifyQueueRow;
+  outcome: Outcome;
+  reason?: string;
+  at: number;
+}
+
+function companyName(row: VerifyQueueRow, detail?: UserDetail | null) {
+  const legal = detail?.businessProfile?.legalName;
+  return row.businessName || (typeof legal === "string" && legal) || row.fullName || row.email;
+}
+
+function rowSub(row: VerifyQueueRow) {
+  return [tradeLabel(row.tradePosition), row.country].filter(Boolean).join(" · ") || row.email;
+}
+
+export default function KybReviewsPage() {
+  const { refreshStats } = useTower();
+  const toast = useToast();
+  const now = useNow();
+
+  const [rows, setRows] = useState<VerifyQueueRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  // Target of the open "reject reason" modal. We hold the whole row so
-  // the modal can show the user's name/email in the subtitle without
-  // another lookup round-trip.
-  const [rejectTarget, setRejectTarget] = useState<VerifyQueueRow | null>(null);
+  const [view, setView] = useState<View>("queue");
+  const [decided, setDecided] = useState<Decided[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, UserDetail | "error">>({});
+  const [tab, setTab] = useState<string>("company");
+  const [busy, setBusy] = useState(false);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [rejectRow, setRejectRow] = useState<VerifyQueueRow | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const q = await adminApi.verifyQueue();
       setRows(q);
       setErr(null);
+      setSelectedId((cur) => (cur && q.some((r) => r.userId === cur) ? cur : q[0]?.userId ?? null));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Load failed");
-    } finally {
-      setLoading(false);
+      setErr(errorMessage(e, "Couldn't load the queue."));
+      setRows((r) => r ?? []);
     }
   }, []);
 
@@ -48,235 +98,572 @@ export default function VerifyQueuePage() {
     void load();
   }, [load]);
 
-  async function approve(userId: string) {
-    setBusyId(userId);
-    try {
-      await adminApi.verifyUser(userId);
-      setRows((r) => r.filter((u) => u.userId !== userId));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Approve failed");
-    } finally {
-      setBusyId(null);
-    }
-  }
+  // The list the left pane shows.
+  const list: VerifyQueueRow[] = useMemo(
+    () => (view === "queue" ? rows ?? [] : decided.map((d) => d.row)),
+    [view, rows, decided],
+  );
 
-  async function reject(reason: string) {
-    if (!rejectTarget) return;
-    const userId = rejectTarget.userId;
-    setBusyId(userId);
-    try {
-      await adminApi.rejectUser(userId, reason);
-      setRows((r) => r.filter((u) => u.userId !== userId));
-    } finally {
-      setBusyId(null);
+  const selected = list.find((r) => r.userId === selectedId) ?? null;
+  const decision = view === "decided" ? decided.find((d) => d.row.userId === selectedId) ?? null : null;
+  const detail = selectedId ? details[selectedId] : undefined;
+
+  // Pull the full account for the selected company (contact, business, docs).
+  useEffect(() => {
+    if (!selectedId || details[selectedId]) return;
+    let cancelled = false;
+    adminApi
+      .user(selectedId)
+      .then((u) => !cancelled && setDetails((d) => ({ ...d, [selectedId]: u })))
+      .catch(() => !cancelled && setDetails((d) => ({ ...d, [selectedId]: "error" })));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, details]);
+
+  useEffect(() => setActionErr(null), [selectedId]);
+  // A document tab belongs to one company — fall back to its profile.
+  useEffect(() => setTab((t) => (t.startsWith("doc:") ? "company" : t)), [selectedId]);
+
+  const move = useCallback(
+    (delta: 1 | -1) => {
+      if (!list.length) return;
+      const i = list.findIndex((r) => r.userId === selectedId);
+      const next = Math.max(0, Math.min(list.length - 1, (i < 0 ? 0 : i) + delta));
+      setSelectedId(list[next].userId);
+    },
+    [list, selectedId],
+  );
+  useQueueKeys(list.length, move, !rejectRow);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      window.setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     }
-  }
+  };
+
+  const switchView = (v: View) => {
+    setView(v);
+    const src = v === "queue" ? rows ?? [] : decided.map((d) => d.row);
+    setSelectedId(src[0]?.userId ?? null);
+  };
+
+  /** Remove from the queue, remember the decision, advance to the next. */
+  const settle = (row: VerifyQueueRow, outcome: Outcome, reason?: string) => {
+    const cur = rows ?? [];
+    const idx = cur.findIndex((r) => r.userId === row.userId);
+    const remaining = cur.filter((r) => r.userId !== row.userId);
+    setRows(remaining);
+    setDecided((d) => [{ row, outcome, reason, at: Date.now() }, ...d]);
+    setDetails((d) => {
+      const { [row.userId]: _drop, ...rest } = d;
+      void _drop;
+      return rest;
+    });
+    setSelectedId(remaining[Math.min(Math.max(idx, 0), remaining.length - 1)]?.userId ?? null);
+    void refreshStats();
+  };
+
+  const approve = async () => {
+    if (!selected) return;
+    const row = selected;
+    setBusy(true);
+    setActionErr(null);
+    try {
+      await adminApi.verifyUser(row.userId);
+      toast(`${companyName(row, typeof detail === "object" ? detail : null)} verified`, "verified");
+      settle(row, "approved");
+    } catch (e) {
+      const msg = errorMessage(e, "Approve failed.");
+      setActionErr(msg);
+      toast(msg, "frozen");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const reject = async (reason: string) => {
+    if (!rejectRow) return;
+    const row = rejectRow;
+    const rowDetail = details[row.userId];
+    await adminApi.rejectUser(row.userId, reason);
+    toast(`${companyName(row, typeof rowDetail === "object" ? rowDetail : null)} rejected`);
+    settle(row, "rejected", reason);
+  };
+
+  const items: QueueItem[] = list.map((r) => {
+    const d = decided.find((x) => x.row.userId === r.userId);
+    return {
+      id: r.userId,
+      code: refId("KYB", r.userId),
+      title: companyName(r, typeof details[r.userId] === "object" ? (details[r.userId] as UserDetail) : null),
+      sub: rowSub(r),
+      due: view === "queue" ? dueState(r.submittedAt ?? r.createdAt, now) : undefined,
+      tag:
+        view === "decided" && d ? (
+          <span className="t-foot font-semibold">
+            {d.outcome === "approved" ? "Approved" : "Rejected"} · {fmtAgo(new Date(d.at).toISOString(), now)}
+          </span>
+        ) : undefined,
+    };
+  });
+
+  const closeReject = useCallback(() => setRejectRow(null), []);
+  const loading = rows === null;
+  const queueCount = rows?.length ?? 0;
+  const overdue = (rows ?? []).filter((r) => dueState(r.submittedAt ?? r.createdAt, now).over).length;
+  const clear = !loading && items.length === 0;
 
   return (
-    <div className="mx-auto max-w-[1240px] px-6 py-8">
-      <div className="flex flex-wrap items-start justify-between gap-5">
-        <div>
-          <p className="text-[12px]" style={{ color: "var(--sp-text-3)" }}>
-            Admin console · Verification queue
-          </p>
-          <h1
-            className="mt-1 text-[34px] font-semibold tracking-[-0.025em]"
-            style={{ color: "var(--sp-text)" }}
-          >
-            {rows.length} user{rows.length === 1 ? "" : "s"} awaiting review
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/admin"
-            className="sp-chip"
-            style={{ paddingLeft: "0.75rem" }}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Dashboard
-          </Link>
-          <button
-            type="button"
-            onClick={load}
-            aria-label="Refresh"
-            className="sp-icon-btn"
-          >
-            <RefreshCw className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      </div>
-
-      {err && (
-        <div
-          className="sp-airy mt-6 p-4 text-[13px]"
-          style={{ color: "var(--sp-error)" }}
-        >
-          {err}
-        </div>
-      )}
-
-      {loading ? (
-        <div className="mt-6 flex justify-center py-12">
-          <Loader2
-            className="h-6 w-6 animate-spin"
-            style={{ color: "var(--sp-lime)" }}
-          />
-        </div>
-      ) : rows.length === 0 ? (
-        <section className="sp-airy mt-6 p-10 text-center">
-          <div
-            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full"
-            style={{
-              background: "var(--sp-lime-14)",
-              color: "var(--sp-lime)",
-            }}
-          >
-            <ShieldCheck className="h-6 w-6" aria-hidden />
-          </div>
-          <p
-            className="mt-4 text-[15px] font-semibold"
-            style={{ color: "var(--sp-text)" }}
-          >
-            Queue is empty
-          </p>
-          <p
-            className="mt-1 text-[12.5px]"
-            style={{ color: "var(--sp-text-3)" }}
-          >
-            All onboarded users have been reviewed. Nothing to do right now.
-          </p>
-        </section>
-      ) : (
-        <div className="mt-6 space-y-4">
-          {rows.map((row) => (
-            <QueueCard
-              key={row.userId}
-              row={row}
-              busy={busyId === row.userId}
-              onApprove={() => approve(row.userId)}
-              onReject={() => setRejectTarget(row)}
-            />
-          ))}
-        </div>
-      )}
-
-      <RejectReasonModal
-        open={rejectTarget != null}
-        onClose={() => setRejectTarget(null)}
-        onSubmit={reject}
-        title="Reject Verified-badge application"
+    <div className="pt-4">
+      <LaneHeader
+        eyebrow="Lane · Verification"
+        title="KYB reviews"
         subtitle={
-          rejectTarget
-            ? `${rejectTarget.businessName || rejectTarget.fullName || "This user"} will see this note on their next login.`
-            : undefined
+          <>
+            Check what each company submitted, then hold to approve. Target: 24 hours from submission.
+            {overdue ? <span className="font-medium text-danger"> {plural(overdue, "company", "companies")} past it.</span> : null}
+          </>
         }
-        quickReasons={USER_REJECT_QUICK_REASONS}
-        submitLabel="Reject user"
+        actions={
+          <>
+            <KbdHints />
+            <Segmented<View>
+              label="Queue view"
+              value={view}
+              onChange={switchView}
+              options={[
+                { value: "queue", label: "Queue", count: queueCount },
+                { value: "decided", label: "Decided", count: decided.length },
+              ]}
+            />
+          </>
+        }
+      />
+
+      {err ? (
+        <div className="mt-8">
+          <Notice
+            tone="frozen"
+            title="Couldn't load the queue"
+            action={
+              <Button variant="secondary" size="sm" onClick={() => void load()}>
+                Try again
+              </Button>
+            }
+          >
+            {err}
+          </Notice>
+        </div>
+      ) : null}
+
+      {clear && !err ? (
+        <div className="mt-8 animate-rise">
+          {view === "queue" ? (
+            <ClearQueue
+              eyebrow="Queue · 0"
+              title="Queue is clear"
+              actions={
+                <>
+                  <LinkButton href="/admin/docs" variant="secondary" size="sm" icon="doc-check">
+                    Docs lane
+                  </LinkButton>
+                  <LinkButton href="/admin/users?status=active" variant="quiet" size="sm" iconRight="arrow-right">
+                    Active accounts
+                  </LinkButton>
+                </>
+              }
+            >
+              New submissions land here, oldest first. Every company gets a decision within 24 hours of sending its
+              profile.
+              {decided.length ? ` ${plural(decided.length, "decision")} made this session.` : null}
+            </ClearQueue>
+          ) : (
+            <Card className="p-2">
+              <EmptyState icon="stamp" title="Nothing decided yet">
+                Approvals and rejections from this session collect here.
+              </EmptyState>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <div className="mt-8 grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] lg:items-start">
+          {/* ── Queue ── */}
+          <div className="lg:sticky lg:top-24">
+            <div className="-mx-2 px-2 pb-2 pt-1 lg:max-h-[calc(100dvh-8rem)] lg:overflow-y-auto">
+              {loading ? (
+                <div className="flex flex-col gap-2.5" aria-busy="true">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-[96px] rounded-[22px]" />
+                  ))}
+                </div>
+              ) : (
+                <QueueList
+                  label={view === "queue" ? "Companies awaiting review" : "Decided this session"}
+                  items={items}
+                  selectedId={selectedId}
+                  onSelect={select}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* ── Detail ── */}
+          <div ref={detailRef} className="scroll-mt-24">
+            {loading ? (
+              <Card className="rounded-[32px] p-6 sm:p-7" aria-busy="true">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="mt-4 h-9 w-2/3" />
+                <Skeleton className="mt-3 h-4 w-1/2" />
+                <div className="mt-8 grid gap-6 xl:grid-cols-2">
+                  <Skeleton className="h-[320px] rounded-[22px]" />
+                  <div className="space-y-2.5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-14 rounded-[18px]" />
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            ) : selected ? (
+              <DetailPanel
+                key={selected.userId}
+                row={selected}
+                detail={detail}
+                tab={tab}
+                onTab={setTab}
+                now={now}
+                decision={decision}
+                busy={busy}
+                actionErr={actionErr}
+                onApprove={approve}
+                onReject={() => setRejectRow(selected)}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      <RejectSheet
+        open={rejectRow !== null}
+        onClose={closeReject}
+        title={rejectRow ? `Reject ${companyName(rejectRow)}?` : "Reject"}
+        description="They'll see your reason on their next sign-in and can fix and resubmit."
+        quickReasons={USER_REJECT_REASONS}
+        submitLabel="Reject"
+        onSubmit={reject}
       />
     </div>
   );
 }
 
-function QueueCard({
+/* ───────────────────────────── Detail panel ───────────────────────── */
+
+/** Where each mandatory field lives on the account. */
+const CHECK_SOURCE: Record<string, "profile" | "business"> = {
+  fullName: "profile",
+  position: "profile",
+  phone: "profile",
+  legalName: "business",
+  industry: "business",
+  operatingCountries: "business",
+  tradePosition: "business",
+};
+
+function DetailPanel({
   row,
+  detail,
+  tab,
+  onTab,
+  now,
+  decision,
   busy,
+  actionErr,
   onApprove,
   onReject,
 }: {
   row: VerifyQueueRow;
+  detail: UserDetail | "error" | undefined;
+  tab: string;
+  onTab: (t: string) => void;
+  now: number;
+  decision: Decided | null;
   busy: boolean;
-  onApprove: () => void;
+  actionErr: string | null;
+  onApprove: () => void | Promise<void>;
   onReject: () => void;
 }) {
-  const initials = (row.fullName || row.businessName || row.email)
-    .split(/\s+/)
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  const d = typeof detail === "object" ? detail : null;
+  const p = d?.profile ?? {};
+  const b = d?.businessProfile ?? {};
+  const docs = d?.docs ?? row.docs;
+  const missing = d?.missingMandatoryFields ?? row.missingFields;
+  const pendingDocs = docs.filter((x) => x.status === "pending").length;
+  const due = dueState(row.submittedAt ?? row.createdAt, now);
+  const name = companyName(row, d);
+  const loadingDetail = detail === undefined;
+
+  const str = (v: unknown) => displayValue(v) || null;
+  const countries = (b.operatingCountries as string[] | null | undefined) ?? row.operatingCountries ?? [];
+  const website = str(b.websiteUrl);
+
+  const sectionDot = (keys: string[]): PillDot => (keys.some((k) => missing.includes(k)) ? "move" : "verified");
+  const tabs: PillTab<string>[] = [
+    { value: "company", label: "Company", dot: sectionDot(["legalName", "industry", "operatingCountries"]) },
+    { value: "contact", label: "Contact", dot: sectionDot(["fullName", "position", "phone"]) },
+    { value: "business", label: "Business", dot: sectionDot(["tradePosition"]) },
+    ...docs.map((doc) => ({
+      value: `doc:${doc.id}`,
+      label: doc.certType,
+      dot: (doc.status === "approved" ? "verified" : doc.status === "rejected" ? "frozen" : "move") as PillDot,
+    })),
+  ];
+  const current = tabs.some((t) => t.value === tab) ? tab : "company";
+  const doc = current.startsWith("doc:") ? docs.find((x) => `doc:${x.id}` === current) ?? null : null;
+
+  const checkValue = (key: string): string | null => {
+    const src = CHECK_SOURCE[key] === "profile" ? p : b;
+    const raw = displayValue(src[key]);
+    if (key === "tradePosition") return tradeLabel(raw);
+    return raw || null;
+  };
+
+  const link = (href: string, text: string) => (
+    <a
+      href={/^https?:\/\//i.test(href) ? href : `https://${href}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="underline decoration-ink/25 underline-offset-4 hover:decoration-ink"
+    >
+      {text}
+    </a>
+  );
+
+  let paper: ReactNode;
+  if (doc) {
+    paper = <DocPaper doc={doc} owner={name} preview />;
+  } else if (loadingDetail) {
+    paper = (
+      <Paper eyebrow="Loading the account…" title={name} stamp="none" aria-busy="true">
+        <div className="mt-6 space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-4 animate-pulse rounded-full bg-ink/[0.07]" style={{ width: `${80 - i * 9}%` }} />
+          ))}
+        </div>
+      </Paper>
+    );
+  } else if (current === "company") {
+    paper = (
+      <Paper eyebrow={`Company · ${str(b.country) ?? row.country ?? "—"}`} title={str(b.legalName) ?? name} stampIcon="building">
+        <PaperRows>
+          <PaperRow label="Legal name" value={str(b.legalName)} />
+          <PaperRow label="Entity type" value={entityTypeLabel(str(b.entityType)) || null} />
+          <PaperRow
+            label="Address"
+            value={[str(b.addressLine), str(b.city), str(b.state), str(b.pincode), str(b.country)].filter(Boolean).join(", ")}
+          />
+          <PaperRow label="Country" value={str(b.country) ?? row.country} />
+          <PaperRow label="Website" value={website ? link(website, website) : null} />
+          <PaperRow label="Introduction" value={str(b.companyIntroduction)} />
+          <PaperRow label="Business ID" value={<span className="break-all">{row.businessId}</span>} mono />
+          <PaperRow label="Account ID" value={<span className="break-all">{row.userId}</span>} mono />
+        </PaperRows>
+      </Paper>
+    );
+  } else if (current === "contact") {
+    paper = (
+      <Paper eyebrow="Contact · decision maker" title={str(p.fullName) ?? row.fullName ?? row.email} stampIcon="user">
+        <PaperRows>
+          <PaperRow label="Position" value={str(p.position)} />
+          <PaperRow label="Phone" value={str(p.phone)} mono />
+          <PaperRow label="Email" value={<span className="break-all">{row.email}</span>} />
+          <PaperRow label="Email confirmed" value={d?.emailVerifiedAt ? fmtDateTime(d.emailVerifiedAt) : "Not yet"} />
+        </PaperRows>
+      </Paper>
+    );
+  } else {
+    paper = (
+      <Paper
+        eyebrow="Business · how they trade"
+        title={tradeLabel(str(b.tradePosition) ?? row.tradePosition) ?? "Trade position not set"}
+        stampIcon="route"
+      >
+        <PaperRows>
+          <PaperRow label="Industry" value={str(b.industry) ?? row.industry} />
+          <PaperRow
+            label="Operating"
+            value={
+              countries.length ? (
+                <span className="flex flex-wrap gap-1.5">
+                  {countries.map((c) => (
+                    <span key={c} className="rounded-full bg-ink/[0.07] px-2 py-0.5 text-[12px] font-medium">
+                      {c}
+                    </span>
+                  ))}
+                </span>
+              ) : null
+            }
+          />
+          <PaperRow label="Seller type" value={str(b.sellerType)} />
+          <PaperRow label="Export status" value={str(b.exportStatus)} />
+          <PaperRow label="Target markets" value={str(b.targetMarkets)} />
+          <PaperRow label="Signed up" value={fmtDateTime(row.createdAt)} />
+        </PaperRows>
+      </Paper>
+    );
+  }
 
   return (
-    <section className="sp-airy p-5">
-      <div className="flex flex-wrap items-start gap-4">
-        <div
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold"
-          style={{ background: "var(--sp-lime-14)", color: "var(--sp-lime)" }}
-        >
-          {initials || "?"}
+    <Reveal as="section" aria-label={`${name} — KYB review`} className="relief rounded-[32px] p-5 sm:p-7" y={10} duration={0.5}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="t-code text-fg-3">{refId("KYB", row.userId)}</span>
+            {decision ? (
+              <Chip tone={decision.outcome === "approved" ? "verified" : "frozen"}>
+                {decision.outcome === "approved" ? "Approved" : "Rejected"}
+              </Chip>
+            ) : (
+              <Chip tone="neutral">queued</Chip>
+            )}
+          </div>
+          <h2 className="t-title1 mt-2 break-words text-fg">{name}</h2>
+          <p className="t-callout mt-1 text-fg-3">
+            {[tradeLabel(row.tradePosition), row.fullName, row.email].filter(Boolean).join(" · ")} · submitted{" "}
+            {fmtAgo(row.submittedAt ?? row.createdAt, now)}
+          </p>
         </div>
-        <div className="min-w-0 flex-1">
-          <p
-            className="text-[15px] font-semibold"
-            style={{ color: "var(--sp-text)" }}
-          >
-            {row.businessName || row.fullName || "Unnamed"}
-          </p>
-          <p
-            className="mt-0.5 text-[12.5px]"
-            style={{ color: "var(--sp-text-2)" }}
-          >
-            {row.email}
-          </p>
-          <div
-            className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]"
-            style={{ color: "var(--sp-text-3)" }}
-          >
-            {row.fullName && row.businessName && <span>{row.fullName}</span>}
-            {row.country && <span>· {row.country}</span>}
-            {row.industry && <span>· {row.industry}</span>}
-            {row.tradePosition && (
-              <span>· {capitalize(row.tradePosition)}</span>
+        {!decision ? (
+          <span
+            className={cn(
+              "t-code shrink-0 rounded-full px-3 py-1.5",
+              due.over ? "bg-danger-soft text-danger" : "well text-fg-2",
             )}
-            {row.operatingCountries && row.operatingCountries.length > 0 && (
-              <span>
-                · Operates in {row.operatingCountries.join(", ")}
-              </span>
-            )}
-            {row.submittedAt && (
-              <span>
-                · Submitted {new Date(row.submittedAt).toLocaleDateString()}
-              </span>
+          >
+            {due.label}
+          </span>
+        ) : null}
+      </div>
+
+      {detail === "error" ? (
+        <p className="t-sub mt-4 text-fg-3">Full account didn&apos;t load — showing the queue summary.</p>
+      ) : null}
+
+      <div className="mt-7 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        {/* Records, rendered as paper */}
+        <div className="min-w-0">
+          <PillTabs label="What they submitted" value={current} onChange={onTab} tabs={tabs} idPrefix={`kyb-${row.userId}`} />
+          <div role="tabpanel" id={`kyb-${row.userId}-panel`} aria-labelledby={`kyb-${row.userId}-tab-${current}`}>
+            {paper}
+          </div>
+          {pendingDocs ? (
+            <p className="t-sub mt-4 text-fg-3">
+              {plural(pendingDocs, "document")} still to check —{" "}
+              <Link href="/admin/docs" className="text-fg underline decoration-line-2 underline-offset-4 hover:decoration-fg">
+                open the Docs lane
+              </Link>
+              .
+            </p>
+          ) : docs.length === 0 && !loadingDetail ? (
+            <p className="t-sub mt-4 text-fg-3">No documents uploaded — optional for the badge; the decision rests on the profile.</p>
+          ) : null}
+        </div>
+
+        {/* Checks + decision */}
+        <div className="flex min-w-0 flex-col">
+          <p className="t-label text-fg-3">Checks · mandatory fields</p>
+          <ul className="mt-3 space-y-2.5" aria-label="Mandatory fields for the Verified badge">
+            {MANDATORY_FIELDS.map((f) => {
+              const empty = missing.includes(f.key);
+              const value = empty ? null : checkValue(f.key);
+              return (
+                <li key={f.key} className={cn("rounded-[18px] p-3.5", empty ? "bg-amber-soft" : "well")}>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-ink",
+                        empty ? "bg-amber" : "bg-lime",
+                      )}
+                    >
+                      <Icon name={empty ? "alert" : "check"} size={13} strokeWidth={2} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("t-callout font-medium", empty ? "text-amber" : "text-fg")}>
+                        {f.label}
+                        <span className="sr-only">{empty ? " — empty" : " — filled"}</span>
+                      </p>
+                      <p className="t-sub mt-0.5 break-words text-fg-3">
+                        {empty ? "Empty — fill it on the account page." : loadingDetail ? "Filled" : value ?? "Filled"}
+                      </p>
+                    </div>
+                    {empty && !decision ? (
+                      <Link
+                        href={`/admin/users/${row.userId}`}
+                        className="t-foot shrink-0 rounded-full bg-cream px-3 py-1.5 font-semibold text-ink transition-colors hover:bg-white"
+                      >
+                        Fill
+                      </Link>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          {actionErr ? (
+            <div className="mt-4">
+              <Notice tone="frozen">{actionErr}</Notice>
+            </div>
+          ) : null}
+
+          <div className="mt-auto pt-6">
+            {decision ? (
+              <div className="well rounded-[18px] p-4">
+                <p className="t-callout text-fg-2">
+                  {decision.outcome === "approved" ? "Approved" : "Rejected"} {fmtAgo(new Date(decision.at).toISOString(), now)}
+                  {decision.reason ? <span className="text-fg-3"> — “{decision.reason}”</span> : null}
+                </p>
+                <LinkButton
+                  href={`/admin/users/${row.userId}`}
+                  variant="quiet"
+                  size="sm"
+                  iconRight="arrow-up-right"
+                  className="-ml-3 mt-2"
+                >
+                  Open account
+                </LinkButton>
+              </div>
+            ) : (
+              <>
+                <p className="t-foot mb-3 text-fg-3">
+                  {missing.length
+                    ? `${plural(missing.length, "mandatory field")} left to fill — approval needs all seven.`
+                    : "All seven mandatory fields are filled."}
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">
+                    Open account
+                  </LinkButton>
+                  <Button variant="danger" icon="close" onClick={onReject} disabled={busy}>
+                    Reject…
+                  </Button>
+                </div>
+                <HoldButton
+                  tone="commit"
+                  icon="shield"
+                  block
+                  className="mt-2 rounded-[18px]"
+                  onCommit={onApprove}
+                  loading={busy}
+                  disabled={missing.length > 0}
+                >
+                  Approve company
+                </HoldButton>
+              </>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onReject}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
-            style={{
-              borderColor: "var(--sp-border)",
-              color: "var(--sp-error)",
-            }}
-          >
-            <X className="h-3.5 w-3.5" aria-hidden /> Reject
-          </button>
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
-            style={{
-              background: "var(--sp-lime)",
-              color: "var(--sp-lime-fg)",
-            }}
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Check className="h-3.5 w-3.5" aria-hidden />
-            )}
-            Approve
-          </button>
-        </div>
       </div>
-
-    </section>
+    </Reveal>
   );
-}
-
-
-function capitalize(s: string): string {
-  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
 }

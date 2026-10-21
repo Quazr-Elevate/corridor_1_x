@@ -1,8 +1,12 @@
-# Nixpacks build config for the Cor1x FastAPI backend on Railway.
+# Legacy Nixpacks config — NOT used by the current Railway service, which
+# builds with Railpack (see railpack.json for the start command and
+# railway.toml for deploy/healthcheck settings). Kept only as a fallback if
+# the service is ever switched back to the Nixpacks builder.
+#
 # Root directory (per Railway service settings): backend/
-# - Runs Alembic migrations on start so the DB schema is always current.
-# - DATABASE_URL is set in Railway env; defaults to a SQLite file on the
-#   mounted /data volume (SQLite is fine for phase-1 signup-only scale).
+# - Runs Alembic migrations on start so the Postgres schema is current.
+# - DATABASE_URL (Railway Postgres) is required; postgres:// URLs are
+#   coerced to asyncpg by app/core/config.py.
 # - Binds to $PORT (Railway sets this automatically).
 
 [phases.setup]

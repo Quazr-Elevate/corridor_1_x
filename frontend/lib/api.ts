@@ -1,66 +1,72 @@
 // ── Shared response shapes ─────────────────────────────────────────────
 
-export interface Completion {
-  primary: boolean;
-  business: boolean;
-  bank: boolean;
+export type EntityType = "proprietorship" | "partnership" | "llp" | "private_ltd" | "public_ltd";
+
+export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
+  proprietorship: "Sole proprietorship",
+  partnership: "Partnership",
+  llp: "Limited liability partnership",
+  private_ltd: "Private limited company",
+  public_ltd: "Public limited company",
+};
+
+/** Compact labels for pickers and the Passport card. */
+export const ENTITY_TYPE_SHORT: Record<EntityType, string> = {
+  proprietorship: "Proprietorship",
+  partnership: "Partnership",
+  llp: "LLP",
+  private_ltd: "Private Ltd",
+  public_ltd: "Public Ltd",
+};
+
+/** "private_ltd" → "Private Ltd"; unknown values pass through. */
+export function entityTypeShort(value: string | null | undefined): string {
+  if (!value) return "";
+  return ENTITY_TYPE_SHORT[value as EntityType] ?? value;
 }
 
+/** "private_ltd" → "Private limited company"; unknown values pass through. */
+export function entityTypeLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return ENTITY_TYPE_LABELS[value as EntityType] ?? value;
+}
+
+/** Person fields — live on the user. */
 export interface PrimaryData {
   fullName?: string | null;
   phone?: string | null;
-  department?: string | null;
   position?: string | null;
+}
+
+/** Business fields — the business is the main entity. */
+export interface BusinessData {
+  // Company info
+  legalName?: string | null;
+  entityType?: EntityType | null;
+  industry?: string | null;
+  operatingCountries?: string[] | null;
+  websiteUrl?: string | null;
+  // Company address (country is ISO alpha-2, defaults to "IN")
   addressLine?: string | null;
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
   country?: string | null;
-  websiteUrl?: string | null;
+  // Socials
   googleBusinessUrl?: string | null;
   facebookUrl?: string | null;
-}
-
-export interface BusinessData {
-  // Company info
-  legalName?: string | null;
-  industry?: string | null;
-  operatingCountries?: string[] | null;
-  websiteUrl?: string | null;
   // Business profile
   tradePosition?: string | null;
   sellerType?: string | null;
-  businessRole?: string | null;
   exportStatus?: string | null;
   targetMarkets?: string[] | null;
   targetBuyerTypes?: string[] | null;
-  mainObjective?: string | null;
   companyIntroduction?: string | null;
-  // Free-text extras
-  businessType?: string | null;
-  natureOfBusiness?: string | null;
-  udyam?: string | null;
 }
 
-export interface BankData {
-  accountNumber?: string | null;
-  ifsc?: string | null;
-  ifscVerifiedAt?: string | null;
-  holderName?: string | null;
-  branchName?: string | null;
-  bankName?: string | null;
-}
-
-// Mirrors the server's UserStatus enum. "pending_verification" lands
-// here between "active" and "verified": the user has filled all seven
-// mandatory profile fields and is waiting on an admin decision.
-export type VerificationStatus =
-  | "signed_up"
-  | "email_verified"
-  | "active"
-  | "pending_verification"
-  | "verified"
-  | "rejected";
+// Mirrors the server's business verification status. "draft" covers
+// everything before the business is sent for review.
+export type VerificationStatus = "draft" | "pending_verification" | "verified" | "rejected";
 
 export interface VerificationState {
   status: VerificationStatus;
@@ -74,27 +80,32 @@ export interface VerificationState {
   rejectedReason: string | null;
 }
 
+export type MemberRole = "owner" | "admin" | "member";
+
 export interface Me {
   userId: string;
+  businessId: string;
+  role: MemberRole;
   email: string;
   emailVerifiedAt: string | null;
+  /** The business legal name. */
   businessName: string | null;
+  /** ISO 4217 — converted prices and price filters are shown in this. */
+  displayCurrency: string;
   userType: "buyer" | "seller";
-  status: string;
-  /** True until the user replaces their temp credential with a real password. */
-  mustChangePassword: boolean;
-  completion: Completion;
+  /** The business verification status. */
+  status: VerificationStatus;
   verification: VerificationState;
   primary: PrimaryData;
   business: BusinessData;
-  bank: BankData;
 }
 
 export interface RevealedContact {
+  /** The seller's business id. */
   sellerId: string;
   fullName: string | null;
   businessName: string | null;
-  businessType: string | null;
+  entityType: string | null;
   email: string | null;
   addressLine: string | null;
   city: string | null;
@@ -103,14 +114,6 @@ export interface RevealedContact {
   country: string | null;
   websiteUrl: string | null;
   revealedAt: string;
-}
-
-export interface IfscLookup {
-  ifsc: string;
-  bank: string;
-  branch: string;
-  city?: string;
-  state?: string;
 }
 
 export interface PincodeLookup {
@@ -146,31 +149,43 @@ export interface ProductRead {
   pricePerUnit?: number | string;
   description?: string;
   photos: string[];
+  currency: string;
+  priceUsd?: string | null;
+  priceUsdAsOf?: string | null;
 }
 
 // ── Auth flow shapes ───────────────────────────────────────────────────
 
-export interface SignupResponse {
+export interface SignupCodeResponse {
   email: string;
   message: string;
-  /**
-   * Only populated when the backend is running with debug=true — the
-   * literal temp password that was emailed, and the magic-login URL.
-   * Lets the "check your inbox" screen show both without the user
-   * having to open the .eml file. Never present in production.
-   */
-  devTempPassword?: string | null;
-  devMagicUrl?: string | null;
+  /** Seconds until another code may be requested. */
+  resendInSec: number;
+  /** Seconds the code stays valid. */
+  expiresInSec: number;
+  /** Only present when the backend runs with DEBUG=true. Never in production. */
+  devCode?: string | null;
+}
+
+export interface SignupVerifyResponse {
+  email: string;
+  verified: true;
+}
+
+export interface SignupCompleteIn {
+  email: string;
+  fullName: string;
+  position?: string;
+  password: string;
+  acceptTerms: true;
 }
 
 export interface LoginResponse {
   userId: string;
+  businessId: string;
+  role: MemberRole;
   email: string;
   businessName: string | null;
-  // True when the login used the temp credential. The frontend must
-  // route the user to /dashboard/settings/password and gate every
-  // other protected page behind it until a real password is set.
-  mustChangePassword: boolean;
 }
 
 // ── Onboarding wizard shapes ───────────────────────────────────────────
@@ -179,7 +194,6 @@ export interface OnboardingStatus {
   companyInfoDone: boolean;
   primaryContactDone: boolean;
   businessProfileDone: boolean;
-  onboardedAt: string | null;
 }
 
 export interface CompanyInfoIn {
@@ -187,118 +201,109 @@ export interface CompanyInfoIn {
   industry: string;
   operatingCountries: string[];
   websiteUrl?: string;
+  entityType?: EntityType | null;
+  /** Company address + socials. Each is only changed when sent; "" clears. */
+  addressLine?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  /** ISO 3166-1 alpha-2. */
+  country?: string;
+  googleBusinessUrl?: string;
+  facebookUrl?: string;
 }
 
 export interface PrimaryContactIn {
   fullName: string;
   phone?: string;
-  department?: string;
   position?: string;
 }
 
 export interface BusinessProfileIn {
   tradePosition: string;
   sellerType?: string;
-  businessRole?: string;
   exportStatus?: string;
   targetMarkets: string[];
   targetBuyerTypes: string[];
-  mainObjective?: string;
   companyIntroduction?: string;
 }
 
 // ── HTTP helper ────────────────────────────────────────────────────────
+//
+// Auth is the HttpOnly `cor1x_session` cookie only. All calls go through
+// the same-origin /api proxy (next.config.mjs), so the cookie is
+// first-party and sent automatically.
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
-const USER_ID_KEY = "cor1x.userId";
-const SESSION_EXPIRES_KEY = "cor1x.sessionExpiresAt";
-export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
-export function getStoredUserId(): string | null {
-  if (typeof window === "undefined") return null;
-  const uid = window.localStorage.getItem(USER_ID_KEY);
-  if (!uid) return null;
-  const expStr = window.localStorage.getItem(SESSION_EXPIRES_KEY);
-  if (expStr) {
-    const exp = Number(expStr);
-    if (Number.isFinite(exp) && Date.now() >= exp) {
-      clearUserId();
-      return null;
-    }
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
   }
-  return uid;
 }
 
-export function storeUserId(id: string) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(USER_ID_KEY, id);
-  window.localStorage.setItem(
-    SESSION_EXPIRES_KEY,
-    String(Date.now() + SESSION_TTL_MS),
-  );
-}
-
-export function clearUserId() {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(USER_ID_KEY);
-  window.localStorage.removeItem(SESSION_EXPIRES_KEY);
-}
-
-export function sessionExpiresAt(): number | null {
-  if (typeof window === "undefined") return null;
-  const s = window.localStorage.getItem(SESSION_EXPIRES_KEY);
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-/** Prepend API base to a relative photo URL like `/uploads/products/xxx.jpg`. */
-export function photoUrl(rel: string): string {
-  if (!rel) return rel;
-  if (rel.startsWith("http")) return rel;
-  return `${API_BASE}${rel}`;
+/** Turn a FastAPI error body into a readable message. */
+function messageFrom(body: unknown, status: number): string {
+  const b = body as { detail?: unknown; error?: string } | null;
+  if (b && typeof b.detail === "string") return b.detail;
+  if (b && Array.isArray(b.detail) && b.detail.length) {
+    // Pydantic validation errors: [{loc, msg}]
+    const first = b.detail[0] as { msg?: string; loc?: unknown[] };
+    const field = Array.isArray(first.loc) ? String(first.loc[first.loc.length - 1]) : "";
+    return first.msg ? `${field ? field + ": " : ""}${first.msg.replace(/^Value error, /, "")}` : `Request failed (${status})`;
+  }
+  if (b && typeof b.error === "string") return b.error;
+  if (status === 429) return "Too many attempts. Please wait a moment and try again.";
+  if (status >= 500) return "Something went wrong on our side. Please try again.";
+  return `Request failed (${status})`;
 }
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const userId = getStoredUserId();
+  const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
     headers: {
-      "Content-Type": "application/json",
-      ...(userId ? { "X-User-Id": userId } : {}),
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers ?? {}),
     },
   });
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg =
-      (body as { error?: string; detail?: string })?.error ||
-      (body as { detail?: string })?.detail ||
-      `Request failed (${res.status})`;
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new ApiError(messageFrom(body, res.status), res.status);
   return body as T;
 }
 
+/** Resolve a backend-relative asset path (photos, documents) to a URL. */
+export function assetUrl(rel: string | null | undefined): string {
+  if (!rel) return "";
+  if (/^(https?:|data:|blob:)/.test(rel)) return rel;
+  return `${API_BASE}${rel.startsWith("/") ? rel : `/${rel}`}`;
+}
+
+/** @deprecated use assetUrl */
+export const photoUrl = assetUrl;
+
 export const api = {
   // ─── Auth ───
-  signup: (payload: {
-    email: string;
-    firstName: string;
-    lastName: string;
-    countryOfResidence: string;
-  }) =>
-    jsonFetch<SignupResponse>("/auth/signup", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  signupResend: (email: string) =>
-    jsonFetch<SignupResponse>("/auth/signup/resend", {
+  signupCode: (email: string) =>
+    jsonFetch<SignupCodeResponse>("/auth/signup/code", {
       method: "POST",
       body: JSON.stringify({ email }),
+    }),
+
+  signupVerify: (email: string, code: string) =>
+    jsonFetch<SignupVerifyResponse>("/auth/signup/verify", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    }),
+
+  signupComplete: (payload: SignupCompleteIn) =>
+    jsonFetch<LoginResponse>("/auth/signup/complete", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
 
   login: (payload: { email: string; password: string }) =>
@@ -334,29 +339,14 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  // ─── Field-verify (still needed for IFSC) ───
+  // ─── Lookups ───
   lookupPincode: (pincode: string) => jsonFetch<PincodeLookup>(`/pincode/${pincode}`),
-  lookupIfsc: (ifsc: string) => jsonFetch<IfscLookup>(`/ifsc/${ifsc}`),
 
   // ─── Me ───
   me: () => jsonFetch<Me>("/me"),
+  updateMe: (payload: { displayCurrency?: string }) =>
+    jsonFetch<Me>("/me", { method: "PATCH", body: JSON.stringify(payload) }),
   deleteMe: () => jsonFetch<void>("/me", { method: "DELETE" }),
-
-  saveProfilePrimary: (payload: unknown) =>
-    jsonFetch<{ ok: true }>("/profile/primary", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  saveProfileBusiness: (payload: unknown) =>
-    jsonFetch<{ ok: true }>("/profile/business", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  saveProfileBank: (payload: unknown) =>
-    jsonFetch<{ ok: true }>("/profile/bank", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
 
   // ─── Verification docs ───
   submitForVerification: () =>
@@ -365,27 +355,11 @@ export const api = {
     }),
   listVerificationDocs: () =>
     jsonFetch<VerificationDoc[]>("/me/verification-docs"),
-  uploadVerificationDoc: async (
-    certType: string,
-    file: File,
-  ): Promise<VerificationDoc> => {
-    const userId = getStoredUserId();
+  uploadVerificationDoc: (certType: string, file: File): Promise<VerificationDoc> => {
     const form = new FormData();
     form.append("cert_type", certType);
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/me/verification-docs`, {
-      method: "POST",
-      body: form,
-      credentials: "include",
-      headers: userId ? { "X-User-Id": userId } : {},
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg =
-        (body as { detail?: string }).detail || `Upload failed (${res.status})`;
-      throw new Error(msg);
-    }
-    return body as VerificationDoc;
+    return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
   },
   deleteVerificationDoc: (id: string) =>
     jsonFetch<void>(`/me/verification-docs/${id}`, { method: "DELETE" }),
@@ -401,21 +375,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  uploadProductPhoto: async (file: File): Promise<{ url: string }> => {
-    const userId = getStoredUserId();
+  uploadProductPhoto: (file: File): Promise<{ url: string }> => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${API_BASE}/products/upload-photo`, {
-      method: "POST",
-      body: form,
-      headers: userId ? { "X-User-Id": userId } : {},
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg =
-        (body as { detail?: string }).detail || `Upload failed (${res.status})`;
-      throw new Error(msg);
-    }
-    return body as { url: string };
+    return jsonFetch<{ url: string }>("/products/upload-photo", { method: "POST", body: form });
   },
 };

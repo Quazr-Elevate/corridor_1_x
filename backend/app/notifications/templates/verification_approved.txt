@@ -1,0 +1,8 @@
+Hi {{ first_name }},
+
+Good news — your business profile has been verified. The Verified badge is
+now visible on your profile and listings.
+
+Open Cor1x: {{ dashboard_url }}
+
+-- Cor1x

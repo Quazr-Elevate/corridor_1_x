@@ -1,342 +1,458 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  CheckCircle2,
-  Clock,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Search,
-  Trash2,
-  Upload,
-  XCircle,
-} from "lucide-react";
-import { api, type VerificationDoc } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type DragEvent, type SetStateAction } from "react";
+import { api, ApiError, assetUrl, type VerificationDoc } from "@/lib/api";
 import { CERTIFICATION_CATALOGUE } from "@/lib/certifications";
+import { cn } from "@/lib/cn";
+import { formatDay } from "@/lib/verification";
+import { Button, IconButton } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
+import { HoldButton } from "@/components/ui/Controls";
+import { FieldShell } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
+import { Sheet } from "@/components/ui/Sheet";
+import { Notice, Skeleton } from "@/components/ui/Surface";
+import { useToast } from "@/components/ui/Toast";
+import { Combobox } from "./Combobox";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 const MAX_MB = 10;
+const ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp";
+const ACCEPTED_MIME = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
 
-export function CertificationsBlock() {
+function errorText(e: unknown, fallback: string): string {
+  if (e instanceof ApiError && e.status === 429) return "Too many uploads. Wait a moment and try again.";
+  return e instanceof Error ? e.message : fallback;
+}
+
+/** Client-side check mirroring the API: PDF/JPG/PNG/WEBP, ≤ 10 MB. */
+function fileProblem(file: File): string | null {
+  const extOk = /\.(pdf|jpe?g|png|webp)$/i.test(file.name);
+  if (!ACCEPTED_MIME.has(file.type) && !extOk) return "Only PDF, JPG, PNG or WEBP files.";
+  if (file.size > MAX_MB * 1024 * 1024) return `${file.name} is larger than ${MAX_MB} MB.`;
+  if (file.size === 0) return "That file is empty.";
+  return null;
+}
+
+function fileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// ── Data hook — the page shares this with the Passport card counts ─────
+
+export interface VerificationDocsState {
+  docs: VerificationDoc[];
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
+  setDocs: Dispatch<SetStateAction<VerificationDoc[]>>;
+}
+
+export function useVerificationDocs(): VerificationDocsState {
   const [docs, setDocs] = useState<VerificationDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
+    setError(null);
     try {
-      const d = await api.listVerificationDocs();
-      setDocs(d);
+      setDocs(await api.listVerificationDocs());
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load documents");
+      setError(errorText(e, "Could not load your documents."));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void reload();
+  }, [reload]);
 
-  async function onUploaded(doc: VerificationDoc) {
-    setDocs((d) => [doc, ...d]);
-  }
+  return { docs, loading, error, reload, setDocs };
+}
 
-  async function onDelete(id: string) {
-    if (!window.confirm("Remove this certificate?")) return;
+// ── Block ──────────────────────────────────────────────────────────────
+
+export function CertificationsBlock({ state }: { state: VerificationDocsState }) {
+  const { docs, loading, error, reload, setDocs } = state;
+  const toast = useToast();
+  const [deleting, setDeleting] = useState<VerificationDoc | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const onUploaded = (doc: VerificationDoc) => setDocs((d) => [doc, ...d.filter((x) => x.id !== doc.id)]);
+
+  const onReplaced = (oldId: string, doc: VerificationDoc) =>
+    setDocs((d) => [doc, ...d.filter((x) => x.id !== oldId && x.id !== doc.id)]);
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteError(null);
     try {
-      await api.deleteVerificationDoc(id);
-      setDocs((d) => d.filter((x) => x.id !== id));
+      await api.deleteVerificationDoc(deleting.id);
+      setDocs((d) => d.filter((x) => x.id !== deleting.id));
+      setDeleting(null);
+      toast("Document deleted");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Delete failed");
+      setDeleteError(errorText(e, "Could not delete. Try again."));
     }
   }
 
-  // The outer card renders its own heading (see dashboard/account/page.tsx),
-  // so this component is just the picker + the uploaded-doc list.
   return (
-    <div>
-      <p className="text-sm text-paper-muted leading-relaxed">
-        Add one certificate at a time. Search for the type, pick it, then
-        attach your file. Our team reviews each certificate individually.
-      </p>
-
-      <CertificationPicker onUploaded={onUploaded} onError={setError} />
-
-      {error && (
-        <div className="mt-3 rounded-field border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
-          {error}
+    <div className="space-y-6">
+      <div>
+        <div className="flex items-end justify-between gap-3">
+          <h3 className="t-headline text-fg">On file</h3>
+          {!loading && docs.length ? (
+            <span className="t-sub text-fg-3">
+              {docs.filter((d) => d.status === "approved").length} of {docs.length} approved
+            </span>
+          ) : null}
         </div>
-      )}
 
-      {loading ? (
-        <div className="mt-4 flex justify-center py-4">
-          <Loader2 className="h-5 w-5 animate-spin text-paper-muted" />
+        {loading ? (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2" aria-busy="true" aria-label="Loading documents">
+            <Skeleton className="h-[188px] rounded-[26px]" />
+            <Skeleton className="h-[188px] rounded-[26px]" />
+          </div>
+        ) : error ? (
+          <div className="mt-3">
+            <Notice
+              tone="frozen"
+              title="Couldn’t load your documents"
+              action={
+                <Button variant="secondary" size="sm" icon="refund" onClick={() => void reload()}>
+                  Try again
+                </Button>
+              }
+            >
+              {error}
+            </Notice>
+          </div>
+        ) : docs.length === 0 ? (
+          <div className="well mt-4 flex flex-col items-center rounded-[26px] px-6 py-8 text-center">
+            <span className="grid size-[60px] place-items-center rounded-full border-[2.5px] border-dashed border-fg/25 text-fg-3">
+              <Icon name="stamp" size={24} />
+            </span>
+            <p className="t-headline mt-4 text-fg">No documents yet</p>
+            <p className="t-sub mt-1 max-w-sm text-fg-3">
+              Optional. GST, IEC, FSSAI or lab certificates — each one becomes a stamp once Corridor ops approves it.
+            </p>
+          </div>
+        ) : (
+          <ul className="mt-4 grid gap-4 sm:grid-cols-2">
+            {docs.map((d) => (
+              <DocRow
+                key={d.id}
+                doc={d}
+                onDelete={() => {
+                  setDeleteError(null);
+                  setDeleting(d);
+                }}
+                onReplaced={onReplaced}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* "Add a stamp" — dashed, like an empty slot waiting for a seal. */}
+      <section
+        aria-labelledby="add-document-title"
+        className="rounded-[26px] border border-dashed border-fg/20 p-4 sm:p-5"
+      >
+        <h3 id="add-document-title" className="t-headline flex items-center gap-2 text-fg">
+          <Icon name="plus" size={16} className="text-fg-3" />
+          Add a document
+        </h3>
+        <div className="mt-4">
+          <UploadPanel onUploaded={onUploaded} />
         </div>
-      ) : docs.length === 0 ? (
-        <p className="mt-4 text-xs text-paper-muted/70">
-          No certificates uploaded yet.
-        </p>
-      ) : (
-        <ul className="mt-4 space-y-2">
-          {docs.map((d) => (
-            <DocRow
-              key={d.id}
-              doc={d}
-              onDelete={() => onDelete(d.id)}
-            />
-          ))}
-        </ul>
-      )}
+      </section>
+
+      <Sheet
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        size="sm"
+        title="Delete this document?"
+        description={deleting ? `${deleting.certType} · ${deleting.filename}` : undefined}
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setDeleting(null)}>
+              Keep it
+            </Button>
+            <HoldButton tone="danger" icon="trash" holdMs={900} onCommit={confirmDelete}>
+              Delete
+            </HoldButton>
+          </>
+        }
+      >
+        <p className="t-callout text-fg-2">Corridor ops stops seeing it. This can&rsquo;t be undone.</p>
+        {deleteError ? (
+          <p role="alert" className="t-sub mt-3 flex items-start gap-1.5 text-danger">
+            <Icon name="alert" size={14} className="mt-px shrink-0" />
+            {deleteError}
+          </p>
+        ) : null}
+      </Sheet>
     </div>
   );
 }
 
-// ── Searchable picker + file attach ──────────────────────────────────
+// ── Upload: type picker + well dropzone ────────────────────────────────
 
-function CertificationPicker({
-  onUploaded,
-  onError,
-}: {
-  onUploaded: (doc: VerificationDoc) => void;
-  onError: (msg: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+function UploadPanel({ onUploaded }: { onUploaded: (doc: VerificationDoc) => void }) {
+  const toast = useToast();
+  const [certType, setCertType] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Close dropdown on outside click / Escape.
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const options = useMemo(() => CERTIFICATION_CATALOGUE.map((c) => ({ value: c, label: c })), []);
 
-  // Only compute matches once the user has started typing — the dropdown
-  // stays empty on an unfocused or blank input. This keeps the UI clean
-  // and nudges people to search by name instead of scrolling.
-  const needle = query.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    if (!needle) return [];
-    return CERTIFICATION_CATALOGUE.filter((c) =>
-      c.toLowerCase().includes(needle),
-    );
-  }, [needle]);
+  const take = (f: File | undefined | null) => {
+    if (!f) return;
+    const problem = fileProblem(f);
+    setError(problem);
+    setFile(problem ? null : f);
+  };
 
-  async function onFile(files: FileList | null) {
-    if (!files || files.length === 0 || !selected) return;
-    const file = files[0];
-    if (file.size > MAX_MB * 1024 * 1024) {
-      onError(`${file.name} is larger than ${MAX_MB} MB.`);
-      return;
-    }
+  const onDrop = (e: DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    take(e.dataTransfer.files?.[0]);
+  };
+
+  async function upload() {
+    if (!certType || !file) return;
     setUploading(true);
+    setError(null);
     try {
-      const doc = await api.uploadVerificationDoc(selected, file);
+      const doc = await api.uploadVerificationDoc(certType, file);
       onUploaded(doc);
-      setSelected(null);
-      setQuery("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setCertType(null);
+      setFile(null);
+      if (inputRef.current) inputRef.current.value = "";
+      toast("Uploaded — in review", "verified");
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Upload failed");
+      setError(errorText(e, "Upload failed. Try again."));
     } finally {
       setUploading(false);
     }
   }
 
   return (
-    <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
-      <div ref={ref} className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-paper-muted" />
-        <input
-          type="text"
-          value={selected ?? query}
-          onFocus={() => setOpen(true)}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setSelected(null);
-            setOpen(true);
-          }}
-          placeholder="Start typing — e.g. GST, FSSAI, phytosanitary…"
-          className="w-full rounded-field border border-line-soft bg-ink pl-9 pr-9 py-3 text-sm text-paper placeholder-mute-soft/60 focus:outline-none focus:border-accent/60 focus:shadow-focus transition"
-        />
-        {selected && (
-          <button
-            type="button"
-            onClick={() => {
-              setSelected(null);
-              setQuery("");
-            }}
-            aria-label="Clear selection"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-paper-muted hover:text-paper"
-          >
-            <XCircle className="h-4 w-4" />
-          </button>
-        )}
-
-        {open && !selected && needle && (
-          <div className="absolute z-20 mt-1 w-full rounded-field border border-line-soft bg-ink-elevated shadow-card max-h-72 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <p className="px-3 py-3 text-xs text-paper-muted">
-                No match in our catalogue. Use{" "}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelected(query.trim());
-                    setOpen(false);
-                  }}
-                  className="text-accent hover:underline"
-                >
-                  &ldquo;{query.trim()}&rdquo;
-                </button>{" "}
-                as a custom entry.
-              </p>
-            ) : (
-              <ul>
-                {filtered.map((c) => (
-                  <li key={c}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelected(c);
-                        setOpen(false);
-                      }}
-                      className="w-full px-3 py-2 text-left text-sm text-paper-soft hover:bg-ink hover:text-paper transition"
-                    >
-                      {c}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+    <div className="space-y-4">
+      {certType ? (
+        <FieldShell label="Certificate type">
+          <div className="well flex h-12 items-center justify-between gap-3 rounded-field pl-4 pr-1.5">
+            <span className="min-w-0 truncate text-[15px] text-fg">{certType}</span>
+            <IconButton icon="close" label="Change certificate type" onClick={() => setCertType(null)} className="size-9" />
           </div>
-        )}
-      </div>
-
-      <label
-        className={`inline-flex items-center justify-center gap-2 rounded-field px-4 py-3 text-sm font-semibold transition ${
-          selected
-            ? "bg-accent text-accent-fg cursor-pointer hover:bg-accent-hover"
-            : "bg-line-soft/40 text-paper-muted cursor-not-allowed"
-        }`}
-        aria-disabled={!selected || uploading}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,image/*"
-          onChange={(e) => onFile(e.target.files)}
-          disabled={!selected || uploading}
-          className="sr-only"
+        </FieldShell>
+      ) : (
+        <Combobox
+          id="cert-type"
+          label="Certificate type"
+          options={options}
+          onPick={setCertType}
+          allowCustom
+          placeholder="Search — GST, FSSAI, phytosanitary…"
+          emptyText="No match. Type the name to add it."
         />
-        {uploading ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" /> Uploading
-          </>
-        ) : (
-          <>
-            <Upload className="h-4 w-4" /> Attach file
-          </>
-        )}
-      </label>
+      )}
+
+      <FieldShell label="File" htmlFor="cert-file" hint="PDF, JPG, PNG or WEBP · up to 10 MB">
+        <label
+          htmlFor="cert-file"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={cn(
+            "well flex min-h-[112px] cursor-pointer flex-col items-center justify-center gap-2 rounded-[20px] px-4 py-5 text-center transition-shadow duration-300 ease-expo",
+            "focus-within:shadow-[var(--well),0_0_0_1px_var(--c-fg),0_0_0_4px_rgb(196_216_46/0.35)]",
+            dragging && "shadow-[var(--well),0_0_0_1px_var(--c-fg)]",
+          )}
+        >
+          <input
+            ref={inputRef}
+            id="cert-file"
+            type="file"
+            accept={ACCEPT}
+            className="sr-only"
+            onChange={(e) => take(e.target.files?.[0])}
+          />
+          {file ? (
+            <>
+              <span className="relief-sm grid size-10 place-items-center rounded-full text-fg-2">
+                <Icon name={file.type.startsWith("image/") ? "image" : "doc-check"} size={18} />
+              </span>
+              <span className="t-headline max-w-full truncate text-fg">{file.name}</span>
+              <span className="t-sub text-fg-3">{fileSize(file.size)} · tap to choose another</span>
+            </>
+          ) : (
+            <>
+              <span className="relief-sm grid size-10 place-items-center rounded-full text-fg-2">
+                <Icon name="upload" size={18} />
+              </span>
+              <span className="t-callout text-fg">
+                <span className="font-medium">Choose a file</span>
+                <span className="hidden text-fg-2 sm:inline"> or drop it here</span>
+              </span>
+            </>
+          )}
+        </label>
+      </FieldShell>
+
+      {error ? (
+        <p role="alert" className="t-sub flex items-start gap-1.5 text-danger">
+          <Icon name="alert" size={14} className="mt-px shrink-0" />
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {!certType && file ? <span className="t-sub text-fg-3">Pick the certificate type.</span> : null}
+        <Button icon="upload" onClick={() => void upload()} disabled={!certType || !file} loading={uploading}>
+          Upload
+        </Button>
+      </div>
     </div>
   );
 }
 
-// ── Doc row ──────────────────────────────────────────────────────────
+// ── One document ───────────────────────────────────────────────────────
 
 function DocRow({
   doc,
   onDelete,
+  onReplaced,
 }: {
   doc: VerificationDoc;
   onDelete: () => void;
+  onReplaced: (oldId: string, doc: VerificationDoc) => void;
 }) {
-  const Icon = doc.mimeType.startsWith("image/") ? ImageIcon : FileText;
-  const sizeKb = Math.round(doc.sizeBytes / 1024);
+  const toast = useToast();
+  const replaceRef = useRef<HTMLInputElement>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const rejected = doc.status === "rejected";
+
+  async function replace(file: File | undefined) {
+    if (!file) return;
+    const problem = fileProblem(file);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    setReplacing(true);
+    setError(null);
+    try {
+      const fresh = await api.uploadVerificationDoc(doc.certType, file);
+      // The replacement is in; drop the rejected copy (best effort).
+      await api.deleteVerificationDoc(doc.id).catch(() => undefined);
+      onReplaced(doc.id, fresh);
+      toast("Replaced — back in review", "verified");
+    } catch (e) {
+      setError(errorText(e, "Upload failed. Try again."));
+    } finally {
+      setReplacing(false);
+      if (replaceRef.current) replaceRef.current.value = "";
+    }
+  }
+
+  const approved = doc.status === "approved";
   return (
     <li
       id={`doc-${doc.id}`}
-      className={`rounded-field border bg-ink px-4 py-3 ${
-        rejected ? "border-danger/40" : "border-line-soft"
-      }`}
-    >
-      <div className="flex items-center gap-3">
-        <Icon className="h-4 w-4 shrink-0 text-paper-muted" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-paper truncate">
-            {doc.certType}
-          </p>
-          <a
-            href={`${API_BASE}${doc.url}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-paper-muted hover:underline truncate block"
-          >
-            {doc.filename} · {sizeKb} KB
-          </a>
-        </div>
-        <StatusPill status={doc.status} />
-        {doc.status !== "approved" && (
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label="Remove document"
-            className="rounded-full p-1 text-paper-muted hover:bg-ink-elevated hover:text-danger transition"
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          </button>
-        )}
-      </div>
-      {rejected && doc.rejectionReason && (
-        <div className="mt-2 rounded-field border border-danger/30 bg-danger/5 px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-danger">
-            Rejected — reason
-          </p>
-          <p className="mt-1 text-xs text-paper leading-relaxed">
-            {doc.rejectionReason}
-          </p>
-          <p className="mt-1 text-[11px] text-paper-muted">
-            Delete this entry and upload a replacement to re-submit.
-          </p>
-        </div>
+      className={cn(
+        // A stamp: relief card, dashed seal (tilted once approved), mono date.
+        "relief relative flex min-h-[188px] scroll-mt-32 flex-col rounded-[26px] p-5",
+        rejected && "shadow-[var(--relief),inset_0_0_0_1.5px_var(--c-danger)] sm:col-span-2",
       )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "grid size-[60px] shrink-0 place-items-center rounded-full border-[2.5px] border-dashed",
+            approved && "-rotate-12 border-accent text-accent",
+            doc.status === "pending" && "border-amber text-amber",
+            rejected && "border-danger text-danger",
+          )}
+        >
+          <Icon name={doc.mimeType.startsWith("image/") ? "image" : approved ? "stamp" : "doc-check"} size={22} />
+        </span>
+        <div className="flex items-center gap-1">
+          <DocChip status={doc.status} />
+          {doc.status !== "approved" ? (
+            <IconButton icon="trash" size="sm" label={`Delete ${doc.certType}`} onClick={onDelete} className="-mr-1.5 shrink-0" />
+          ) : null}
+        </div>
+      </div>
+      <p className="t-headline mt-5 break-words text-fg">{doc.certType}</p>
+      <a
+        href={assetUrl(doc.url)}
+        target="_blank"
+        rel="noreferrer"
+        className="t-sub mt-0.5 inline-flex max-w-full items-center gap-1 text-fg-3 underline-offset-4 hover:text-fg hover:underline"
+      >
+        <span className="truncate">{doc.filename}</span>
+        <span className="shrink-0">· {fileSize(doc.sizeBytes)}</span>
+        <Icon name="external" size={13} className="shrink-0" />
+        <span className="sr-only">(opens in a new tab)</span>
+      </a>
+      <p className="t-code mt-auto pt-4 text-fg-3">
+        {approved && doc.reviewedAt ? `Approved ${formatDay(doc.reviewedAt)}` : `Uploaded ${formatDay(doc.uploadedAt)}`}
+      </p>
+
+      {rejected ? (
+        <div className="mt-4 flex flex-col gap-3 rounded-[16px] bg-danger-soft p-3.5 text-danger">
+          <div className="min-w-0">
+            <p className="t-label">Ops note</p>
+            <p className="t-callout mt-1 whitespace-pre-wrap">{doc.rejectionReason || "Rejected without a note."}</p>
+          </div>
+          <input
+            ref={replaceRef}
+            type="file"
+            accept={ACCEPT}
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(e) => void replace(e.target.files?.[0])}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="upload"
+            loading={replacing}
+            onClick={() => replaceRef.current?.click()}
+            className="shrink-0 self-start"
+          >
+            Replace
+          </Button>
+        </div>
+      ) : null}
+      {error ? (
+        <p role="alert" className="t-sub mt-3 flex items-start gap-1.5 text-danger">
+          <Icon name="alert" size={14} className="mt-px shrink-0" />
+          {error}
+        </p>
+      ) : null}
     </li>
   );
 }
 
-function StatusPill({ status }: { status: VerificationDoc["status"] }) {
-  if (status === "approved") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-pill border border-accent/30 bg-accent/15 text-accent px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest">
-        <CheckCircle2 className="h-3 w-3" aria-hidden /> Approved
-      </span>
-    );
-  }
-  if (status === "rejected") {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-pill border border-danger/30 bg-danger/15 text-danger px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest">
-        <XCircle className="h-3 w-3" aria-hidden /> Rejected
-      </span>
-    );
-  }
+function DocChip({ status }: { status: VerificationDoc["status"] }) {
+  if (status === "approved") return <Chip tone="verified">Approved</Chip>;
+  if (status === "rejected") return <Chip tone="frozen">Rejected</Chip>;
   return (
-    <span className="inline-flex items-center gap-1 rounded-pill border border-violet/30 bg-violet/15 text-violet px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest">
-      <Clock className="h-3 w-3" aria-hidden /> Pending
-    </span>
+    <Chip tone="move" icon="clock">
+      In review
+    </Chip>
   );
 }

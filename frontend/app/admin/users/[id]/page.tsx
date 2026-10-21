@@ -1,128 +1,188 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
-import {
-  ArrowLeft,
-  Check,
-  Download,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Pencil,
-  ShieldCheck,
-  Shield,
-  Undo2,
-  X,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   adminApi,
+  errorMessage,
+  errorStatus,
+  isBusinessListKey,
+  type BusinessPatch,
+  type BusinessPatchKey,
+  type ProfilePatch,
+  type ProfilePatchKey,
   type UserDetail,
   type UserPatch,
   type VerifyDoc,
 } from "@/lib/adminApi";
-import { RejectReasonModal } from "@/components/admin/RejectReasonModal";
+import { ENTITY_TYPE_LABELS, entityTypeLabel } from "@/lib/api";
+import { cn } from "@/lib/cn";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
+import { fieldByKey } from "@/lib/verification";
+import { useTower } from "@/components/shell/TowerShell";
+import { Stagger, StaggerItem } from "@/components/motion";
+import { Button, LinkButton } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
+import { HoldButton, Progress } from "@/components/ui/Controls";
+import { Icon } from "@/components/ui/Icon";
+import { Input, Select, Textarea } from "@/components/ui/Field";
+import { Card, EmptyState, Notice, SectionTitle, Skeleton } from "@/components/ui/Surface";
+import { useToast } from "@/components/ui/Toast";
+import { OnboardingTimeline } from "@/components/admin/OnboardingTimeline";
+import {
+  DOC_REJECT_REASONS,
+  RejectSheet,
+  USER_REJECT_REASONS,
+} from "@/components/admin/RejectSheet";
+import { DocCard, KeyValue, StatusChip } from "@/components/admin/parts";
+import { displayValue, fmtDate, fmtDateTime, plural, refId, tradeLabel } from "@/components/admin/format";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+/* ───────────────────────────── Field layout ─────────────────────────
+   Mandatory (Verified-badge) fields first so the decision reads at a
+   glance; everything else below. `source` picks the draft bucket, so one
+   grid can mix profile and business fields. Keys mirror the backend's
+   editable whitelists (see PROFILE_PATCH_KEYS / BUSINESS_PATCH_KEYS). */
 
-// Field layout drives the admin user detail page. The user asked that
-// the Verified-badge mandatory fields appear first (so the admin can
-// decide on approve/reject at a glance), with everything else grouped
-// below as a secondary section.
-//
-// ``source`` tells FieldGrid which draft bucket (profile vs business)
-// to write back into on edit, so the single top-of-page layout can mix
-// fields from both tables.
+type FieldMeta = { label: string; kind?: FieldKind; wide?: boolean; mono?: boolean; hint?: string };
+type FieldDef =
+  | ({ source: "profile"; key: ProfilePatchKey } & FieldMeta)
+  | ({ source: "business"; key: BusinessPatchKey } & FieldMeta);
+type FieldKind = "text" | "textarea" | "list" | "trade" | "entity" | "tel" | "url";
 
-type FieldSource = "profile" | "business";
+const MANDATORY_TOTAL = 7;
 
-interface AdminField {
-  key: string;
-  label: string;
-  source: FieldSource;
-  type?: "text" | "textarea";
-  cols?: 1 | 2;
+const MANDATORY_FIELDS: FieldDef[] = [
+  { key: "fullName", label: "Full name", source: "profile" },
+  { key: "position", label: "Position", source: "profile" },
+  { key: "phone", label: "Phone", source: "profile", kind: "tel", mono: true },
+  { key: "legalName", label: "Legal company name", source: "business" },
+  { key: "industry", label: "Industry", source: "business" },
+  { key: "operatingCountries", label: "Operating countries", source: "business", kind: "list" },
+  { key: "tradePosition", label: "Trade position", source: "business", kind: "trade" },
+];
+
+const OPTIONAL_FIELDS: FieldDef[] = [
+  { key: "entityType", label: "Entity type", source: "business", kind: "entity" },
+  { key: "websiteUrl", label: "Website", source: "business", kind: "url" },
+  { key: "addressLine", label: "Address", source: "business", wide: true },
+  { key: "city", label: "City", source: "business" },
+  { key: "state", label: "State", source: "business" },
+  { key: "pincode", label: "Pincode", source: "business", mono: true },
+  { key: "country", label: "Country", source: "business", mono: true, hint: "2-letter code, e.g. IN or AE." },
+  { key: "googleBusinessUrl", label: "Google Business", source: "business", kind: "url" },
+  { key: "facebookUrl", label: "Facebook", source: "business", kind: "url" },
+  { key: "sellerType", label: "Seller type", source: "business" },
+  { key: "exportStatus", label: "Export status", source: "business" },
+  { key: "targetMarkets", label: "Target markets", source: "business", kind: "list" },
+  { key: "companyIntroduction", label: "Company introduction", source: "business", kind: "textarea", wide: true },
+];
+
+const ALL_FIELDS = [...MANDATORY_FIELDS, ...OPTIONAL_FIELDS];
+
+const TRADE_OPTIONS = [
+  { value: "", label: "Not set" },
+  { value: "buyer", label: "Buyer" },
+  { value: "seller", label: "Seller" },
+  { value: "both", label: "Buyer & seller" },
+];
+
+const ENTITY_OPTIONS = [
+  { value: "", label: "Not set" },
+  ...Object.entries(ENTITY_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+];
+
+const fid = (f: FieldDef) => `${f.source}.${f.key}`;
+
+function sourceOf(u: UserDetail, f: FieldDef): unknown {
+  return (f.source === "profile" ? u.profile : u.businessProfile)?.[f.key];
 }
 
-// Keys the backend treats as mandatory for the Verified badge. Mirrors
-// backend/app/verification.py — update both in lockstep.
-const MANDATORY_KEYS = new Set<string>([
-  "fullName",
-  "position",
-  "phone",
-  "legalName",
-  "industry",
-  "operatingCountries",
-  "tradePosition",
-]);
+/** Draft strings for every editable field (lists as "a, b, c"). */
+function draftFrom(u: UserDetail): Record<string, string> {
+  const d: Record<string, string> = {};
+  for (const f of ALL_FIELDS) d[fid(f)] = displayValue(sourceOf(u, f));
+  return d;
+}
 
-const MANDATORY_FIELDS_LIST: AdminField[] = [
-  { key: "fullName",           label: "Full name",           source: "profile" },
-  { key: "position",           label: "Position",            source: "profile" },
-  { key: "phone",              label: "Phone",               source: "profile" },
-  { key: "legalName",          label: "Legal company name",  source: "business" },
-  { key: "industry",           label: "Industry",            source: "business" },
-  { key: "operatingCountries", label: "Operating countries", source: "business" },
-  { key: "tradePosition",      label: "Trade position",      source: "business" },
-];
+const splitList = (s: string) =>
+  s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
 
-// Everything the user *can* edit on My Account but is not required for
-// the badge. We skipped these before (website, department, seller
-// polish fields, long-form intro) because they're nice-to-haves, not
-// hygiene checks.
-const OPTIONAL_FIELDS_LIST: AdminField[] = [
-  { key: "department",         label: "Department",          source: "profile" },
-  { key: "websiteUrl",         label: "Website",             source: "business" },
-  { key: "sellerType",         label: "Seller type",         source: "business" },
-  { key: "exportStatus",       label: "Export status",       source: "business" },
-  { key: "targetMarkets",      label: "Target markets",      source: "business" },
-  { key: "mainObjective",      label: "Main objective",      source: "business", cols: 2 },
-  { key: "companyIntroduction",label: "Company introduction",source: "business", type: "textarea", cols: 2 },
-];
+const norm = (f: FieldDef, s: string) => (f.kind === "list" ? splitList(s).join("\u0000") : s.trim());
 
-// Union of every editable key — used by the PATCH builder below.
-const ALL_PROFILE_KEYS = [...MANDATORY_FIELDS_LIST, ...OPTIONAL_FIELDS_LIST]
-  .filter((f) => f.source === "profile")
-  .map((f) => f.key);
-const ALL_BUSINESS_KEYS = [...MANDATORY_FIELDS_LIST, ...OPTIONAL_FIELDS_LIST]
-  .filter((f) => f.source === "business")
-  .map((f) => f.key);
+/** Only changed keys, typed exactly as the backend expects. */
+function buildPatch(u: UserDetail, draft: Record<string, string>): { patch: UserPatch; count: number } {
+  const orig = draftFrom(u);
+  const patch: UserPatch = {};
+  const profile: ProfilePatch = {};
+  const business: BusinessPatch = {};
+  let count = 0;
 
-export default function AdminUserDetailPage() {
+  for (const f of ALL_FIELDS) {
+    const k = fid(f);
+    if (norm(f, draft[k] ?? "") === norm(f, orig[k] ?? "")) continue;
+    count++;
+    if (f.source === "profile") {
+      profile[f.key] = (draft[k] ?? "").trim();
+    } else if (isBusinessListKey(f.key)) {
+      business[f.key] = splitList(draft[k] ?? "");
+    } else if (f.key === "entityType") {
+      // An enum: clearing it means null, never "".
+      business.entityType = (draft[k] ?? "").trim() || null;
+    } else {
+      business[f.key] = (draft[k] ?? "").trim();
+    }
+  }
+  if (Object.keys(profile).length) patch.profile = profile;
+  if (Object.keys(business).length) patch.businessProfile = business;
+  return { patch, count };
+}
+
+/** Put a server message next to the field it's about, when we can tell. */
+function fieldForError(msg: string): string | null {
+  for (const f of ALL_FIELDS) if (msg.includes(f.key)) return fid(f);
+  if (/phone/i.test(msg)) return "profile.phone";
+  if (/website/i.test(msg)) return "business.websiteUrl";
+  if (/legal|company name/i.test(msg)) return "business.legalName";
+  return null;
+}
+
+const APPROVABLE = new Set(["pending_verification", "rejected"]);
+const REJECTABLE = new Set(["pending_verification", "verified"]);
+
+/* ───────────────────────────── Page ───────────────────────────────── */
+
+export default function AccountDetailPage() {
   const params = useParams();
   const id = params?.id as string;
+  const { refreshStats } = useTower();
+  const toast = useToast();
+  const { setDirty } = useUnsavedGuard();
 
   const [user, setUser] = useState<UserDetail | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState<{ msg: string; status?: number } | null>(null);
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [busyAction, setBusyAction] = useState<"verify" | "reject" | null>(null);
-  const [preview, setPreview] = useState<VerifyDoc | null>(null);
-  const [rejectTarget, setRejectTarget] = useState<VerifyDoc | null>(null);
-
-  // Local draft state for edit mode. We clone the server data into these on
-  // "Edit", push whatever's set when Save is clicked. Hitting Cancel discards.
-  // Two buckets instead of three (previously profile/company/biz) because
-  // the backend only has two tables — the "Mandatory" vs "Optional"
-  // grouping on screen is purely cosmetic.
-  const [businessName, setBusinessName] = useState("");
-  const [profileDraft, setProfileDraft] = useState<Record<string, unknown>>({});
-  const [businessDraft, setBusinessDraft] = useState<Record<string, unknown>>({});
-  const [rejectUser, setRejectUser] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [rejectUserOpen, setRejectUserOpen] = useState(false);
+  const [rejectDoc, setRejectDoc] = useState<VerifyDoc | null>(null);
+  const [docBusy, setDocBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const u = await adminApi.user(id);
       setUser(u);
-      resetDraft(u);
-      setErr(null);
+      setLoadErr(null);
+      return u;
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Load failed");
-    } finally {
-      setLoading(false);
+      setLoadErr({ msg: errorMessage(e, "Couldn't load this account."), status: errorStatus(e) });
+      return null;
     }
   }, [id]);
 
@@ -130,526 +190,562 @@ export default function AdminUserDetailPage() {
     if (id) void load();
   }, [id, load]);
 
-  function resetDraft(u: UserDetail) {
-    setBusinessName(u.businessName ?? "");
-    const prof: Record<string, unknown> = {};
-    const biz: Record<string, unknown> = {};
-    for (const k of ALL_PROFILE_KEYS) {
-      prof[k] = (u.profile ?? {})[k] ?? "";
-    }
-    for (const k of ALL_BUSINESS_KEYS) {
-      biz[k] = (u.businessProfile ?? {})[k] ?? "";
-    }
-    setProfileDraft(prof);
-    setBusinessDraft(biz);
-  }
+  const { patch, count: changeCount } = useMemo(
+    () => (user && editing ? buildPatch(user, draft) : { patch: {}, count: 0 }),
+    [user, editing, draft],
+  );
 
-  async function save() {
+  useEffect(() => {
+    setDirty(editing && changeCount > 0);
+  }, [editing, changeCount, setDirty]);
+  useEffect(() => () => setDirty(false), [setDirty]);
+
+  const startEdit = () => {
     if (!user) return;
+    setDraft(draftFrom(user));
+    setSaveErr(null);
+    setFieldErr({});
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setSaveErr(null);
+    setFieldErr({});
+  };
+
+  const setField = (k: string, v: string) => {
+    setDraft((d) => ({ ...d, [k]: v }));
+    if (fieldErr[k]) {
+      setFieldErr((errs) => {
+        const next = { ...errs };
+        delete next[k];
+        return next;
+      });
+    }
+  };
+
+  const save = async () => {
+    if (!user) return;
+    if (changeCount === 0) {
+      setEditing(false);
+      return;
+    }
     setSaving(true);
-    setErr(null);
+    setSaveErr(null);
+    setFieldErr({});
     try {
-      const patch: UserPatch = {
-        businessName: businessName.trim() || null,
-        profile: cleanDraft(profileDraft, ALL_PROFILE_KEYS),
-        businessProfile: cleanDraft(businessDraft, ALL_BUSINESS_KEYS),
-      };
       const updated = await adminApi.patchUser(user.userId, patch);
       setUser(updated);
-      resetDraft(updated);
       setEditing(false);
+      toast(`Saved ${plural(changeCount, "change")}`, "verified");
+      void refreshStats();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Save failed");
+      const msg = errorMessage(e, "Save failed.");
+      const status = errorStatus(e);
+      const where = fieldForError(msg);
+      if (where) setFieldErr({ [where]: msg });
+      setSaveErr(status === 409 ? `Already taken — ${msg}` : msg);
+      toast(status === 409 ? "Duplicate found — not saved" : "Not saved", "frozen");
     } finally {
       setSaving(false);
     }
-  }
+  };
 
-  async function doVerify() {
+  const approve = async () => {
     if (!user) return;
-    setBusyAction("verify");
+    setBusy(true);
+    setActionErr(null);
     try {
       await adminApi.verifyUser(user.userId);
+      toast(`${user.businessName || user.email} verified`, "verified");
       await load();
+      void refreshStats();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Verify failed");
+      const msg = errorMessage(e, "Approve failed.");
+      setActionErr(msg);
+      toast(msg, "frozen");
     } finally {
-      setBusyAction(null);
+      setBusy(false);
     }
-  }
+  };
 
-  async function doReject(reason: string) {
+  const rejectUser = async (reason: string) => {
     if (!user) return;
-    setBusyAction("reject");
+    await adminApi.rejectUser(user.userId, reason);
+    toast(`${user.businessName || user.email} ${user.status === "verified" ? "badge revoked" : "rejected"}`);
+    setActionErr(null);
+    await load();
+    void refreshStats();
+  };
+
+  const approveDoc = async (doc: VerifyDoc) => {
+    setDocBusy(doc.id);
     try {
-      await adminApi.rejectUser(user.userId, reason);
+      await adminApi.approveDoc(doc.id);
+      toast(`${doc.certType} approved`, "verified");
       await load();
+      void refreshStats();
+    } catch (e) {
+      toast(errorMessage(e, "Approve failed."), "frozen");
     } finally {
-      setBusyAction(null);
+      setDocBusy(null);
     }
-  }
+  };
 
-  if (loading) {
+  const rejectDocSubmit = async (reason: string) => {
+    if (!rejectDoc) return;
+    await adminApi.rejectDoc(rejectDoc.id, reason);
+    toast(`${rejectDoc.certType} rejected`);
+    await load();
+    void refreshStats();
+  };
+
+  const closeRejectUser = useCallback(() => setRejectUserOpen(false), []);
+  const closeRejectDoc = useCallback(() => setRejectDoc(null), []);
+
+  /* ── States ── */
+
+  if (!user && loadErr) {
     return (
-      <div className="mx-auto flex max-w-[1240px] justify-center px-6 py-16">
-        <Loader2
-          className="h-6 w-6 animate-spin"
-          style={{ color: "var(--sp-lime)" }}
-        />
+      <div className="pt-4">
+        <BackLink />
+        <Card className="mt-6 p-2">
+          {loadErr.status === 404 ? (
+            <EmptyState
+              icon="users"
+              title="Account not found"
+              action={<LinkButton href="/admin/users" variant="secondary">Back to directory</LinkButton>}
+            >
+              It may have been deleted, or the link is wrong.
+            </EmptyState>
+          ) : (
+            <EmptyState
+              icon="alert"
+              title="Couldn't load this account"
+              action={<Button variant="secondary" onClick={() => void load()}>Try again</Button>}
+            >
+              {loadErr.msg}
+            </EmptyState>
+          )}
+        </Card>
       </div>
     );
   }
-  if (err && !user) {
-    return (
-      <div className="mx-auto max-w-[1240px] px-6 py-8">
-        <p className="text-[13px]" style={{ color: "var(--sp-error)" }}>
-          {err}
-        </p>
-      </div>
-    );
-  }
-  if (!user) return null;
 
-  const initials = (user.profile?.fullName as string | undefined)
-    ?.split(/\s+/)
-    .map((s) => s[0])
+  if (!user) return <DetailSkeleton />;
+
+  const missing = user.missingMandatoryFields;
+  const filled = MANDATORY_TOTAL - missing.length;
+  const title = user.businessName || displayValue(user.businessProfile?.legalName) || user.email;
+  const passportPlace = [displayValue(user.businessProfile?.city), displayValue(user.businessProfile?.country)]
     .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+    .join(", ");
+  const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing;
+  const canReject = REJECTABLE.has(user.status) && !editing;
+  const approveHint = editing
+    ? "Save or cancel your edits first."
+    : missing.length
+      ? `${plural(missing.length, "mandatory field")} still empty.`
+      : user.status === "verified"
+        ? "Already verified."
+        : !APPROVABLE.has(user.status)
+          ? "Not submitted for review yet — they submit from their account."
+          : null;
 
   return (
-    <div className="mx-auto max-w-[1240px] px-6 py-8">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-5">
-        <div className="flex items-start gap-4">
-          <Link
-            href="/admin/users"
-            className="sp-chip"
-            style={{ paddingLeft: "0.75rem" }}
-          >
-            <ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Users
-          </Link>
-        </div>
-        <div className="flex items-center gap-2">
-          {editing ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  resetDraft(user);
-                  setEditing(false);
-                }}
-                className="sp-chip"
-              >
-                <Undo2 className="h-3.5 w-3.5" aria-hidden /> Cancel
-              </button>
-              <button
-                type="button"
-                onClick={save}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
-                style={{
-                  background: "var(--sp-lime)",
-                  color: "var(--sp-lime-fg)",
-                }}
-              >
-                {saving ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Check className="h-3.5 w-3.5" aria-hidden />
-                )}
-                Save changes
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => setRejectUser(true)}
-                disabled={!!busyAction || user.status === "rejected"}
-                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
-                style={{
-                  borderColor: "var(--sp-border)",
-                  color: "var(--sp-error)",
-                }}
-              >
-                {busyAction === "reject" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Shield className="h-3.5 w-3.5" aria-hidden />
-                )}
-                Reject
-              </button>
-              <button
-                type="button"
-                onClick={doVerify}
-                disabled={!!busyAction || user.status === "verified"}
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold transition disabled:opacity-50"
-                style={{
-                  background: "var(--sp-lime)",
-                  color: "var(--sp-lime-fg)",
-                }}
-              >
-                {busyAction === "verify" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
-                )}
-                Verify
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(true)}
-                className="sp-chip"
-              >
-                <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+    <div className={cn("pt-4", editing && "pb-24")}>
+      <BackLink />
 
-      {err && (
+      {/* ── Passport: who this is, where they stand, the decision ── */}
+      <section
+        aria-labelledby="passport-h"
+        className="relief relative mt-6 animate-rise overflow-hidden rounded-[34px] p-6 sm:p-9"
+      >
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 -left-20 size-96 rounded-full bg-lime/[0.08] blur-3xl" />
         <div
-          className="sp-airy mt-5 p-4 text-[13px]"
-          style={{ color: "var(--sp-error)" }}
-        >
-          {err}
-        </div>
-      )}
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-24 -top-28 size-80 rounded-full blur-3xl"
+          style={{ background: "radial-gradient(closest-side, rgb(255 196 130 / 0.08), transparent)" }}
+        />
 
-      {/* Identity card */}
-      <section className="sp-airy mt-6 p-6">
-        <div className="flex flex-wrap items-start gap-4">
-          <div
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold"
-            style={{ background: "var(--sp-lime-14)", color: "var(--sp-lime)" }}
-          >
-            {initials || "?"}
-          </div>
-          <div className="min-w-0 flex-1">
-            {editing ? (
-              <input
-                type="text"
-                value={businessName}
-                onChange={(e) => setBusinessName(e.target.value)}
-                placeholder="Business name"
-                className="w-full rounded-field px-3 py-2 text-[18px] font-semibold"
-                style={{
-                  background: "var(--sp-card-2)",
-                  color: "var(--sp-text)",
-                  border: "1px solid var(--sp-border)",
-                }}
-              />
-            ) : (
-              <p
-                className="text-[22px] font-semibold tracking-[-0.015em]"
-                style={{ color: "var(--sp-text)" }}
-              >
-                {user.businessName || "— no business name —"}
+        <div className="relative flex flex-wrap items-start justify-between gap-6">
+          <div className="min-w-0 max-w-3xl">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <p className="t-label text-accent">
+                Corridor passport{passportPlace ? ` · ${passportPlace}` : ""}
               </p>
-            )}
-            <p
-              className="mt-1 text-[13px]"
-              style={{ color: "var(--sp-text-2)" }}
-            >
-              {user.email}
-            </p>
-            <div
-              className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]"
-              style={{ color: "var(--sp-text-3)" }}
-            >
-              <StatusPill status={user.status} />
-              {(user.profile?.country as string | undefined) && (
-                <span>{user.profile?.country as string}</span>
-              )}
-              <span>
-                Joined {new Date(user.createdAt).toLocaleDateString()}
-              </span>
-              <span>
-                Email {user.emailVerifiedAt ? "verified" : "not verified"}
-              </span>
-              <span>{user.productCount} products</span>
+              {editing ? <Chip tone="move" icon="pen" size="sm">Editing</Chip> : null}
             </div>
+            <h1 id="passport-h" className="t-large mt-3 break-words text-fg">
+              {title}
+            </h1>
+            <p className="t-callout mt-2 break-words text-fg-2">
+              {user.email}
+              <span className="text-fg-3">
+                {" "}
+                · joined {fmtDate(user.createdAt)} · {plural(user.productCount, "product")}
+              </span>
+            </p>
+          </div>
+          <div className="flex items-start gap-5">
+            <div className="text-right">
+              <p className="t-label text-fg-3">Ref</p>
+              <p className="t-code mt-1 text-[22px] text-fg" title={user.userId}>
+                {refId("USR", user.userId)}
+              </p>
+            </div>
+            {!editing ? (
+              <Button variant="secondary" size="sm" icon="pen" onClick={startEdit}>
+                Edit
+              </Button>
+            ) : null}
           </div>
         </div>
+
+        <dl className="relative mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-line pt-6 lg:grid-cols-4">
+          <div className="min-w-0">
+            <dt className="t-label text-fg-3">Status</dt>
+            <dd className="mt-2">
+              <StatusChip status={user.status} />
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="t-label text-fg-3">Mandatory fields</dt>
+            <dd className="mt-1.5">
+              <span className="tabular text-[20px] font-medium tracking-[-0.025em] text-fg">
+                {filled}
+                <span className="text-fg-3"> / {MANDATORY_TOTAL}</span>
+              </span>
+              <Progress value={filled} max={MANDATORY_TOTAL} label="Mandatory fields filled" className="mt-2 max-w-[180px]" />
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="t-label text-fg-3">Submitted</dt>
+            <dd className="t-callout mt-2 text-fg">
+              {user.verificationSubmittedAt ? fmtDateTime(user.verificationSubmittedAt) : <span className="text-fg-3">Not yet</span>}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="t-label text-fg-3">Approved</dt>
+            <dd className="t-callout mt-2 text-fg">
+              {user.verifiedAt ? fmtDateTime(user.verifiedAt) : <span className="text-fg-3">—</span>}
+            </dd>
+          </div>
+        </dl>
+
+        {/* The decision */}
+        <div className="relative mt-7 flex flex-col gap-4 rounded-[24px] bg-white/[0.03] p-4 shadow-[inset_0_0_0_1px_var(--c-line)] sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h2 className="t-headline flex items-center gap-2 text-fg">
+              <Icon name="shield" size={16} className="text-accent" />
+              Verified badge
+            </h2>
+            <p className="t-sub mt-1 text-fg-3">
+              {approveHint ??
+                (user.status === "verified"
+                  ? "Verified. Revoke it if something no longer holds."
+                  : "All seven mandatory fields are filled — hold to approve.")}
+            </p>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+            <Button variant="danger" icon="close" onClick={() => setRejectUserOpen(true)} disabled={!canReject || busy}>
+              {user.status === "verified" ? "Revoke…" : "Reject…"}
+            </Button>
+            <HoldButton tone="commit" icon="shield" onCommit={approve} loading={busy} disabled={!canApprove}>
+              Approve
+            </HoldButton>
+          </div>
+        </div>
+
+        {missing.length || user.verificationRejectedReason || actionErr ? (
+          <div className="relative mt-4 flex flex-col gap-3">
+            {missing.length ? (
+              <Notice tone="move" title="Empty mandatory fields">
+                {missing.map((k) => fieldByKey(k)?.label ?? k).join(", ")}.
+              </Notice>
+            ) : null}
+            {user.verificationRejectedReason ? (
+              <Notice tone="frozen" title={user.status === "rejected" ? "Rejected — reason sent" : "Previous rejection"}>
+                {user.verificationRejectedReason}
+              </Notice>
+            ) : null}
+            {actionErr ? <Notice tone="frozen">{actionErr}</Notice> : null}
+          </div>
+        ) : null}
       </section>
 
-      {/* Verification band — approve/reject timeline + rejection note */}
-      <VerificationBand user={user} />
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+        {/* ── Main column ── */}
+        <div className="flex min-w-0 flex-col gap-6">
+          {saveErr ? (
+            <Notice tone="frozen" title="Not saved">
+              {saveErr}
+            </Notice>
+          ) : null}
 
-      {/* Mandatory fields — grouped so the admin can judge the badge at a glance */}
-      <SectionCard
-        title={`Mandatory fields · ${MANDATORY_FIELDS_LIST.length - user.missingMandatoryFields.length}/${MANDATORY_FIELDS_LIST.length} filled`}
-        subtitle="Required to earn the Verified badge."
-      >
-        <MixedFieldGrid
-          fields={MANDATORY_FIELDS_LIST}
-          missing={user.missingMandatoryFields}
-          profileValues={editing ? profileDraft : (user.profile ?? {})}
-          businessValues={editing ? businessDraft : (user.businessProfile ?? {})}
-          editing={editing}
-          onChangeProfile={(k, v) => setProfileDraft((p) => ({ ...p, [k]: v }))}
-          onChangeBusiness={(k, v) => setBusinessDraft((p) => ({ ...p, [k]: v }))}
-        />
-      </SectionCard>
+          <Card as="section" aria-labelledby="mand-h" className="p-6 sm:p-7">
+            <SectionTitle
+              title={<span id="mand-h">Mandatory fields</span>}
+              meta={`${filled}/${MANDATORY_TOTAL} filled`}
+            />
+            <p className="t-sub mt-1 text-fg-3">Required for the Verified badge.</p>
+            <FieldGrid
+              fields={MANDATORY_FIELDS}
+              user={user}
+              editing={editing}
+              draft={draft}
+              errors={fieldErr}
+              missing={missing}
+              onChange={setField}
+            />
+          </Card>
 
-      {/* Optional / supporting fields */}
-      <SectionCard
-        title="Additional profile fields"
-        subtitle="Not required for the badge — kept for context and buyer messaging."
-      >
-        <MixedFieldGrid
-          fields={OPTIONAL_FIELDS_LIST}
-          missing={user.missingMandatoryFields}
-          profileValues={editing ? profileDraft : (user.profile ?? {})}
-          businessValues={editing ? businessDraft : (user.businessProfile ?? {})}
-          editing={editing}
-          onChangeProfile={(k, v) => setProfileDraft((p) => ({ ...p, [k]: v }))}
-          onChangeBusiness={(k, v) => setBusinessDraft((p) => ({ ...p, [k]: v }))}
-        />
-      </SectionCard>
+          <Card as="section" aria-labelledby="opt-h" className="p-6 sm:p-7">
+            <SectionTitle title={<span id="opt-h">Additional details</span>} />
+            <p className="t-sub mt-1 text-fg-3">Not needed for the badge — context for reviews and buyers.</p>
+            <FieldGrid
+              fields={OPTIONAL_FIELDS}
+              user={user}
+              editing={editing}
+              draft={draft}
+              errors={fieldErr}
+              missing={missing}
+              onChange={setField}
+            />
+          </Card>
 
-      {/* Verification docs */}
-      <SectionCard title={`Verification documents · ${user.docs.length}`}>
-        {user.docs.length === 0 ? (
-          <p
-            className="text-[12.5px]"
-            style={{ color: "var(--sp-text-3)" }}
+          <section aria-labelledby="docs-h">
+            <div className="flex items-end justify-between gap-4">
+              <h2 id="docs-h" className="t-title2 text-fg">
+                Documents
+              </h2>
+              {user.docs.length ? (
+                <p className="t-sub text-fg-3">
+                  {user.docs.filter((d) => d.status === "approved").length} of {user.docs.length} approved
+                  {user.docs.some((d) => d.status === "pending")
+                    ? ` · ${user.docs.filter((d) => d.status === "pending").length} to check`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+            {user.docs.length === 0 ? (
+              <Card className="mt-5 p-2">
+                <EmptyState icon="doc-check" title="No documents" className="py-10">
+                  Nothing uploaded yet. Documents are optional for the badge.
+                </EmptyState>
+              </Card>
+            ) : (
+              <Stagger as="ul" className="mt-5 grid gap-4 sm:grid-cols-2">
+                {user.docs.map((d) => (
+                  <StaggerItem as="li" key={d.id} className="flex">
+                    <DocCard
+                      doc={d}
+                      actions={
+                        d.status === "pending" ? (
+                          <>
+                            <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
+                              Reject…
+                            </Button>
+                            <HoldButton
+                              tone="commit"
+                              size="sm"
+                              onCommit={() => approveDoc(d)}
+                              loading={docBusy === d.id}
+                              holdMs={900}
+                            >
+                              Approve
+                            </HoldButton>
+                          </>
+                        ) : null
+                      }
+                    />
+                  </StaggerItem>
+                ))}
+              </Stagger>
+            )}
+          </section>
+        </div>
+
+        {/* ── Aside ── */}
+        <aside className="flex min-w-0 flex-col gap-6 lg:sticky lg:top-6">
+          <Card as="section" aria-labelledby="tl-h" className="p-6">
+            <h2 id="tl-h" className="t-label text-fg-3">
+              Onboarding
+            </h2>
+            <OnboardingTimeline user={user} className="mt-5" />
+          </Card>
+
+          <Card as="section" aria-labelledby="acct-h" className="p-6">
+            <h2 id="acct-h" className="t-label text-fg-3">
+              Account
+            </h2>
+            <dl className="mt-5 grid gap-4">
+              <KeyValue label="Account ID" value={user.userId} mono />
+              <KeyValue label="Business ID" value={user.businessId} mono />
+              <KeyValue label="Role" value={user.role.charAt(0).toUpperCase() + user.role.slice(1)} />
+              <KeyValue label="Email" value={user.email} />
+              <KeyValue label="Email confirmed" value={user.emailVerifiedAt ? fmtDateTime(user.emailVerifiedAt) : "Not yet"} />
+              <KeyValue label="Products" value={String(user.productCount)} />
+              <KeyValue label="Updated" value={fmtDateTime(user.updatedAt)} />
+            </dl>
+          </Card>
+        </aside>
+      </div>
+
+      {/* Floating save bar — stays above the dock on phones. */}
+      {editing ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(max(12px,env(safe-area-inset-bottom))+76px)] z-30 flex justify-center px-4 md:bottom-6 md:pl-[108px]">
+          <div
+            role="region"
+            aria-label="Unsaved changes"
+            className="glass pointer-events-auto flex items-center gap-3 rounded-full py-2 pl-5 pr-2"
           >
-            This user hasn&apos;t uploaded any documents yet.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {user.docs.map((d) => (
-              <DocRow
-                key={d.id}
-                doc={d}
-                onPreview={() => setPreview(d)}
-                onApprove={async () => {
-                  await adminApi.approveDoc(d.id);
-                  await load();
-                }}
-                onReject={() => setRejectTarget(d)}
-              />
-            ))}
-          </ul>
-        )}
-      </SectionCard>
+            <span className={cn("t-sub", changeCount ? "text-fg" : "text-fg-3")}>
+              {changeCount ? `${plural(changeCount, "change")} unsaved` : "No changes yet"}
+            </span>
+            <Button variant="quiet" size="sm" onClick={cancelEdit} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => void save()} loading={saving} disabled={changeCount === 0}>
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
-      {preview && (
-        <PreviewModal doc={preview} onClose={() => setPreview(null)} />
-      )}
-
-      <RejectReasonModal
-        open={rejectTarget !== null}
-        title={rejectTarget ? `Reject ${rejectTarget.certType}?` : ""}
-        subtitle={
-          rejectTarget
-            ? `User will see this reason the next time they log in.`
-            : undefined
-        }
-        onClose={() => setRejectTarget(null)}
-        onSubmit={async (reason) => {
-          if (!rejectTarget) return;
-          await adminApi.rejectDoc(rejectTarget.id, reason);
-          await load();
-        }}
+      <RejectSheet
+        open={rejectUserOpen}
+        onClose={closeRejectUser}
+        title={user.status === "verified" ? "Revoke the Verified badge?" : "Reject this application?"}
+        description={`${user.businessName || "They"} will see your reason on their next sign-in.`}
+        quickReasons={USER_REJECT_REASONS}
+        submitLabel={user.status === "verified" ? "Revoke" : "Reject"}
+        onSubmit={rejectUser}
       />
-
-      <RejectReasonModal
-        open={rejectUser}
-        onClose={() => setRejectUser(false)}
-        onSubmit={doReject}
-        title="Reject Verified-badge application"
-        subtitle={`${user.businessName || "This user"} will see this note on their next login.`}
-        quickReasons={[
-          "Legal company name doesn't match what we can verify online.",
-          "Phone number looks personal — please provide a business line.",
-          "Operating countries list is empty or clearly incorrect.",
-          "Position / role is missing or appears not to be a decision-making title.",
-          "Industry mismatch with the trade position you selected.",
-        ]}
-        submitLabel="Reject user"
+      <RejectSheet
+        open={rejectDoc !== null}
+        onClose={closeRejectDoc}
+        title={rejectDoc ? `Reject ${rejectDoc.certType}?` : "Reject document"}
+        description="They'll see your reason and can upload a new file."
+        quickReasons={DOC_REJECT_REASONS}
+        submitLabel="Reject"
+        onSubmit={rejectDocSubmit}
       />
     </div>
   );
 }
 
-// ── Verification band ───────────────────────────────────────────────
+/* ───────────────────────────── Pieces ─────────────────────────────── */
 
-function VerificationBand({ user }: { user: UserDetail }) {
-  const total = 7; // mirror of backend's MANDATORY_FIELDS length
-  const filled = total - user.missingMandatoryFields.length;
+function BackLink() {
   return (
-    <section className="sp-airy mt-4 p-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <p
-          className="text-[11px] font-bold uppercase tracking-[0.12em]"
-          style={{ color: "var(--sp-text-3)" }}
-        >
-          Verified badge
-        </p>
-        <StatusPill status={user.status} />
-        <span
-          className="text-[11.5px]"
-          style={{ color: "var(--sp-text-3)" }}
-        >
-          {filled} / {total} mandatory fields filled
-        </span>
-        {user.verificationSubmittedAt && (
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--sp-text-3)" }}
-          >
-            · Submitted {new Date(user.verificationSubmittedAt).toLocaleString()}
-          </span>
-        )}
-        {user.verifiedAt && (
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--sp-text-3)" }}
-          >
-            · Approved {new Date(user.verifiedAt).toLocaleString()}
-          </span>
-        )}
-      </div>
-      {user.status === "rejected" && user.verificationRejectedReason && (
-        <div
-          className="mt-3 rounded-field p-3 text-[12.5px]"
-          style={{
-            background: "rgba(229,107,111,0.1)",
-            color: "var(--sp-error)",
-            border: "1px solid rgba(229,107,111,0.3)",
-          }}
-        >
-          <span className="font-semibold">Previous rejection reason: </span>
-          {user.verificationRejectedReason}
-        </div>
-      )}
-    </section>
+    <LinkButton href="/admin/users" variant="quiet" size="sm" icon="arrow-left" className="-ml-3">
+      Directory
+    </LinkButton>
   );
 }
 
-// ── Mixed field grid ─────────────────────────────────────────────────
-
-function MixedFieldGrid({
+function FieldGrid({
   fields,
-  missing,
-  profileValues,
-  businessValues,
+  user,
   editing,
-  onChangeProfile,
-  onChangeBusiness,
+  draft,
+  errors,
+  missing,
+  onChange,
 }: {
-  fields: AdminField[];
-  missing: string[];
-  profileValues: Record<string, unknown>;
-  businessValues: Record<string, unknown>;
+  fields: FieldDef[];
+  user: UserDetail;
   editing: boolean;
-  onChangeProfile: (key: string, value: unknown) => void;
-  onChangeBusiness: (key: string, value: unknown) => void;
+  draft: Record<string, string>;
+  errors: Record<string, string>;
+  missing: string[];
+  onChange: (key: string, value: string) => void;
 }) {
   return (
-    <div className="grid gap-5 sm:grid-cols-2">
+    <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
       {fields.map((f) => {
-        const values = f.source === "profile" ? profileValues : businessValues;
-        const onChange =
-          f.source === "profile" ? onChangeProfile : onChangeBusiness;
-        const raw = values[f.key];
-        const display =
-          raw === null || raw === undefined || raw === ""
-            ? ""
-            : Array.isArray(raw)
-            ? raw.join(", ")
-            : String(raw);
-        const isMandatory = MANDATORY_KEYS.has(f.key);
-        const isFilled = !missing.includes(f.key);
+        const k = fid(f);
+        const mandatory = MANDATORY_FIELDS.some((m) => m.key === f.key && m.source === f.source);
+        const tag = mandatory ? (
+          missing.includes(f.key) ? (
+            <Chip tone="move" noIcon className="h-5 px-2 text-[11px]">
+              Missing
+            </Chip>
+          ) : (
+            <Chip tone="verified" noIcon className="h-5 px-2 text-[11px]">
+              Filled
+            </Chip>
+          )
+        ) : undefined;
+
+        if (editing) {
+          const value = draft[k] ?? "";
+          const common = { label: f.label, error: errors[k], action: tag, className: f.wide ? "sm:col-span-2" : undefined };
+          if (f.kind === "textarea") {
+            return (
+              <Textarea key={k} {...common} value={value} rows={4} onChange={(e) => onChange(k, e.target.value)} />
+            );
+          }
+          if (f.kind === "entity") {
+            const opts = ENTITY_OPTIONS.some((o) => o.value === value) ? ENTITY_OPTIONS : [...ENTITY_OPTIONS, { value, label: value }];
+            return <Select key={k} {...common} value={value} options={opts} onChange={(e) => onChange(k, e.target.value)} />;
+          }
+          if (f.kind === "trade") {
+            const opts = TRADE_OPTIONS.some((o) => o.value === value) ? TRADE_OPTIONS : [...TRADE_OPTIONS, { value, label: value }];
+            return <Select key={k} {...common} value={value} options={opts} onChange={(e) => onChange(k, e.target.value)} />;
+          }
+          return (
+            <Input
+              key={k}
+              {...common}
+              value={value}
+              type={f.kind === "tel" ? "tel" : f.kind === "url" ? "url" : "text"}
+              inputMode={f.kind === "tel" ? "tel" : f.kind === "url" ? "url" : undefined}
+              hint={f.kind === "list" ? "Separate with commas." : f.hint}
+              inputClassName={f.mono ? "font-mono text-[14px]" : undefined}
+              onChange={(e) => onChange(k, e.target.value)}
+            />
+          );
+        }
+
+        const raw = sourceOf(user, f);
+        let value: ReactNode = displayValue(raw) || null;
+        if (f.kind === "trade") value = tradeLabel(displayValue(raw));
+        if (f.kind === "entity") value = entityTypeLabel(displayValue(raw)) || null;
+        if (f.kind === "list" && Array.isArray(raw) && raw.length) {
+          value = (
+            <span className="flex flex-wrap gap-1.5">
+              {raw.map((c) => (
+                <Chip key={String(c)} tone="quiet">
+                  {String(c)}
+                </Chip>
+              ))}
+            </span>
+          );
+        }
+        if (f.kind === "url" && typeof raw === "string" && raw) {
+          value = (
+            <a
+              href={/^https?:\/\//i.test(raw) ? raw : `https://${raw}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-line-2 underline-offset-4 hover:decoration-fg"
+            >
+              {raw}
+            </a>
+          );
+        }
         return (
-          <div
-            key={f.key}
-            className={f.cols === 2 ? "sm:col-span-2" : undefined}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className="text-[10.5px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--sp-text-3)" }}
-              >
-                {f.label}
-              </span>
-              {isMandatory && (
-                <span
-                  className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em]"
-                  style={
-                    isFilled
-                      ? {
-                          background: "var(--sp-lime-14)",
-                          color: "var(--sp-lime)",
-                        }
-                      : {
-                          background: "rgba(229,107,111,0.1)",
-                          color: "var(--sp-error)",
-                        }
-                  }
-                >
-                  {isFilled ? "Filled" : "Not filled"}
-                </span>
-              )}
+          <div key={k} className={cn("min-w-0", f.wide && "sm:col-span-2")}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="t-label text-fg-3">{f.label}</p>
+              {tag}
             </div>
-            {editing ? (
-              f.type === "textarea" ? (
-                <textarea
-                  value={display}
-                  onChange={(e) => onChange(f.key, e.target.value)}
-                  rows={3}
-                  className="mt-1.5 w-full rounded-field px-3 py-2 text-[13px]"
-                  style={{
-                    background: "var(--sp-card-2)",
-                    color: "var(--sp-text)",
-                    border: "1px solid var(--sp-border)",
-                  }}
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={display}
-                  onChange={(e) =>
-                    onChange(
-                      f.key,
-                      f.key === "operatingCountries" ||
-                        f.key === "targetMarkets" ||
-                        f.key === "targetBuyerTypes"
-                        ? e.target.value
-                            .split(",")
-                            .map((x) => x.trim())
-                            .filter(Boolean)
-                        : e.target.value,
-                    )
-                  }
-                  className="mt-1.5 w-full rounded-field px-3 py-2 text-[13px]"
-                  style={{
-                    background: "var(--sp-card-2)",
-                    color: "var(--sp-text)",
-                    border: "1px solid var(--sp-border)",
-                  }}
-                />
-              )
-            ) : display === "" ? (
-              <p
-                className="mt-1.5 text-[13px] italic"
-                style={{ color: "var(--sp-text-3)" }}
-              >
-                — not filled —
-              </p>
-            ) : (
-              <p
-                className="mt-1.5 text-[13px]"
-                style={{ color: "var(--sp-text)" }}
-              >
-                {display}
-              </p>
-            )}
+            <div className={cn("mt-2 break-words text-[14.5px] leading-snug text-fg", f.mono && "t-code text-[13px]")}>
+              {value ?? <span className="text-fg-3">Not filled</span>}
+            </div>
           </div>
         );
       })}
@@ -657,264 +753,16 @@ function MixedFieldGrid({
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function cleanDraft(d: Record<string, unknown>, allowed: string[]) {
-  const out: Record<string, unknown> = {};
-  for (const k of allowed) {
-    if (k in d) out[k] = d[k] ?? "";
-  }
-  return out;
-}
-
-function SectionCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
+function DetailSkeleton() {
   return (
-    <section className="sp-airy mt-4 p-6">
-      <p
-        className="text-[11px] font-bold uppercase tracking-[0.12em]"
-        style={{ color: "var(--sp-text-3)" }}
-      >
-        {title}
-      </p>
-      {subtitle && (
-        <p
-          className="mt-1 text-[11.5px]"
-          style={{ color: "var(--sp-text-3)" }}
-        >
-          {subtitle}
-        </p>
-      )}
-      <div className="mt-5">{children}</div>
-    </section>
-  );
-}
-
-function StatusPill({ status }: { status: string }) {
-  const label = status.replace(/_/g, " ");
-  const tone =
-    status === "verified"
-      ? { bg: "var(--sp-lime-14)", fg: "var(--sp-lime)" }
-      : status === "rejected"
-      ? { bg: "rgba(229,107,111,0.12)", fg: "var(--sp-error)" }
-      : status === "active"
-      ? { bg: "rgba(126,159,255,0.12)", fg: "var(--sp-info)" }
-      : { bg: "var(--sp-card-2)", fg: "var(--sp-text-2)" };
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-      style={{ background: tone.bg, color: tone.fg }}
-    >
-      {label}
-    </span>
-  );
-}
-
-function DocRow({
-  doc,
-  onPreview,
-  onApprove,
-  onReject,
-}: {
-  doc: VerifyDoc;
-  onPreview: () => void;
-  onApprove: () => Promise<void>;
-  onReject: () => void;
-}) {
-  const Icon = doc.mimeType.startsWith("image/") ? ImageIcon : FileText;
-  const sizeKb = Math.round(doc.sizeBytes / 1024);
-  const [busy, setBusy] = useState(false);
-  const tone =
-    doc.status === "approved"
-      ? { bg: "var(--sp-lime-14)", fg: "var(--sp-lime)" }
-      : doc.status === "rejected"
-      ? { bg: "rgba(229,107,111,0.12)", fg: "var(--sp-error)" }
-      : { bg: "rgba(139,92,246,0.14)", fg: "#9f75ff" };
-
-  return (
-    <li
-      className="rounded-[14px] p-3"
-      style={{
-        background: "var(--sp-card-2)",
-        border: "1px solid var(--sp-border)",
-      }}
-    >
-    <div className="flex flex-wrap items-center gap-3">
-      <Icon
-        className="h-4 w-4 shrink-0"
-        aria-hidden
-        style={{ color: "var(--sp-text-2)" }}
-      />
-      <div className="min-w-0 flex-1">
-        <p
-          className="text-[13px] font-semibold"
-          style={{ color: "var(--sp-text)" }}
-        >
-          {doc.certType}
-        </p>
-        <button
-          type="button"
-          onClick={onPreview}
-          className="truncate text-[11.5px] hover:underline"
-          style={{ color: "var(--sp-text-2)" }}
-        >
-          {doc.filename} · {sizeKb} KB
-        </button>
+    <div className="pt-4" aria-busy="true">
+      <Skeleton className="h-8 w-28 rounded-full" />
+      <Skeleton className="mt-6 h-[360px] rounded-[34px]" />
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <Skeleton className="h-[360px] rounded-card" />
+        <Skeleton className="h-[360px] rounded-card" />
       </div>
-      <span
-        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-        style={{ background: tone.bg, color: tone.fg }}
-      >
-        {doc.status}
-      </span>
-      <a
-        href={`${API_BASE}${doc.url}`}
-        download={doc.filename}
-        className="sp-icon-btn"
-        style={{ height: "32px", width: "32px" }}
-        aria-label={`Download ${doc.filename}`}
-      >
-        <Download className="h-3.5 w-3.5" aria-hidden />
-      </a>
-      {doc.status === "pending" && (
-        <>
-          <button
-            type="button"
-            onClick={onReject}
-            className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
-            style={{
-              borderColor: "var(--sp-border)",
-              color: "var(--sp-error)",
-            }}
-          >
-            <X className="h-3 w-3" aria-hidden /> Reject
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await onApprove();
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50"
-            style={{
-              background: "var(--sp-lime)",
-              color: "var(--sp-lime-fg)",
-            }}
-          >
-            {busy ? (
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            ) : (
-              <Check className="h-3 w-3" aria-hidden />
-            )}
-            Approve
-          </button>
-        </>
-      )}
-    </div>
-    {doc.status === "rejected" && doc.rejectionReason && (
-      <p
-        className="mt-2 text-[11.5px] leading-relaxed"
-        style={{ color: "var(--sp-error)" }}
-      >
-        <span className="font-semibold">Reason:</span> {doc.rejectionReason}
-      </p>
-    )}
-    </li>
-  );
-}
-
-function PreviewModal({
-  doc,
-  onClose,
-}: {
-  doc: VerifyDoc;
-  onClose: () => void;
-}) {
-  const src = `${API_BASE}${doc.url}`;
-  const isImage = doc.mimeType.startsWith("image/");
-  const isPdf = doc.mimeType === "application/pdf";
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-3xl rounded-[22px] overflow-hidden"
-        style={{
-          background: "var(--sp-card)",
-          border: "1px solid var(--sp-border)",
-        }}
-      >
-        <div
-          className="flex items-center justify-between p-4"
-          style={{ borderBottom: "1px solid var(--sp-border)" }}
-        >
-          <p
-            className="truncate text-[14px] font-semibold"
-            style={{ color: "var(--sp-text)" }}
-          >
-            {doc.filename}
-          </p>
-          <div className="flex items-center gap-2">
-            <a
-              href={src}
-              download={doc.filename}
-              className="sp-icon-btn"
-              aria-label="Download"
-            >
-              <Download className="h-4 w-4" aria-hidden />
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="sp-icon-btn"
-              aria-label="Close preview"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-        </div>
-        <div style={{ background: "var(--sp-canvas)", height: "70vh" }}>
-          {isImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={src}
-              alt={doc.filename}
-              className="h-full w-full object-contain"
-            />
-          ) : isPdf ? (
-            <iframe
-              src={src}
-              title={doc.filename}
-              className="h-full w-full"
-              style={{ border: 0 }}
-            />
-          ) : (
-            <div
-              className="flex h-full flex-col items-center justify-center gap-3 text-[13px]"
-              style={{ color: "var(--sp-text-2)" }}
-            >
-              <FileText className="h-10 w-10" aria-hidden />
-              Preview not available. Use the download button above.
-            </div>
-          )}
-        </div>
-      </div>
+      <span className="sr-only">Loading account…</span>
     </div>
   );
 }

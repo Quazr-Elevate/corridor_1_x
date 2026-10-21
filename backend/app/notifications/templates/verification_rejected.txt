@@ -1,0 +1,10 @@
+Hi {{ first_name }},
+
+We couldn't verify your business profile yet. Our reviewer left this note:
+
+  {{ reason }}
+
+Update your profile and press "Send for verification" again when you're ready:
+{{ account_url }}
+
+-- Cor1x

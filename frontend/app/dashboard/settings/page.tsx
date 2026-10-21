@@ -1,206 +1,464 @@
 "use client";
 
-import { useState } from "react";
-import { AlertTriangle, LockKeyhole, ShieldCheck } from "lucide-react";
-import { api } from "@/lib/api";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { api, ApiError, type Me } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { useMe } from "@/lib/useMe";
-import { AuthButton, AuthField, AuthInput } from "@/components/auth/AuthCard";
+import { PASSPORT_PATH, formatDay, statusMeta } from "@/lib/verification";
+import { Button } from "@/components/ui/Button";
+import { Chip } from "@/components/ui/Chip";
+import { HoldButton, Segmented } from "@/components/ui/Controls";
+import { Icon, type IconName } from "@/components/ui/Icon";
+import { Notice, Skeleton } from "@/components/ui/Surface";
+import { useToast } from "@/components/ui/Toast";
+import { PasswordInput } from "@/components/auth/PasswordInput";
+import { DISPLAY_CURRENCIES, isDisplayCurrency, useFx, type DisplayCurrency } from "@/components/fx/FxContext";
+import { approxPrice, formatPrice, rateDateLabel, withApprox } from "@/components/products/format";
+import { initials, memberCode } from "@/components/trader/format";
+
+const MIN_PASSWORD = 8;
 
 /**
- * Settings — a single page split into labelled sections, each one a
- * self-contained form. New sections (notifications, data export, soft
- * delete) will slot in below ``Security &amp; Privacy`` the same way.
+ * Settings & security — password, display currency, session, and account deletion, in the
+ * Passport's language: relief sections on the left, who you're signed in
+ * as on the right. Each section has its own action; anchors
+ * (#password, #currency, #session, #delete-account) are deep-link targets.
  */
 export default function SettingsPage() {
+  const { me } = useMe();
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <header>
-        <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-          Account
-        </p>
-        <h1 className="mt-2 text-display text-paper">Settings</h1>
-        <p className="mt-2 text-sm text-paper-muted">
-          Manage how you sign in and how Cor1x reaches you.
-        </p>
+    <div className="pt-6 sm:pt-10">
+      <header className="animate-rise">
+        <p className="t-label text-fg-3">Account</p>
+        <h1 className="t-large mt-2 text-fg">Settings &amp; security</h1>
+        <p className="t-callout mt-2 max-w-xl text-fg-2">How you sign in, and how to leave.</p>
       </header>
 
-      <SecurityPrivacySection />
+      <div className="mt-8 grid items-start gap-8 sm:mt-10 lg:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Sections first in the DOM: on phones the password form leads. */}
+        <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-1">
+          <PasswordSection />
+          <CurrencySection />
+          <SessionSection />
+          <DangerSection />
+        </div>
+
+        <aside className="space-y-5 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1">
+          {me ? <SignedInCard me={me} /> : <Skeleton className="h-[280px] rounded-[26px]" />}
+          <SectionNav />
+        </aside>
+      </div>
     </div>
   );
 }
 
-// ─── Security & privacy ─────────────────────────────────────────────
+/* ───────────────────────────── Shared ───────────────────────────── */
 
-function SecurityPrivacySection() {
+const NAV: ReadonlyArray<{ id: string; label: string; icon: IconName }> = [
+  { id: "password", label: "Password", icon: "key" },
+  { id: "currency", label: "Display currency", icon: "globe" },
+  { id: "session", label: "Session", icon: "logout" },
+  { id: "delete-account", label: "Delete account", icon: "trash" },
+];
+
+function SectionNav() {
+  return (
+    <nav aria-label="Settings sections" className="relief hidden rounded-[26px] p-2 lg:block">
+      <p className="t-label px-3 pb-2 pt-2.5 text-fg-3">Sections</p>
+      <ul className="space-y-0.5">
+        {NAV.map((n, i) => (
+          <li key={n.id}>
+            <a
+              href={`#${n.id}`}
+              onClick={(e) => {
+                const el = document.getElementById(n.id);
+                if (!el) return;
+                e.preventDefault();
+                el.scrollIntoView({ behavior: "smooth", block: "start" });
+                history.replaceState(null, "", `#${n.id}`);
+              }}
+              className="flex items-center gap-3 rounded-[16px] px-3 py-2.5 text-[14px] font-medium text-fg-3 transition-colors duration-300 hover:bg-fg/[0.05] hover:text-fg"
+            >
+              <span className="t-code text-[11px] text-fg-3">{String(i + 1).padStart(2, "0")}</span>
+              <span className="min-w-0 flex-1 truncate">{n.label}</span>
+              <Icon name={n.icon} size={15} className="shrink-0 text-fg-3" />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+/** Who you're signed in as — real account facts, nothing editable here. */
+function SignedInCard({ me }: { me: Me }) {
+  const meta = statusMeta(me.verification.status);
+  return (
+    <section aria-labelledby="signed-in-title" className="relief rounded-[26px] p-5">
+      <h2 id="signed-in-title" className="t-label text-fg-3">
+        Signed in as
+      </h2>
+      <div className="mt-4 flex items-center gap-3">
+        <span className="solid t-code grid size-11 shrink-0 place-items-center rounded-full text-[12px]">
+          {initials(me)}
+        </span>
+        <div className="min-w-0">
+          <p className="t-headline truncate text-fg">{me.primary.fullName || "Your account"}</p>
+          <p className="t-sub truncate text-fg-3">{me.email}</p>
+        </div>
+      </div>
+      <dl className="mt-5 space-y-3 border-t border-line pt-4">
+        <Fact label="Member ID">
+          <span className="t-code text-fg">{memberCode(me.userId)}</span>
+        </Fact>
+        <Fact label="Email">
+          {me.emailVerifiedAt ? (
+            <span className="t-sub text-fg-2">Confirmed {formatDay(me.emailVerifiedAt)}</span>
+          ) : (
+            <Chip tone="move" size="sm" noIcon>
+              Not confirmed
+            </Chip>
+          )}
+        </Fact>
+        <Fact label="Password">
+          <span className="t-sub text-fg-2">Set by you</span>
+        </Fact>
+        <Fact label="Passport">
+          <Link href={PASSPORT_PATH} className="rounded-full">
+            <Chip tone={meta.tone} size="sm" icon={me.verification.status === "pending_verification" ? "clock" : undefined}>
+              {meta.label}
+            </Chip>
+          </Link>
+        </Fact>
+      </dl>
+    </section>
+  );
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt className="t-label text-fg-3">{label}</dt>
+      <dd className="min-w-0 text-right">{children}</dd>
+    </div>
+  );
+}
+
+function SectionCard({
+  id,
+  index,
+  icon,
+  title,
+  description,
+  tone,
+  children,
+}: {
+  id: string;
+  index: string;
+  icon: IconName;
+  title: string;
+  description: ReactNode;
+  tone?: "danger";
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={`${id}-title`}
+      className={cn(
+        "relief scroll-mt-32 rounded-[30px] p-5 sm:p-8",
+        tone === "danger" && "shadow-[var(--relief),inset_0_0_0_1px_rgb(179_38_30/0.18)]",
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="t-label text-fg-3">{index}</p>
+          <h2 id={`${id}-title`} className={cn("t-title2 mt-1.5", tone === "danger" ? "text-danger" : "text-fg")}>
+            {title}
+          </h2>
+          <div className="t-callout mt-1.5 max-w-xl text-fg-2">{description}</div>
+        </div>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "grid size-12 shrink-0 place-items-center rounded-full",
+            tone === "danger" ? "bg-danger-soft text-danger" : "well text-fg-2",
+          )}
+        >
+          <Icon name={icon} size={20} />
+        </span>
+      </div>
+      <div className="mt-6 border-t border-line pt-6 sm:mt-7 sm:pt-7">{children}</div>
+    </section>
+  );
+}
+
+/* ──────────────────────────── Password ──────────────────────────── */
+
+function PasswordSection() {
   const { me, refetch } = useMe();
+  const toast = useToast();
 
-  // ``firstTime`` means the active session was issued via the temp
-  // credential — the user hasn't picked a real password yet. We hide
-  // the "current password" field in that mode (session cookie is
-  // already proof of identity) and show a warning banner at the top of
-  // the section so it reads as an action item, not a chore.
-  const firstTime = Boolean(me?.mustChangePassword);
-
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew, setShowNew] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
-  const justSaved = savedAt != null && Date.now() - savedAt < 4000;
+  const [errors, setErrors] = useState<{ current?: string; next?: string; confirm?: string }>({});
+  const [formError, setFormError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    setError(null);
-    if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    if (newPassword !== confirm) {
-      setError("Passwords do not match.");
-      return;
-    }
-    if (!firstTime && newPassword === currentPassword) {
-      setError("New password must be different from the current one.");
-      return;
-    }
+    if (submitting) return;
+    setFormError(null);
+
+    const fe: typeof errors = {};
+    if (!current) fe.current = "Enter your current password.";
+    if (next.length < MIN_PASSWORD) fe.next = `Use at least ${MIN_PASSWORD} characters.`;
+    else if (next === current) fe.next = "Pick a password different from your current one.";
+    if (!fe.next && next !== confirm) fe.confirm = "Passwords don’t match.";
+    setErrors(fe);
+    if (Object.keys(fe).length) return;
+
     setSubmitting(true);
     try {
-      await api.changePassword({
-        currentPassword: firstTime ? "" : currentPassword,
-        newPassword,
-      });
-      await refetch();
-      setCurrentPassword("");
-      setNewPassword("");
+      await api.changePassword({ currentPassword: current, newPassword: next });
+      setCurrent("");
+      setNext("");
       setConfirm("");
-      setSavedAt(Date.now());
+      toast("Password updated", "verified");
+      await refetch();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't update password.");
+      if (err instanceof ApiError && err.status === 401) {
+        setErrors({ current: "That isn’t your current password." });
+      } else if (err instanceof ApiError && err.status === 400) {
+        setErrors({ next: err.message });
+      } else if (err instanceof ApiError && err.status === 429) {
+        setFormError("Too many attempts. Wait a minute, then try again.");
+      } else {
+        setFormError(err instanceof Error ? err.message : "Couldn’t update your password. Try again.");
+      }
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <section className="rounded-card border border-line-soft bg-ink-soft/70 p-6 md:p-8 space-y-5">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-field bg-accent/10 text-accent">
-          <ShieldCheck className="h-5 w-5" aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-title text-paper">Security &amp; Privacy</h2>
-          <p className="mt-1 text-sm text-paper-muted">
-            Rotate your password here. Treat it like your email password —
-            Cor1x will never ask you for it over chat or email.
-          </p>
-        </div>
-      </div>
+    <SectionCard
+      id="password"
+      index="01"
+      icon="key"
+      title="Password"
+      description="Changing it signs you out on every other device."
+    >
 
-      {firstTime && (
-        <div className="flex items-start gap-3 rounded-field border border-amber-400/30 bg-amber-400/5 p-3">
-          <AlertTriangle
-            className="mt-0.5 h-4 w-4 shrink-0 text-amber-400"
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1 text-xs text-paper leading-relaxed">
-            <p className="font-semibold text-amber-400">
-              You&apos;re using a temporary password
-            </p>
-            <p className="mt-0.5 text-paper-muted">
-              Pick a real password to use from now on. The temp password from
-              the welcome email will stop working once you save a new one.
-            </p>
-          </div>
-        </div>
-      )}
+      <form onSubmit={onSubmit} noValidate className="space-y-5">
+        {/* Helps password managers pair the new password with this account. */}
+        {me?.email ? (
+          <input type="email" name="username" autoComplete="username" value={me.email} readOnly hidden />
+        ) : null}
 
-      <form onSubmit={onSubmit} className="space-y-4">
-        {!firstTime && (
-          <AuthField label="Current password">
-            <div className="relative">
-              <AuthInput
-                type={showCurrent ? "text" : "password"}
-                autoComplete="current-password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="Your current password"
-                className="pr-11"
-              />
-              <EyeToggle
-                on={showCurrent}
-                onClick={() => setShowCurrent((v) => !v)}
-              />
-            </div>
-          </AuthField>
-        )}
+        <PasswordInput
+          label="Current password"
+          name="current-password"
+          autoComplete="current-password"
+          required
+          error={errors.current}
+          value={current}
+          onChange={(e) => {
+            setCurrent(e.target.value);
+            if (errors.current) setErrors((x) => ({ ...x, current: undefined }));
+          }}
+        />
 
-        <AuthField label="New password" hint="At least 8 characters.">
-          <div className="relative">
-            <AuthInput
-              type={showNew ? "text" : "password"}
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Pick a password you'll remember"
-              className="pr-11"
-            />
-            <EyeToggle on={showNew} onClick={() => setShowNew((v) => !v)} />
-          </div>
-        </AuthField>
-
-        <AuthField label="Confirm new password">
-          <AuthInput
-            type="password"
+        <div className="grid gap-5 sm:grid-cols-2 sm:gap-4">
+          <PasswordInput
+            label="New password"
+            name="new-password"
             autoComplete="new-password"
             required
-            minLength={8}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            placeholder="Type the new password again"
+            minLength={MIN_PASSWORD}
+            hint={`At least ${MIN_PASSWORD} characters.`}
+            error={errors.next}
+            value={next}
+            onChange={(e) => {
+              setNext(e.target.value);
+              if (errors.next) setErrors((x) => ({ ...x, next: undefined }));
+            }}
           />
-        </AuthField>
+          <PasswordInput
+            label="Confirm new password"
+            name="confirm-password"
+            autoComplete="new-password"
+            required
+            minLength={MIN_PASSWORD}
+            error={errors.confirm}
+            value={confirm}
+            onChange={(e) => {
+              setConfirm(e.target.value);
+              if (errors.confirm) setErrors((x) => ({ ...x, confirm: undefined }));
+            }}
+          />
+        </div>
 
-        {error && (
-          <div className="rounded-field border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
-            {error}
-          </div>
-        )}
+        {formError ? <Notice tone="frozen">{formError}</Notice> : null}
 
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          <AuthButton
-            type="submit"
-            loading={submitting}
-            className="sm:w-auto sm:px-6"
-          >
-            <span className="inline-flex items-center gap-2">
-              <LockKeyhole className="h-4 w-4" aria-hidden /> Update password
-            </span>
-          </AuthButton>
-          {justSaved && (
-            <span className="text-xs text-accent">Password updated ✓</span>
-          )}
+        <div className="flex justify-end pt-1">
+          <Button type="submit" loading={submitting} icon="lock" className="w-full sm:w-auto">
+            Update password
+          </Button>
         </div>
       </form>
-    </section>
+    </SectionCard>
   );
 }
 
-function EyeToggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+/* ───────────────────────── Display currency ─────────────────────── */
+
+const CURRENCY_LABEL: Record<DisplayCurrency, string> = {
+  INR: "₹ INR",
+  AED: "AED",
+  USD: "$ USD",
+};
+
+function CurrencySection() {
+  const { me, refetch } = useMe();
+  const { rates } = useFx();
+  const toast = useToast();
+  const saved = isDisplayCurrency(me?.displayCurrency) ? (me!.displayCurrency.toUpperCase() as DisplayCurrency) : null;
+  const [value, setValue] = useState<DisplayCurrency | null>(saved);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setValue(saved), [saved]);
+
+  async function choose(next: DisplayCurrency) {
+    if (saving || next === value) return;
+    const prev = value;
+    setValue(next);
+    setError(null);
+    setSaving(true);
+    try {
+      await api.updateMe({ displayCurrency: next });
+      await refetch();
+      toast(`Prices now convert to ${next}`, "verified");
+    } catch (err) {
+      setValue(prev);
+      setError(err instanceof Error ? err.message : "Couldn’t save your display currency. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // A worked example from live rates: a lot priced in another currency.
+  const [amount, from] = value === "AED" ? [42000, "INR"] : [520, "AED"];
+  const sample = value ? approxPrice(amount, from, value, rates) : null;
+  const date = rateDateLabel(rates?.asOf);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={on ? "Hide password" : "Show password"}
-      className="absolute right-3 top-1/2 -translate-y-1/2 text-paper-muted hover:text-paper transition"
-      tabIndex={-1}
+    <SectionCard
+      id="currency"
+      index="02"
+      icon="globe"
+      title="Display currency"
+      description="Lots keep the seller’s own price. When it’s in another currency, an indicative conversion follows it, and you type market price filters in this currency."
     >
-      {on ? "🙈" : "👁"}
-    </button>
+      <div className="space-y-4">
+        {value ? (
+          <Segmented
+            label="Display currency"
+            value={value}
+            onChange={choose}
+            options={DISPLAY_CURRENCIES.map((c) => ({ value: c, label: CURRENCY_LABEL[c] }))}
+          />
+        ) : (
+          <Skeleton className="h-11 w-64 rounded-full" />
+        )}
+        {sample && value ? (
+          <p className="t-sub text-fg-3" aria-live="polite">
+            For example {withApprox(formatPrice(amount, "MT", from), sample)}
+            {date ? <> — indicative, rate of {date}</> : null}
+          </p>
+        ) : null}
+        {error ? <Notice tone="frozen">{error}</Notice> : null}
+      </div>
+    </SectionCard>
+  );
+}
+
+/* ───────────────────────────── Session ──────────────────────────── */
+
+function SessionSection() {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  async function signOut() {
+    setBusy(true);
+    try {
+      await api.logout();
+    } catch {
+      // The cookie may already be gone — leave either way.
+    } finally {
+      router.replace("/login");
+    }
+  }
+
+  return (
+    <SectionCard
+      id="session"
+      index="03"
+      icon="logout"
+      title="Session"
+      description="Sign out of Corridor on this device."
+    >
+      <Button variant="secondary" icon="logout" loading={busy} onClick={signOut} className="w-full sm:w-auto">
+        Sign out
+      </Button>
+    </SectionCard>
+  );
+}
+
+/* ─────────────────────────── Danger zone ────────────────────────── */
+
+function DangerSection() {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function deleteAccount() {
+    setError(null);
+    setDeleting(true);
+    try {
+      await api.deleteMe();
+      router.replace("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t delete your account. Try again.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      id="delete-account"
+      index="04"
+      icon="trash"
+      tone="danger"
+      title="Delete account"
+      description={
+        <>
+          Your profile is erased right away and you’re signed out. Under India’s DPDP Act, business,
+          product and payout records may be kept for up to 7 years for tax compliance, hidden from
+          everyone except audit. This can’t be undone.
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <HoldButton tone="danger" icon="trash" loading={deleting} onCommit={deleteAccount} className="w-full sm:w-auto">
+          Delete my account
+        </HoldButton>
+        <p className="t-sub text-fg-3">Press and hold to confirm.</p>
+        {error ? <Notice tone="frozen">{error}</Notice> : null}
+      </div>
+    </SectionCard>
   );
 }

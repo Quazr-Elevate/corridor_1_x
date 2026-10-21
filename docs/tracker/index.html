@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cor1x Tracker</title>
+<!-- Reads cor1x-tracker.xlsx (sheet "Tracker") with SheetJS. Served over HTTP it
+     loads the file next to it automatically; opened as a local file, drop the
+     .xlsx onto the page or use "Open file". -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://api.fontshare.com" />
+<link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=switzer@400,500,600&display=swap" />
+<style>
+  :root {
+    --ground: #f4f1ec; --surface: #f4f1ec; --surface-2: #ebe7df; --paper: #faf8f4;
+    --ink: #0a0a0a; --fg-2: rgb(10 10 10 / .7); --fg-3: rgb(10 10 10 / .6);
+    --line: rgb(10 10 10 / .08); --line-2: rgb(10 10 10 / .15);
+    --lime: #c4d82e; --olive: #55620e; --lime-soft: #e5ecb2;
+    --amber: #8a5a00; --amber-soft: #f4e3bc; --danger: #b3261e; --danger-soft: #f3d4cd;
+    --hi: rgb(255 255 255 / .95); --lo: rgb(146 130 100 / .25); --edge: rgb(10 10 10 / .05);
+    --relief: -8px -8px 20px var(--hi), 9px 11px 24px var(--lo), inset 0 0 0 1px var(--edge);
+    --relief-sm: -4px -4px 10px var(--hi), 4px 6px 12px var(--lo), inset 0 0 0 1px var(--edge);
+    --well: inset 3px 3px 8px var(--lo), inset -3px -3px 8px var(--hi), inset 0 0 0 1px var(--edge);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+    font: 15px/1.55 Switzer, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 32px 20px 64px; }
+  .label { font: 11px/1.3 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+  h1 { font-size: clamp(30px, 3.4vw, 42px); font-weight: 500; letter-spacing: -.035em; line-height: 1.06; margin: 10px 0 8px; }
+  .sub { color: var(--fg-2); margin: 0; max-width: 62ch; }
+  header.top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button, .btn { font: 500 14px/1 inherit; border: 0; cursor: pointer; height: 40px; padding: 0 16px; border-radius: 14px;
+    background: var(--surface); box-shadow: var(--relief-sm); color: var(--ink); display: inline-flex; align-items: center; gap: 8px; }
+  button.primary { background: var(--ink); color: #f4f1ec; box-shadow: 0 16px 34px -16px rgb(0 0 0 / .5); }
+  button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .meta { color: var(--fg-3); font-size: 12px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 28px 0; }
+  @media (min-width: 560px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+  @media (min-width: 1040px) { .kpis { grid-template-columns: repeat(6, 1fr); } }
+  .card { background: var(--surface); box-shadow: var(--relief); border-radius: 24px; padding: 18px 20px; }
+  .kpi .n { font-size: 34px; font-weight: 500; letter-spacing: -.04em; line-height: 1; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  .kpi .h { color: var(--fg-3); font-size: 12px; margin-top: 6px; }
+  .kpi.alert .n { color: var(--danger); }
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  .card h2 { font-size: 18px; font-weight: 600; letter-spacing: -.015em; margin: 0 0 14px; }
+  .bars { display: grid; gap: 10px; }
+  .bar { display: grid; grid-template-columns: 92px 1fr 34px; gap: 10px; align-items: center; font-size: 13px; }
+  .track { height: 12px; border-radius: 99px; background: var(--surface-2); box-shadow: var(--well); overflow: hidden; display: flex; }
+  .seg-p { background: var(--ink); } .seg-d { background: var(--lime); }
+  .seg-h { background: var(--danger); } .seg-m { background: #c99a3c; } .seg-l { background: #b8ad95; }
+  .bar .c { text-align: right; font: 12px var(--mono); color: var(--fg-2); }
+  .keys { display: flex; gap: 14px; margin-top: 14px; font-size: 12px; color: var(--fg-2); flex-wrap: wrap; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 99px; margin-right: 6px; vertical-align: 0; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 28px 0 14px; }
+  .seg { display: inline-flex; padding: 4px; border-radius: 99px; background: var(--surface-2); box-shadow: var(--well); }
+  .seg button { height: 32px; border-radius: 99px; box-shadow: none; background: transparent; color: var(--fg-3); padding: 0 14px; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: var(--surface); box-shadow: var(--relief-sm); color: var(--ink); }
+  select, input[type=search] { font: 14px inherit; height: 40px; border: 0; border-radius: 14px; padding: 0 14px;
+    background: var(--surface-2); box-shadow: var(--well); color: var(--ink); }
+  input[type=search] { flex: 1 1 220px; min-width: 180px; }
+
+  .list { display: grid; gap: 10px; }
+  details.item { background: var(--surface); box-shadow: var(--relief-sm); border-radius: 20px; }
+  details.item[open] { box-shadow: var(--relief); }
+  details.item summary { list-style: none; cursor: pointer; display: grid;
+    grid-template-columns: 74px 1fr auto; gap: 14px; align-items: center; padding: 14px 18px; }
+  details.item summary::-webkit-details-marker { display: none; }
+  .id { font: 12px var(--mono); color: var(--fg-3); }
+  .title { font-weight: 600; letter-spacing: -.005em; }
+  .area { font-size: 12px; color: var(--fg-3); font-family: var(--mono); margin-top: 2px; word-break: break-word; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 99px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .c-High { background: var(--danger-soft); color: var(--danger); }
+  .c-Medium { background: var(--amber-soft); color: var(--amber); }
+  .c-Low { background: rgb(10 10 10 / .05); color: var(--fg-2); }
+  .c-type-p { background: var(--ink); color: #f4f1ec; }
+  .c-type-d { background: var(--lime-soft); color: var(--olive); }
+  .c-st { box-shadow: inset 0 0 0 1px var(--line-2); color: var(--fg-2); }
+  .c-st.done { background: var(--lime-soft); color: var(--olive); box-shadow: none; }
+  .c-st.progress { background: var(--amber-soft); color: var(--amber); box-shadow: none; }
+  .body { padding: 0 18px 18px 106px; display: grid; gap: 12px; }
+  .body p { margin: 4px 0 0; color: var(--fg-2); }
+  .body .row { display: flex; gap: 24px; flex-wrap: wrap; font-size: 13px; color: var(--fg-3); }
+  @media (max-width: 640px) {
+    details.item summary { grid-template-columns: 1fr; gap: 8px; }
+    .chips { justify-content: flex-start; }
+    .body { padding: 0 18px 18px; }
+  }
+  .empty, .drop { text-align: center; padding: 48px 20px; color: var(--fg-2); }
+  .drop { border-radius: 24px; background: var(--surface-2); box-shadow: var(--well); margin-top: 28px; }
+  .drop.over { outline: 2px dashed var(--ink); outline-offset: -10px; }
+  .err { color: var(--danger); }
+  @media print { .actions, .filters, .drop { display: none !important; } details.item { box-shadow: none; border: 1px solid #ddd; }
+    details.item .body { display: grid; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="label">Corridor One X · Engineering</p>
+      <h1>Issues &amp; decisions tracker</h1>
+      <p class="sub">Known issues we agreed to fix later, and product decisions to discuss. Source of truth:
+        <code>cor1x-tracker.xlsx</code> (sheet “Tracker”) — edit it there, then press Reload.</p>
+    </div>
+    <div class="actions">
+      <span class="meta" id="src">No file loaded</span>
+      <button id="reload" class="primary" type="button">Reload</button>
+      <label class="btn" for="file">Open file</label>
+      <input id="file" type="file" accept=".xlsx" hidden />
+    </div>
+  </header>
+
+  <div id="drop" class="drop" hidden>
+    <p><strong>Drop cor1x-tracker.xlsx here</strong>, or use “Open file”.</p>
+    <p class="meta">Browsers block reading files next to a page opened from disk. Serving the folder
+      (<code>python3 -m http.server 4100</code> in <code>docs/tracker</code>) loads it automatically.</p>
+    <p class="err" id="err"></p>
+  </div>
+
+  <main id="app" hidden>
+    <section class="kpis" aria-label="Summary">
+      <div class="card kpi"><div class="label">Total</div><div class="n" id="k-total">0</div><div class="h">items tracked</div></div>
+      <div class="card kpi"><div class="label">Open</div><div class="n" id="k-open">0</div><div class="h">not done</div></div>
+      <div class="card kpi"><div class="label">Postponed fixes</div><div class="n" id="k-p">0</div><div class="h">fix later</div></div>
+      <div class="card kpi"><div class="label">Discuss later</div><div class="n" id="k-d">0</div><div class="h">decisions pending</div></div>
+      <div class="card kpi alert"><div class="label">High · open</div><div class="n" id="k-high">0</div><div class="h">before go-live</div></div>
+      <div class="card kpi"><div class="label">Done</div><div class="n" id="k-done">0</div><div class="h" id="k-pct">0% complete</div></div>
+    </section>
+
+    <section class="grid2">
+      <div class="card">
+        <h2>By category</h2>
+        <div class="bars" id="cat"></div>
+        <div class="keys"><span><i class="dot seg-p"></i>Postponed fix</span><span><i class="dot seg-d"></i>Discuss later</span></div>
+      </div>
+      <div class="card">
+        <h2>Open by priority</h2>
+        <div class="bars" id="pri"></div>
+        <div class="keys"><span><i class="dot seg-h"></i>High — before go-live</span><span><i class="dot seg-m"></i>Medium — next phase</span><span><i class="dot seg-l"></i>Low — when convenient</span></div>
+      </div>
+    </section>
+
+    <section class="filters" aria-label="Filters">
+      <div class="seg" role="group" aria-label="Type" id="f-type">
+        <button type="button" aria-pressed="true" data-v="">All</button>
+        <button type="button" aria-pressed="false" data-v="Postponed fix">Postponed fixes</button>
+        <button type="button" aria-pressed="false" data-v="Discuss later">Discuss later</button>
+      </div>
+      <select id="f-pri" aria-label="Priority"><option value="">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select>
+      <select id="f-cat" aria-label="Category"><option value="">All categories</option></select>
+      <select id="f-st" aria-label="Status"><option value="open">Open only</option><option value="">All statuses</option></select>
+      <input id="f-q" type="search" placeholder="Search title, description, file…" aria-label="Search" />
+      <span class="meta" id="count"></span>
+    </section>
+
+    <section class="list" id="list" aria-live="polite"></section>
+  </main>
+</div>
+
+<script>
+const XLSX_FILE = "cor1x-tracker.xlsx";
+const PRI_ORDER = { High: 0, Medium: 1, Low: 2 };
+let rows = [];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const isOpen = (r) => r.Status !== "Done" && r.Status !== "Won't do";
+
+function parse(buf, label) {
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  const ws = wb.Sheets["Tracker"];
+  if (!ws) throw new Error('No sheet named "Tracker" in this file.');
+  rows = XLSX.utils.sheet_to_json(ws, { defval: "" }).filter((r) => r.ID);
+  $("src").textContent = `${label} · ${rows.length} items · loaded ${new Date().toLocaleTimeString()}`;
+  $("drop").hidden = true; $("app").hidden = false;
+  const cats = [...new Set(rows.map((r) => r.Category).filter(Boolean))].sort();
+  $("f-cat").innerHTML = '<option value="">All categories</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join("");
+  render();
+}
+
+async function loadServed() {
+  try {
+    const res = await fetch(`${XLSX_FILE}?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    parse(await res.arrayBuffer(), XLSX_FILE);
+  } catch (e) {
+    $("drop").hidden = false;
+    if (location.protocol !== "file:") $("err").textContent = `Couldn't load ${XLSX_FILE}: ${e.message}`;
+  }
+}
+
+function loadFile(f) {
+  if (!f) return;
+  f.arrayBuffer().then((b) => parse(b, f.name)).catch((e) => { $("drop").hidden = false; $("err").textContent = e.message; });
+}
+
+function bar(label, parts, total, max) {
+  const segs = parts.filter((p) => p.n).map((p) => `<span class="${p.cls}" style="width:${(p.n / max) * 100}%" title="${esc(p.title)}: ${p.n}"></span>`).join("");
+  return `<div class="bar"><span>${esc(label)}</span><span class="track" role="img" aria-label="${esc(label)}: ${total}">${segs}</span><span class="c">${total}</span></div>`;
+}
+
+function render() {
+  const open = rows.filter(isOpen);
+  const done = rows.length - open.length;
+  $("k-total").textContent = rows.length;
+  $("k-open").textContent = open.length;
+  $("k-p").textContent = rows.filter((r) => r.Type === "Postponed fix").length;
+  $("k-d").textContent = rows.filter((r) => r.Type === "Discuss later").length;
+  $("k-high").textContent = open.filter((r) => r.Priority === "High").length;
+  $("k-done").textContent = done;
+  $("k-pct").textContent = `${rows.length ? Math.round((done / rows.length) * 100) : 0}% complete`;
+
+  const cats = [...new Set(rows.map((r) => r.Category))].sort();
+  const catData = cats.map((c) => { const rs = rows.filter((r) => r.Category === c);
+    return { c, p: rs.filter((r) => r.Type === "Postponed fix").length, d: rs.filter((r) => r.Type === "Discuss later").length }; });
+  const cmax = Math.max(1, ...catData.map((x) => x.p + x.d));
+  $("cat").innerHTML = catData.map((x) => bar(x.c, [{ n: x.p, cls: "seg-p", title: "Postponed fix" }, { n: x.d, cls: "seg-d", title: "Discuss later" }], x.p + x.d, cmax)).join("");
+
+  const pri = ["High", "Medium", "Low"].map((p) => ({ p, n: open.filter((r) => r.Priority === p).length }));
+  const pmax = Math.max(1, ...pri.map((x) => x.n));
+  const pcls = { High: "seg-h", Medium: "seg-m", Low: "seg-l" };
+  $("pri").innerHTML = pri.map((x) => bar(x.p, [{ n: x.n, cls: pcls[x.p], title: x.p }], x.n, pmax)).join("");
+
+  const type = document.querySelector('#f-type [aria-pressed="true"]').dataset.v;
+  const fp = $("f-pri").value, fc = $("f-cat").value, fs = $("f-st").value, q = $("f-q").value.trim().toLowerCase();
+  const list = rows.filter((r) =>
+    (!type || r.Type === type) && (!fp || r.Priority === fp) && (!fc || r.Category === fc) &&
+    (fs !== "open" || isOpen(r)) &&
+    (!q || Object.values(r).join(" ").toLowerCase().includes(q)))
+    .sort((a, b) => (PRI_ORDER[a.Priority] ?? 9) - (PRI_ORDER[b.Priority] ?? 9) || String(a.ID).localeCompare(String(b.ID)));
+  $("count").textContent = `${list.length} shown`;
+
+  $("list").innerHTML = list.length ? list.map((r) => {
+    const st = r.Status === "Done" ? "done" : r.Status === "In progress" ? "progress" : "";
+    const date = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v);
+    return `<details class="item">
+      <summary>
+        <span class="id">${esc(r.ID)}</span>
+        <span><div class="title">${esc(r.Title)}</div><div class="area">${esc(r.Category)} · ${esc(r["Area / File"])}</div></span>
+        <span class="chips">
+          <span class="chip ${r.Type === "Postponed fix" ? "c-type-p" : "c-type-d"}">${esc(r.Type)}</span>
+          <span class="chip c-${esc(r.Priority)}">${esc(r.Priority)}</span>
+          <span class="chip c-st ${st}">${esc(r.Status)}</span>
+        </span>
+      </summary>
+      <div class="body">
+        <div><div class="label">What</div><p>${esc(r.Description)}</p></div>
+        <div><div class="label">${r.Type === "Discuss later" ? "Decision needed" : "Why postponed"}</div><p>${esc(r["Why postponed / decision needed"])}</p></div>
+        <div><div class="label">Suggested action</div><p>${esc(r["Suggested action"])}</p></div>
+        <div class="row"><span>Raised ${esc(date(r["Raised on"]))}</span><span>Owner: ${esc(r.Owner || "—")}</span><span>Target: ${esc(date(r["Target date"]) || "—")}</span>${r.Notes ? `<span>Notes: ${esc(r.Notes)}</span>` : ""}</div>
+      </div>
+    </details>`;
+  }).join("") : '<div class="card empty">Nothing matches these filters.</div>';
+}
+
+document.querySelectorAll("#f-type button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#f-type button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  render();
+}));
+["f-pri", "f-cat", "f-st"].forEach((id) => $(id).addEventListener("change", render));
+$("f-q").addEventListener("input", render);
+$("reload").addEventListener("click", () => (location.protocol === "file:" ? $("file").click() : loadServed()));
+$("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
+const drop = $("drop");
+["dragenter", "dragover"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => document.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+document.addEventListener("drop", (e) => loadFile(e.dataTransfer.files[0]));
+
+if (typeof XLSX === "undefined") { $("drop").hidden = false; $("err").textContent = "Couldn't load the spreadsheet library (needs internet the first time)."; }
+else loadServed();
+</script>
+</body>
+</html>

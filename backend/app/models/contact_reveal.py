@@ -3,41 +3,42 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, UniqueConstraint, Uuid, func
+from sqlalchemy import CheckConstraint, ForeignKey, Index, UniqueConstraint, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base
+from app.models.base import Base, UTCDateTime
 
 
 class ContactReveal(Base):
-    """Audit log: buyer X unlocked seller Y's contact for product Z.
+    """Ledger of introductions: buyer business X unlocked seller business
+    Y's contact for product Z.
 
-    Idempotent per (buyer, product) — reveal is a one-time consent grant.
-    Second click on the same product returns the same row (via UNIQUE), so
-    a legitimate buyer who bookmarked a product doesn't have to re-trigger
-    the gate. Rate-limiting to catch scrapers lives at the router layer.
-
-    Kept lean — no arbitrary metadata columns. Analytics ("which products
-    drive the most reveals") come from JOINs, not denormalized fields.
+    Idempotent per (buyer business, product) — a second click returns the
+    same row. ``(buyer_business_id, revealed_at)`` backs the 20-per-hour
+    limit per buyer business.
     """
 
     __tablename__ = "contact_reveals"
     __table_args__ = (
-        UniqueConstraint("buyer_id", "product_id", name="uq_reveals_buyer_product"),
+        UniqueConstraint("buyer_business_id", "product_id", name="uq_contact_reveals_buyer_product"),
+        Index("ix_contact_reveals_buyer_time", "buyer_business_id", text("revealed_at DESC")),
+        Index("ix_contact_reveals_seller_time", "seller_business_id", text("revealed_at DESC")),
+        Index("ix_contact_reveals_product", "product_id"),
+        Index("ix_contact_reveals_revealed_by", "revealed_by_user_id"),
+        CheckConstraint("buyer_business_id <> seller_business_id", name="ck_contact_reveals_not_self"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    buyer_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    buyer_business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE", name="fk_contact_reveals_buyer_business_id"), nullable=False
     )
-    # Denormalized for cheap JOINs on the admin feed. Cascade so a
-    # rejected/deleted seller's reveals disappear with them.
-    seller_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    revealed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_contact_reveals_revealed_by_user_id"), nullable=True
+    )
+    seller_business_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("businesses.id", ondelete="CASCADE", name="fk_contact_reveals_seller_business_id"), nullable=False
     )
     product_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid, ForeignKey("products.id", ondelete="CASCADE", name="fk_contact_reveals_product_id"), nullable=False
     )
-    revealed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    revealed_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())

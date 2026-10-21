@@ -1,130 +1,168 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Lock, Package, Plus } from "lucide-react";
-import { api, type ProductRead } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button, LinkButton } from "@/components/ui/Button";
+import { Segmented } from "@/components/ui/Controls";
+import { Notice } from "@/components/ui/Surface";
+import { Stagger, StaggerItem } from "@/components/motion/Stagger";
+import { MarketAmbient } from "@/components/market/MarketAmbient";
+import {
+  EmptyWarehouseCard,
+  ListingCard,
+  ListingCardSkeleton,
+  ListLotCard,
+} from "@/components/market/ListingCard";
+import { api, type ProductRead, type VerificationStatus } from "@/lib/api";
+import { MEDIA } from "@/lib/media";
 import { useMe } from "@/lib/useMe";
 
-export default function ProductsListPage() {
-  const { me } = useMe();
-  const [items, setItems] = useState<ProductRead[]>([]);
-  const [loading, setLoading] = useState(true);
+const ALL = "__all";
 
-  const unlocked = me?.status === "verified";
+/**
+ * Selling lens — the reference market (portal /market, Selling): header
+ * with a segmented filter and New listing, then the "List a lot" well and
+ * a card per lot over the warehouse photograph.
+ */
+export default function ListingsPage() {
+  const { me } = useMe();
+  const status: VerificationStatus | undefined = me?.verification.status;
+  const verified = status === "verified";
+
+  const [items, setItems] = useState<ProductRead[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>(ALL);
+
+  const load = useCallback(async () => {
+    setError(null);
+    setItems(null);
+    try {
+      setItems(await api.listProducts());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load your listings");
+    }
+  }, []);
 
   useEffect(() => {
-    if (!unlocked) {
-      setLoading(false);
-      return;
-    }
-    api
-      .listProducts()
-      .then((rows) => setItems(rows))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }, [unlocked]);
+    void load();
+  }, [load]);
 
-  if (!unlocked) {
-    return (
-      <div className="mx-auto max-w-2xl">
-        <header className="mb-6">
-          <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-            Products
-          </p>
-          <h1 className="mt-2 text-display text-paper">Add product</h1>
-        </header>
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of items ?? []) counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
+    return Array.from(counts, ([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
+  }, [items]);
 
-        <div className="surface p-6 text-center">
-          <span className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full border border-line bg-ink-elevated text-paper-muted">
-            <Lock className="h-4 w-4" aria-hidden />
-          </span>
-          <p className="mt-4 text-title text-paper">Verification pending</p>
-          <p className="mt-2 text-sm text-paper-muted">
-            Complete Primary, Business and Bank details to become a verified user.
-            Product listings unlock the moment your status flips to verified.
-          </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            <Link href="/dashboard/profile/primary" className="btn-inline">
-              Primary
-            </Link>
-            <Link href="/dashboard/profile/business" className="btn-inline">
-              Business
-            </Link>
-            <Link href="/dashboard/profile/bank" className="btn-inline">
-              Bank
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // A filter for a category that no longer has lots falls back to All.
+  useEffect(() => {
+    if (filter !== ALL && !categories.some((c) => c.value === filter)) setFilter(ALL);
+  }, [categories, filter]);
+
+  const visible = useMemo(
+    () => (items ?? []).filter((p) => filter === ALL || p.category === filter),
+    [items, filter],
+  );
+
+  const empty = items?.length === 0;
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <header className="mb-6 flex items-baseline justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-widest text-paper-muted">
-            Products
+    <div className="relative isolate">
+      <MarketAmbient media={MEDIA.warehouse} opacity={0.26} />
+
+      <header className="flex animate-rise flex-wrap items-end justify-between gap-6 pt-2 sm:pt-4">
+        <div className="min-w-0">
+          <p className="t-label text-fg-3">Selling lens</p>
+          <h1 className="t-large mt-2 text-fg">What you&rsquo;re selling</h1>
+          <p className="t-callout mt-2 max-w-xl text-fg-2">
+            Verified buyers find your lots in the market. Your name and contact open only to verified buyers who
+            reveal them.
           </p>
-          <h1 className="mt-2 text-display text-paper">Your listings</h1>
         </div>
-        <Link href="/dashboard/products/new" className="btn-primary">
-          <Plus aria-hidden className="h-4 w-4" />
-          Add product
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          {items && categories.length > 1 ? (
+            <Segmented
+              label="Filter listings by category"
+              size="sm"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: ALL, label: "All", count: items.length },
+                ...categories.map((c) => ({ value: c.value, label: c.value, count: c.count })),
+              ]}
+            />
+          ) : null}
+          <LinkButton href="/dashboard/products/new" variant="primary" icon="plus">
+            New listing
+          </LinkButton>
+        </div>
       </header>
 
-      {loading ? (
-        <div className="surface p-6">
-          <p className="text-sm text-paper-muted">Loading…</p>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="surface p-8 text-center">
-          <span className="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-full bg-accent/10 text-accent">
-            <Package className="h-4 w-4" aria-hidden />
-          </span>
-          <p className="mt-4 text-title text-paper">No products yet</p>
-          <p className="mt-2 text-sm text-paper-muted">
-            Publish your first listing to start attracting verified buyers.
-          </p>
-          <Link
-            href="/dashboard/products/new"
-            className="btn-primary mt-5 inline-flex"
+      {me && !verified ? (
+        <div className="mt-8 animate-rise">
+          <Notice
+            tone="move"
+            title={
+              status === "pending_verification"
+                ? "Your company is in review"
+                : status === "rejected"
+                  ? "Verification needs changes"
+                  : "Listings go live after verification"
+            }
+            action={
+              <LinkButton href="/dashboard/account" variant="secondary" size="sm" iconRight="arrow-right">
+                {status === "pending_verification" ? "View Passport" : "Finish verification"}
+              </LinkButton>
+            }
           >
-            <Plus aria-hidden className="h-4 w-4" />
-            Add your first product
-          </Link>
+            {status === "pending_verification"
+              ? "Your lots appear in the market the moment Corridor ops verifies you."
+              : "You can list now. Buyers see your lots once your company is verified."}
+          </Notice>
         </div>
-      ) : (
-        <ul className="space-y-3">
-          {items.map((p) => (
-            <li key={p.id} className="surface p-4">
-              <div className="flex items-baseline justify-between gap-4">
-                <div>
-                  <p className="text-title text-paper">{p.name}</p>
-                  <p className="mt-0.5 text-xs text-paper-muted">
-                    {p.category}
-                    {p.variety ? ` · ${p.variety}` : ""}
-                    {p.originState ? ` · ${p.originState}` : ""}
-                  </p>
-                </div>
-                <p className="text-right text-xs text-paper-muted">
-                  {p.quantity ? `${p.quantity} ${p.unit}` : "—"}
-                  {p.pricePerUnit
-                    ? ` · ₹${p.pricePerUnit}/${p.unit}`
-                    : ""}
-                </p>
-              </div>
-              {p.description ? (
-                <p className="mt-2 line-clamp-2 text-sm text-paper-muted">
-                  {p.description}
-                </p>
-              ) : null}
+      ) : null}
+
+      <section aria-label="Your listings" aria-busy={!items && !error} className="mt-10">
+        {error ? (
+          <Notice
+            tone="frozen"
+            title="We couldn’t load your listings"
+            action={
+              <Button variant="secondary" size="sm" onClick={() => void load()}>
+                Try again
+              </Button>
+            }
+          >
+            {error}
+          </Notice>
+        ) : !items ? (
+          <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <li className="min-w-0">
+              <ListLotCard empty={false} />
             </li>
-          ))}
-        </ul>
-      )}
+            {[0, 1].map((k) => (
+              <li key={k} className="min-w-0">
+                <ListingCardSkeleton />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Stagger as="ul" className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            <StaggerItem as="li" className="min-w-0">
+              <ListLotCard empty={empty} />
+            </StaggerItem>
+            {empty ? (
+              <StaggerItem as="li" className="min-w-0 xl:col-span-2">
+                <EmptyWarehouseCard className="h-full" />
+              </StaggerItem>
+            ) : (
+              visible.map((p) => (
+                <StaggerItem as="li" key={p.id} className="min-w-0">
+                  <ListingCard product={p} live={verified} />
+                </StaggerItem>
+              ))
+            )}
+          </Stagger>
+        )}
+      </section>
     </div>
   );
 }
