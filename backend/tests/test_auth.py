@@ -19,7 +19,14 @@ async def _code(client, email: str) -> str:
 
 
 def _complete(email: str, **over) -> dict:
-    body = {"email": email, "fullName": "Asha Rao", "position": "Director", "password": "Sup3r-secret!", "acceptTerms": True}
+    body = {
+        "email": email,
+        "fullName": "Asha Rao",
+        "position": "Director",
+        "country": "IN",
+        "password": "Sup3r-secret!",
+        "acceptTerms": True,
+    }
     body.update(over)
     return body
 

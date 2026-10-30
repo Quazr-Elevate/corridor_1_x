@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, Response, UploadFile
 
 from app.core.security import parse_uuid
+from app.models.business_document_requirement import BusinessDocumentRequirement
 from app.modules.auth.deps import CurrentUser, DbSession
 from app.modules.verification import service
 from app.modules.verification.schemas import DocOut, DocRequirementsResponse, doc_to_out
@@ -31,7 +32,12 @@ async def upload_doc(
         content=content,
         required_doc_type_id=slot_id,
     )
-    return doc_to_out(doc)
+    # Return the row with requirement metadata attached so the client sees
+    # the admin display name immediately — matches the list_docs_out shape.
+    req = None
+    if doc.required_doc_type_id is not None:
+        req = await db.get(BusinessDocumentRequirement, doc.required_doc_type_id)
+    return doc_to_out(doc, requirement=req)
 
 
 @router.get(

@@ -52,7 +52,9 @@ def _build_0019(path) -> dict:
 def test_0020_on_0019_db(tmp_path):
     db = tmp_path / "v19.db"
     ids = _build_0019(db)
-    proc = _alembic(db, "upgrade", "head")
+    # Target this specific migration so new ones (0021+) don't drift the
+    # assertion below. The test is about the 0019→0020 upgrade.
+    proc = _alembic(db, "upgrade", "0020_exchange_rates")
     assert proc.returncode == 0, proc.stderr
     assert "0020: price_usd filled for 3 listing(s)" in proc.stderr
 

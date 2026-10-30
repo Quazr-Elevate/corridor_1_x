@@ -187,7 +187,9 @@ class UserRejectIn(CamelModel):
     #: cert slot that failed. Each ``doc:*`` picked cascades to the
     #: underlying business_document being marked rejected with the same
     #: reason, so the trader sees "Rejected — replace it" on their slot.
-    failed_items: list[str] | None = None
+    #: Required: at least one item — a reject with no items leaves the
+    #: trader without a resubmit checklist.
+    failed_items: list[str] = Field(..., min_length=1)
 
 
 # ── Country document requirements ────────────────────────────────────

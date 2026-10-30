@@ -30,7 +30,11 @@ async def list_doc_requirements(
     _: AdminEmail,
     db: DbSession,
     country: str | None = Query(None, min_length=2, max_length=2, description="ISO alpha-2 — filter by country"),
-    include_inactive: bool = Query(False, description="Include soft-deactivated rows"),
+    include_inactive: bool = Query(
+        False,
+        alias="includeInactive",
+        description="Include soft-deactivated rows. Frontend sends camelCase; the server-side name stays snake_case.",
+    ),
 ) -> list[DocRequirementOut]:
     return await service.list_doc_requirements(db, country=country, include_inactive=include_inactive)
 

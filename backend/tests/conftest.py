@@ -153,13 +153,19 @@ async def signup_and_login(
     password: str = "Sup3r-secret!",
     full_name: str = "Asha Rao",
     position: str | None = None,
+    country: str = "IN",
 ) -> dict:
-    """Code → verify → complete; the client ends up signed in."""
+    """Code → verify → complete; the client ends up signed in.
+
+    ``country`` is mandatory at signup since migration 0021 (country-driven
+    KYB catalog); defaults to IN so the existing tests continue to work
+    unchanged. Pass explicitly to exercise cross-country scenarios.
+    """
     r = await c.post("/auth/signup/code", json={"email": email})
     assert r.status_code == 200, r.text
     r = await c.post("/auth/signup/verify", json={"email": email, "code": code_from_email(email.lower())})
     assert r.status_code == 200, r.text
-    body = {"email": email, "fullName": full_name, "password": password, "acceptTerms": True}
+    body = {"email": email, "fullName": full_name, "password": password, "acceptTerms": True, "country": country}
     if position:
         body["position"] = position
     r = await c.post("/auth/signup/complete", json=body)
