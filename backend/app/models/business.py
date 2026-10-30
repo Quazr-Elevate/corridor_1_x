@@ -94,6 +94,10 @@ class Business(Base):
     pincode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     country: Mapped[str] = mapped_column(CHAR(2), nullable=False, default="IN", server_default="IN")
 
+    # ─── Branding (public images; shown on the dashboard hero) ─
+    logo_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    banner_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
+
     # ─── Social / trust signals ────────────────────────────────
     google_business_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     facebook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)

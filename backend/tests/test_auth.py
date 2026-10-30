@@ -19,7 +19,14 @@ async def _code(client, email: str) -> str:
 
 
 def _complete(email: str, **over) -> dict:
-    body = {"email": email, "fullName": "Asha Rao", "position": "Director", "password": "Sup3r-secret!", "acceptTerms": True}
+    body = {
+        "email": email,
+        "fullName": "Asha Rao",
+        "companyName": f"{email.split('@')[0]} Exports",
+        "position": "Director",
+        "password": "Sup3r-secret!",
+        "acceptTerms": True,
+    }
     body.update(over)
     return body
 
@@ -56,7 +63,7 @@ async def test_signup_code_verify_complete_logs_in(client):
     assert r.status_code == 201, r.text
     login = r.json()
     assert set(login) == {"userId", "businessId", "role", "email", "businessName"}
-    assert login["role"] == "owner" and login["businessName"] is None
+    assert login["role"] == "owner" and login["businessName"] == "asha Exports"
     assert client.cookies.get(SESSION_COOKIE)
 
     me = (await client.get("/me")).json()

@@ -41,10 +41,15 @@ class SignupVerifyResponse(CamelModel):
 
 
 class SignupCompleteRequest(CamelModel):
-    """POST /auth/signup/complete — step 3: create business + owner."""
+    """POST /auth/signup/complete — step 3: create business + owner.
+
+    Sign-up asks only for the person, the company and a password; country,
+    address and KYB live on the business profile (skippable)."""
 
     email: EmailStr
     full_name: text(100, 2)  # type: ignore[valid-type]
+    company_name: text(200, 2)  # type: ignore[valid-type]
+    # Optional — collected on the business profile; kept for older clients.
     position: text(120) | None = None  # type: ignore[valid-type]
     password: str = Field(min_length=8, max_length=200)
     accept_terms: bool

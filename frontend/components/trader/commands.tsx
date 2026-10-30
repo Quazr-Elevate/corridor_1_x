@@ -3,7 +3,7 @@
 import type { Me } from "@/lib/api";
 import { commodityPhoto } from "@/lib/media";
 import { focusField } from "@/lib/useFocusField";
-import { MANDATORY_FIELDS, PASSPORT_PATH, fieldHref } from "@/lib/verification";
+import { DETAILS_PATH, MANDATORY_FIELDS, PASSPORT_PATH, fieldHref } from "@/lib/verification";
 import type { Command } from "./CommandPalette";
 import { LENS_LABEL, type Lens } from "./lens";
 import { LotThumb } from "./LotThumb";
@@ -177,7 +177,7 @@ export function buildCommands({
       label: s.label,
       keywords: `passport section ${s.keywords}`,
       icon: s.tab === "certifications" ? "doc-check" : "passport",
-      run: () => go(`${PASSPORT_PATH}?tab=${s.tab}`),
+      run: () => go(`${DETAILS_PATH}?tab=${s.tab}`),
     });
   }
   for (const f of MANDATORY_FIELDS) {

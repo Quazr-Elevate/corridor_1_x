@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core import crypto
 from app.core.config import Settings, settings
 from app.core.db import engine
 from app.core.csrf import CSRFOriginMiddleware
@@ -16,7 +17,7 @@ from app.integrations import email as email_integration
 from app.integrations.fx import FxConfig, configure_fx
 from app.integrations.sms import SmsConfig, configure_sms
 from app.integrations.storage import LocalStorage, S3Config, S3Storage, configure_storage
-from app.modules.accounts.router import me_router, onboarding_router
+from app.modules.accounts.router import branding_router, me_router, onboarding_router
 from app.modules.admin.router import router as admin_router
 from app.modules.auth.router import router as auth_router
 from app.modules.catalog.router import products_router, public_router, uploads_router
@@ -25,6 +26,7 @@ from app.modules.fx.scheduler import FxRefresher
 from app.modules.health.router import router as health_router
 from app.modules.lookups.router import router as lookups_router
 from app.modules.verification.router import router as verification_router
+from app.modules.verification.router import types_router as kyb_types_router
 from app.ratelimit import MemoryRateLimitBackend, RateLimiter, configure_limiter
 
 log = logging.getLogger("app")
@@ -110,6 +112,9 @@ def _lifespan_for(s: Settings):
 
 def create_app(s: Settings = settings) -> FastAPI:
     configure_logging(s.log_level, s.log_format)
+    # KYB field encryption: refuse to start without real keys in production.
+    if crypto.check_keys(s):
+        log.warning("KYB encryption is using the DEVELOPMENT key — set KYB_ENC_KEYS and KYB_HASH_KEY in production.")
     configure_integrations(s)
 
     app = FastAPI(title="Cor1x API", version="0.3.0", lifespan=_lifespan_for(s))
@@ -140,10 +145,12 @@ def create_app(s: Settings = settings) -> FastAPI:
         onboarding_router,
         me_router,
         verification_router,
+        kyb_types_router,
         products_router,
         public_router,
         fx_router,
         uploads_router,
+        branding_router,
         lookups_router,
         admin_router,
     ):

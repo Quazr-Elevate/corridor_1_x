@@ -5,6 +5,7 @@ Environment is set BEFORE importing ``app`` so Settings/engine pick it up
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 import shutil
@@ -32,6 +33,9 @@ os.environ.update(
         "DEBUG": "false",
         "CROSS_SITE_COOKIES": "false",
         "SESSION_SECRET": "test-session-secret",
+        # Two encryption key versions (2 = current) to exercise rotation.
+        "KYB_ENC_KEYS": "1:" + base64.b64encode(b"k" * 32).decode() + ",2:" + base64.b64encode(b"K" * 32).decode(),
+        "KYB_HASH_KEY": base64.b64encode(b"h" * 32).decode(),
         "ADMIN_SESSION_SECRET": "test-admin-secret",
         "ADMIN_EMAIL": ADMIN_EMAIL,
         "ADMIN_PASSWORD_HASH": bcrypt.hashpw(ADMIN_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode(),
@@ -81,10 +85,19 @@ def pytest_sessionfinish(session, exitstatus):
     shutil.rmtree(_TMP, ignore_errors=True)
 
 
+async def _seed(conn) -> None:
+    """Default KYB document types (what migration 0021 seeds)."""
+    from app.models.kyb_document_type import KybDocumentType
+    from app.modules.verification.seed import default_rows
+
+    await conn.execute(KybDocumentType.__table__.insert(), default_rows())
+
+
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def _schema():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _seed(conn)
     yield
     await engine.dispose()
 
@@ -95,6 +108,7 @@ async def _clean():
     async with engine.begin() as conn:
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(delete(table))
+        await _seed(conn)
     await get_limiter().reset()
     get_provider().sent.clear()
 
@@ -152,6 +166,7 @@ async def signup_and_login(
     *,
     password: str = "Sup3r-secret!",
     full_name: str = "Asha Rao",
+    company_name: str | None = None,
     position: str | None = None,
 ) -> dict:
     """Code → verify → complete; the client ends up signed in."""
@@ -159,7 +174,13 @@ async def signup_and_login(
     assert r.status_code == 200, r.text
     r = await c.post("/auth/signup/verify", json={"email": email, "code": code_from_email(email.lower())})
     assert r.status_code == 200, r.text
-    body = {"email": email, "fullName": full_name, "password": password, "acceptTerms": True}
+    body = {
+        "email": email,
+        "fullName": full_name,
+        "companyName": company_name or f"{email.split('@')[0]} {email.split('@')[1].split('.')[0]} Trading",
+        "password": password,
+        "acceptTerms": True,
+    }
     if position:
         body["position"] = position
     r = await c.post("/auth/signup/complete", json=body)
@@ -168,9 +189,18 @@ async def signup_and_login(
 
 
 async def fill_mandatory(c: httpx.AsyncClient, *, n: int = 1) -> None:
+    """Everything KYB submission needs (India): company name + address +
+    GSTIN + PAN entries, plus the older Passport sections."""
     r = await c.post(
         "/onboarding/company",
-        json={"legalName": f"Acme Agro {n} Pvt Ltd", "industry": "Rice", "operatingCountries": ["IN"]},
+        json={
+            "legalName": f"Acme Agro {n} Pvt Ltd",
+            "industry": "Rice",
+            "operatingCountries": ["IN"],
+            "addressLine": f"{n} Market Road",
+            "city": "Karnal",
+            "country": "IN",
+        },
     )
     assert r.status_code == 200, r.text
     r = await c.post(
@@ -180,6 +210,10 @@ async def fill_mandatory(c: httpx.AsyncClient, *, n: int = 1) -> None:
     assert r.status_code == 200, r.text
     r = await c.post("/onboarding/business", json={"tradePosition": "both"})
     assert r.status_code == 200, r.text
+    types = {t["code"]: t["id"] for t in (await c.get("/kyb/document-types")).json()}
+    for code, value in (("gstin", f"{n:02d}AAAAA{n:04d}A1Z5"), ("pan", f"AAAAA{n:04d}A")):
+        r = await c.post("/me/verification-docs", data={"documentTypeId": types[code], "value": value})
+        assert r.status_code == 201, r.text
 
 
 async def set_status(user_id: str, status: BusinessStatus) -> None:

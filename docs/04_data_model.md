@@ -440,3 +440,89 @@ returns it.
 - The market price filter takes min/max in the viewer's display currency,
   converts them to USD and filters on `price_usd`.
 - Deals are always in the seller's currency.
+
+---
+
+## KYB profile (`0021_kyb_profile`)
+
+Approved 2026-10-24. Sign-up collects **full name, country, company name and
+work email**; the 6-digit code proves the email; then the user sets a
+password. The business profile (logo, banner, KYB entries) can be skipped and
+completed later; a quick tour is offered on first sign-in.
+
+### 9. `kyb_document_types` (new) — admin-managed list per country
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `country` | char(2) | no | `IN`, `AE`… |
+| `code` | varchar(40) | no | slug: `gstin`, `pan`, `udyam`, `iec`, `fssai`, `trade_licence`, `trn` |
+| `name` | varchar(150) | no | dropdown label |
+| `input_kind` | enum `kyb_input_kind` | no | `value` · `file` · `value_or_file` · `value_and_file` |
+| `value_pattern` | varchar(200) | yes | format check (full match) |
+| `value_placeholder` | varchar(60) | yes | |
+| `help_text` | varchar(300) | yes | |
+| `is_mandatory` | bool | no | required before KYB submission (default false) |
+| `is_unique` | bool | no | one value per business across the platform (default true) |
+| `sort_order` | smallint | no | default 0 |
+| `active` | bool | no | hidden instead of deleted (default true) |
+| `created_at` / `updated_at` | timestamptz | no | |
+
+Constraints: `uq_kyb_document_types_country_code (country, code)`,
+`ck_kyb_document_types_country`, `ck_kyb_document_types_code`,
+`ck_kyb_document_types_no_aadhaar` (codes `aadhaar` / `aadhar` refused —
+Aadhaar Act). Index `ix_kyb_document_types_dropdown (country, active, sort_order)`.
+
+Seed: **IN** — GSTIN (value, mandatory), PAN (value, mandatory), Udyam (value),
+IEC (value, "needed to export"), FSSAI (value + file). **AE** — Trade licence
+(file, mandatory), TRN (value).
+
+### Changes to `business_documents` — one row = one KYB entry
+
+| Column | Change |
+|---|---|
+| `document_type_id` | **new** uuid → `kyb_document_types` (`ON DELETE RESTRICT`); null = "Other" |
+| `doc_type` | kept — the type's name, or the custom name typed for "Other" |
+| `value_encrypted` | **new** text — AES-256-GCM ciphertext; plain values are never stored |
+| `value_key_version` | **new** smallint — key that encrypted it (rotation) |
+| `value_hash` | **new** char(64) — HMAC-SHA256 of the normalised value (duplicate checks) |
+| `value_last4` | **new** varchar(4) — masked display hint |
+| `value_unique` | **new** bool — copied from the type's `is_unique` when saved |
+| `original_filename`, `storage_key`, `mime_type`, `size_bytes` | now **nullable** — a file is optional |
+| `updated_at` | **new** — entries can be corrected |
+
+Constraints: `ck_business_documents_has_content` (value or file),
+`ck_business_documents_file_complete` / `ck_business_documents_value_complete`
+(all-or-none), `ck_business_documents_size` (null or 1 B–10 MB),
+`ck_business_documents_doc_type`, existing `ck_business_documents_rejected_reason`.
+Partial unique indexes: `uq_business_documents_business_type
+(business_id, document_type_id) WHERE document_type_id IS NOT NULL` and
+`uq_business_documents_unique_value (document_type_id, value_hash) WHERE
+value_unique AND value_hash IS NOT NULL AND status <> 'rejected'`.
+
+Existing rows keep their file and name and appear as "Other".
+
+### Other column changes
+
+* `businesses.logo_key`, `businesses.banner_key` — varchar(400), public images (dashboard hero).
+* `users.tour_completed_at` — timestamptz; null → show the quick tour.
+
+### Encryption keys (configuration, never in the database or git)
+
+* `KYB_ENC_KEYS` — `version:base64key` list; newest encrypts, all decrypt.
+* `KYB_HASH_KEY` — separate key for `value_hash`.
+* Production refuses to start without them; development uses a marked local key.
+
+### Access
+
+| Data | Owner | Other businesses / public | Admin |
+|---|---|---|---|
+| Logo, banner, company name, verified badge | ✓ | ✓ | ✓ |
+| KYB value, masked | ✓ | ✗ | ✓ |
+| KYB value, full (dedicated reveal call) | ✓ own | ✗ | ✓ — logged `kyb.value_viewed` |
+| KYB file | ✓ own | ✗ | ✓ — logged `kyb.file_viewed` |
+
+### KYB submission rule
+
+Company name + registered address with country + every **mandatory** document
+type for that country. Logo, banner and other profile fields are optional.

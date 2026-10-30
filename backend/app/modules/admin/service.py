@@ -35,7 +35,7 @@ from app.modules.admin.schemas import (
 from app.modules.verification.rules import (
     ADMIN_REJECTABLE_STATUSES,
     ADMIN_VERIFIABLE_STATUSES,
-    missing_mandatory_keys,
+    requirements,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
 from app.modules.accounts.service import get_owner
@@ -70,6 +70,10 @@ def record_action(
             created_at=utcnow(),  # sub-second precision (SQLite's now() is per second)
         )
     )
+
+
+async def missing_keys(db: AsyncSession, business: Business) -> list[str]:
+    return [r.key for r in (await requirements(db, business)).missing]
 
 
 def clean_reason(raw: str) -> str:
@@ -206,6 +210,7 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
         )
     ).all()
     docs = await _docs_by_business(db, [b.id for _, b in rows])
+    missing = {b.id: await missing_keys(db, b) for _, b in rows}
     return [
         VerifyQueueRow(
             user_id=str(u.id),
@@ -219,7 +224,7 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
             operating_countries=b.operating_countries,
             submitted_at=b.verification_submitted_at,
             created_at=b.created_at,
-            missing_fields=missing_mandatory_keys(u, b),
+            missing_fields=missing.get(b.id, []),
             docs=docs.get(b.id, []),
         )
         for u, b in rows
@@ -338,7 +343,7 @@ async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
         verification_submitted_at=b.verification_submitted_at,
         verified_at=b.verified_at,
         verification_rejected_reason=b.verification_rejected_reason,
-        missing_mandatory_fields=missing_mandatory_keys(await _owner_for(db, u), b),
+        missing_mandatory_fields=await missing_keys(db, b),
     )
 
 
@@ -419,9 +424,10 @@ async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None)
             "Only businesses awaiting verification can be approved "
             f"(current status: {b.verification_status.value})."
         )
-    missing = missing_mandatory_keys(await _owner_for(db, user), b)
-    if missing:
-        raise BadRequest(f"Can't verify: mandatory fields are missing ({', '.join(missing)}).")
+    report = await requirements(db, b)
+    if report.missing:
+        labels = ", ".join(r.label for r in report.missing)
+        raise BadRequest(f"Can't verify: the business profile is incomplete ({labels}).")
     now = utcnow()
     b.verification_status = BusinessStatus.verified
     b.verified_at = now

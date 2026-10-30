@@ -102,7 +102,9 @@ async def test_market_visibility_is_business_level(client, make_client, admin_cl
     listing = (await anon.get("/public/products?q=basmati")).json()
     assert listing["total"] == 1
     card = listing["items"][0]
-    assert card["seller"]["businessName"] == "Acme Agro 1 Pvt Ltd"
+    # the seller stays masked in public: no company name, no contact details
+    assert "businessName" not in card["seller"]
+    assert "Acme Agro" not in str(listing)
     assert card["seller"]["sellerId"] == seller["businessId"]
     assert card["currency"] == "INR"
     assert "email" not in card["seller"]

@@ -70,10 +70,11 @@ export type VerificationStatus = "draft" | "pending_verification" | "verified" |
 
 export interface VerificationState {
   status: VerificationStatus;
-  // camelCase keys of mandatory fields still blank. Order matches the
-  // backend's MANDATORY_FIELDS tuple, so the first entry is always the
-  // next field to prompt for.
+  // Stable keys still needed before KYB submission, in order: profile
+  // fields ("addressLine") then mandatory documents ("kyb:gstin").
   missing: string[];
+  /** Human labels, same order as `missing`. */
+  missingLabels: string[];
   mandatoryTotal: number;
   submittedAt: string | null;
   verifiedAt: string | null;
@@ -98,6 +99,10 @@ export interface Me {
   verification: VerificationState;
   primary: PrimaryData;
   business: BusinessData;
+  /** Public images of the business (dashboard hero). */
+  branding: { logoUrl: string | null; bannerUrl: string | null };
+  /** True until the quick tour is finished or skipped. */
+  showTour: boolean;
 }
 
 export interface RevealedContact {
@@ -123,17 +128,69 @@ export interface PincodeLookup {
   state: string;
 }
 
+/** One KYB entry: a document type (or "Other") + a number and/or a file.
+ *  The number is never sent in full — only `valueMasked` ("••••F1Z5"). */
 export interface VerificationDoc {
   id: string;
+  documentTypeId: string | null;
+  documentTypeCode: string | null;
+  isOther: boolean;
+  /** Display name: the type's name, or the custom name of an Other entry. */
   certType: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
+  hasValue: boolean;
+  valueMasked: string | null;
+  hasFile: boolean;
+  filename: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
   status: "pending" | "approved" | "rejected";
   rejectionReason: string | null;
   uploadedAt: string;
+  updatedAt: string | null;
   reviewedAt: string | null;
-  url: string;
+  /** Authenticated file route, or null when the entry has no file. */
+  url: string | null;
+}
+
+/** An option of the KYB dropdown (admin-defined, per country). */
+export interface KybDocType {
+  id: string;
+  country: string;
+  code: string;
+  name: string;
+  inputKind: "value" | "file" | "value_or_file" | "value_and_file";
+  needsValue: boolean;
+  needsFile: boolean;
+  valuePattern: string | null;
+  valuePlaceholder: string | null;
+  helpText: string | null;
+  isMandatory: boolean;
+  sortOrder: number;
+}
+
+export interface KybEntryIn {
+  documentTypeId?: string;
+  customName?: string;
+  value?: string;
+  file?: File | null;
+}
+
+export interface KybEntryPatch {
+  customName?: string;
+  value?: string;
+  file?: File | null;
+  removeValue?: boolean;
+  removeFile?: boolean;
+}
+
+export interface BusinessProfileSaveIn {
+  legalName: string;
+  country: string;
+  addressLine?: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+  websiteUrl?: string;
 }
 
 export interface ProductRead {
@@ -175,6 +232,7 @@ export interface SignupVerifyResponse {
 export interface SignupCompleteIn {
   email: string;
   fullName: string;
+  companyName: string;
   position?: string;
   password: string;
   acceptTerms: true;
@@ -344,8 +402,16 @@ export const api = {
 
   // ─── Me ───
   me: () => jsonFetch<Me>("/me"),
-  updateMe: (payload: { displayCurrency?: string }) =>
+  updateMe: (payload: { displayCurrency?: string; tourCompleted?: boolean }) =>
     jsonFetch<Me>("/me", { method: "PATCH", body: JSON.stringify(payload) }),
+  saveBusinessProfileV2: (payload: BusinessProfileSaveIn) =>
+    jsonFetch<Me>("/me/business-profile", { method: "PUT", body: JSON.stringify(payload) }),
+  uploadBranding: (slot: "logo" | "banner", file: File): Promise<{ url: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    return jsonFetch<{ url: string }>(`/me/business/${slot}`, { method: "POST", body: form });
+  },
+  deleteBranding: (slot: "logo" | "banner") => jsonFetch<void>(`/me/business/${slot}`, { method: "DELETE" }),
   deleteMe: () => jsonFetch<void>("/me", { method: "DELETE" }),
 
   // ─── Verification docs ───
@@ -357,10 +423,31 @@ export const api = {
     jsonFetch<VerificationDoc[]>("/me/verification-docs"),
   uploadVerificationDoc: (certType: string, file: File): Promise<VerificationDoc> => {
     const form = new FormData();
-    form.append("cert_type", certType);
+    form.append("customName", certType);
     form.append("file", file);
     return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
   },
+  kybDocTypes: (country?: string) =>
+    jsonFetch<KybDocType[]>(`/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
+  addKybEntry: (entry: KybEntryIn): Promise<VerificationDoc> => {
+    const form = new FormData();
+    if (entry.documentTypeId) form.append("documentTypeId", entry.documentTypeId);
+    if (entry.customName) form.append("customName", entry.customName);
+    if (entry.value) form.append("value", entry.value);
+    if (entry.file) form.append("file", entry.file);
+    return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
+  },
+  updateKybEntry: (id: string, patch: KybEntryPatch): Promise<VerificationDoc> => {
+    const form = new FormData();
+    if (patch.customName) form.append("customName", patch.customName);
+    if (patch.value) form.append("value", patch.value);
+    if (patch.file) form.append("file", patch.file);
+    if (patch.removeValue) form.append("removeValue", "true");
+    if (patch.removeFile) form.append("removeFile", "true");
+    return jsonFetch<VerificationDoc>(`/me/verification-docs/${id}`, { method: "PATCH", body: form });
+  },
+  revealKybValue: (id: string) =>
+    jsonFetch<{ id: string; certType: string; value: string }>(`/me/verification-docs/${id}/reveal`, { method: "POST" }),
   deleteVerificationDoc: (id: string) =>
     jsonFetch<void>(`/me/verification-docs/${id}`, { method: "DELETE" }),
 

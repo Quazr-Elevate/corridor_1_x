@@ -49,26 +49,25 @@ type FieldDef =
   | ({ source: "business"; key: BusinessPatchKey } & FieldMeta);
 type FieldKind = "text" | "textarea" | "list" | "trade" | "entity" | "tel" | "url";
 
-const MANDATORY_TOTAL = 7;
-
+/** Profile fields required for KYB (required documents come from the server). */
 const MANDATORY_FIELDS: FieldDef[] = [
-  { key: "fullName", label: "Full name", source: "profile" },
-  { key: "position", label: "Position", source: "profile" },
-  { key: "phone", label: "Phone", source: "profile", kind: "tel", mono: true },
-  { key: "legalName", label: "Legal company name", source: "business" },
-  { key: "industry", label: "Industry", source: "business" },
-  { key: "operatingCountries", label: "Operating countries", source: "business", kind: "list" },
-  { key: "tradePosition", label: "Trade position", source: "business", kind: "trade" },
+  { key: "legalName", label: "Company name", source: "business" },
+  { key: "addressLine", label: "Registered address", source: "business", wide: true },
+  { key: "city", label: "City", source: "business" },
+  { key: "country", label: "Country", source: "business", mono: true, hint: "2-letter code, e.g. IN or AE." },
 ];
 
 const OPTIONAL_FIELDS: FieldDef[] = [
+  { key: "fullName", label: "Full name", source: "profile" },
+  { key: "position", label: "Position", source: "profile" },
+  { key: "phone", label: "Phone", source: "profile", kind: "tel", mono: true },
+  { key: "industry", label: "Industry", source: "business" },
+  { key: "operatingCountries", label: "Operating countries", source: "business", kind: "list" },
+  { key: "tradePosition", label: "Trade position", source: "business", kind: "trade" },
   { key: "entityType", label: "Entity type", source: "business", kind: "entity" },
   { key: "websiteUrl", label: "Website", source: "business", kind: "url" },
-  { key: "addressLine", label: "Address", source: "business", wide: true },
-  { key: "city", label: "City", source: "business" },
   { key: "state", label: "State", source: "business" },
   { key: "pincode", label: "Pincode", source: "business", mono: true },
-  { key: "country", label: "Country", source: "business", mono: true, hint: "2-letter code, e.g. IN or AE." },
   { key: "googleBusinessUrl", label: "Google Business", source: "business", kind: "url" },
   { key: "facebookUrl", label: "Facebook", source: "business", kind: "url" },
   { key: "sellerType", label: "Seller type", source: "business" },
@@ -336,6 +335,7 @@ export default function AccountDetailPage() {
   if (!user) return <DetailSkeleton />;
 
   const missing = user.missingMandatoryFields;
+  const MANDATORY_TOTAL = MANDATORY_FIELDS.length + missing.filter((k) => k.startsWith("kyb:")).length;
   const filled = MANDATORY_TOTAL - missing.length;
   const title = user.businessName || displayValue(user.businessProfile?.legalName) || user.email;
   const passportPlace = [displayValue(user.businessProfile?.city), displayValue(user.businessProfile?.country)]
@@ -346,7 +346,7 @@ export default function AccountDetailPage() {
   const approveHint = editing
     ? "Save or cancel your edits first."
     : missing.length
-      ? `${plural(missing.length, "mandatory field")} still empty.`
+      ? `${plural(missing.length, "required item")} still missing.`
       : user.status === "verified"
         ? "Already verified."
         : !APPROVABLE.has(user.status)
@@ -417,7 +417,7 @@ export default function AccountDetailPage() {
                 {filled}
                 <span className="text-fg-3"> / {MANDATORY_TOTAL}</span>
               </span>
-              <Progress value={filled} max={MANDATORY_TOTAL} label="Mandatory fields filled" className="mt-2 max-w-[180px]" />
+              <Progress value={filled} max={MANDATORY_TOTAL} label="Required items in" className="mt-2 max-w-[180px]" />
             </dd>
           </div>
           <div className="min-w-0">
@@ -445,7 +445,7 @@ export default function AccountDetailPage() {
               {approveHint ??
                 (user.status === "verified"
                   ? "Verified. Revoke it if something no longer holds."
-                  : "All seven mandatory fields are filled — hold to approve.")}
+                  : "Profile and required documents are in — hold to approve.")}
             </p>
           </div>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">

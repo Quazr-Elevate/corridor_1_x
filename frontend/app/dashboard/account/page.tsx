@@ -443,6 +443,7 @@ function SeenRow({ icon, label, note, children }: { icon: IconName; label: strin
 
 function SectionCount({ tab, me }: { tab: FormKey; me: Me }) {
   const { filled, total } = sectionProgress(tab, me.verification.missing);
+  if (total === 0) return null;
   if (filled === total) {
     return (
       <Chip tone="quiet" icon="check">
@@ -511,7 +512,8 @@ function SectionIndex({
       <ul className="space-y-0.5">
         {SECTIONS.map((s, i) => {
           const on = active === s.key;
-          const progress = s.key === "certifications" ? null : sectionProgress(s.key, me.verification.missing);
+          const raw = s.key === "certifications" ? null : sectionProgress(s.key, me.verification.missing);
+          const progress = raw && raw.total > 0 ? raw : null;
           return (
             <li key={s.key}>
               <button

@@ -100,6 +100,9 @@ class User(Base):
     # Defaults from the business country (see default_display_currency).
     display_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False, server_default="USD")
 
+    # Null → show the quick tour after sign-up; set when finished or skipped.
+    tour_completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

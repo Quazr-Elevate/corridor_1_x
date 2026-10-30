@@ -93,6 +93,7 @@ async def signup_complete(payload: SignupCompleteRequest, response: Response, db
         db,
         email=payload.email,
         full_name=payload.full_name,
+        company_name=payload.company_name,
         position=payload.position,
         password=payload.password,
     )

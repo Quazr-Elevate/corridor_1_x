@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { docFileUrl, USER_STATUS_LABEL, type DocStatus, type VerifyDoc } from "@/lib/adminApi";
+import { adminApi, docFileUrl, USER_STATUS_LABEL, type DocStatus, type VerifyDoc } from "@/lib/adminApi";
 import { buttonClass } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -368,6 +368,7 @@ export function PaperRow({ label, value, mono }: { label: ReactNode; value: Reac
 
 /** The ink "Open" pill used on paper footers. */
 export function PaperOpenLink({ doc, label = "Open original" }: { doc: VerifyDoc; label?: string }) {
+  if (!doc.url) return null;
   return (
     <a
       href={docFileUrl(doc.url)}
@@ -388,7 +389,8 @@ const DOC_STAMP: Record<DocStatus, "pending" | "approved" | "rejected"> = {
   rejected: "rejected",
 };
 
-function mimeLabel(mime: string) {
+function mimeLabel(mime: string | null) {
+  if (!mime) return "Number";
   if (mime === "application/pdf") return "PDF";
   if (mime.startsWith("image/")) return mime.slice(6).toUpperCase().replace("JPEG", "JPG");
   return mime.split("/").pop()?.toUpperCase() ?? "File";
@@ -421,16 +423,23 @@ export function DocPaper({
       stampIcon={doc.status === "approved" ? "check" : doc.status === "rejected" ? "close" : "stamp"}
       className={className}
       footer={
-        <>
-          <span className="t-label text-ink/60">Original opens in a new tab</span>
-          <PaperOpenLink doc={doc} />
-        </>
+        doc.hasFile ? (
+          <>
+            <span className="t-label text-ink/60">Original opens in a new tab</span>
+            <PaperOpenLink doc={doc} />
+          </>
+        ) : (
+          <span className="t-label text-ink/60">Number only — no file attached</span>
+        )
       }
     >
       <PaperRows>
         {owner ? <PaperRow label="Company" value={owner} /> : null}
-        <PaperRow label="File" value={doc.filename} mono />
-        <PaperRow label="Type · size" value={`${mimeLabel(doc.mimeType)} · ${fmtBytes(doc.sizeBytes)}`} />
+        {doc.hasValue ? <PaperRow label="Number" value={<RevealValue doc={doc} />} /> : null}
+        {doc.hasFile ? <PaperRow label="File" value={doc.filename} mono /> : null}
+        {doc.hasFile ? (
+          <PaperRow label="Type · size" value={`${mimeLabel(doc.mimeType)} · ${fmtBytes(doc.sizeBytes ?? 0)}`} />
+        ) : null}
         <PaperRow label="Uploaded" value={fmtDateTime(doc.uploadedAt)} />
         <PaperRow
           label="Status"
@@ -457,7 +466,7 @@ export function DocPaper({
           {imgFailed ? (
             <p className="t-sub px-4 py-10 text-center text-ink/60">Preview didn&apos;t load — open the original instead.</p>
           ) : (
-            <a href={src} target="_blank" rel="noopener noreferrer" className="block" aria-label={`Open ${doc.filename} full size`}>
+            <a href={src} target="_blank" rel="noopener noreferrer" className="block" aria-label={`Open ${doc.filename ?? doc.certType} full size`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={src}
@@ -504,11 +513,57 @@ export function KeyValueGrid({ children, className }: { children: ReactNode; cla
 /* ───────────────────────────── Document card ──────────────────────── */
 
 export function isImage(doc: Pick<VerifyDoc, "mimeType">) {
-  return doc.mimeType.startsWith("image/");
+  return Boolean(doc.mimeType?.startsWith("image/"));
+}
+
+/**
+ * Masked KYB number with a "Show" control. Revealing calls the API, which
+ * writes `kyb.value_viewed` to the audit log — so it's never automatic.
+ */
+export function RevealValue({ doc, onDark }: { doc: Pick<VerifyDoc, "id" | "valueMasked">; onDark?: boolean }) {
+  const [value, setValue] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setValue(null);
+    setError(null);
+  }, [doc.id]);
+  async function toggle() {
+    if (value) return setValue(null);
+    setBusy(true);
+    setError(null);
+    try {
+      setValue((await adminApi.revealDocValue(doc.id)).value);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn’t show it.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <span className="t-code select-all text-[13px]">{value ?? doc.valueMasked}</span>
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        title="Viewing the full number is logged"
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
+          onDark ? "bg-cream/10 text-cream hover:bg-cream/20" : "bg-ink/[0.06] text-ink/75 hover:bg-ink/10",
+        )}
+      >
+        <Icon name={value ? "eye-off" : "eye"} size={13} />
+        {busy ? "…" : value ? "Hide" : "Show"}
+      </button>
+      {error ? <span className="text-[12px] text-[#b3261e]">{error}</span> : null}
+    </span>
+  );
 }
 
 /** "Open" — authenticated file in a new tab (admin cookie rides along). */
 export function OpenDocLink({ doc, size = "sm" }: { doc: VerifyDoc; size?: "sm" | "md" }) {
+  if (!doc.url) return null;
   return (
     <a
       href={docFileUrl(doc.url)}
@@ -551,11 +606,19 @@ export function DocCard({ doc, actions }: { doc: VerifyDoc; actions?: ReactNode 
         <DocStatusChip status={doc.status} />
       </div>
       <p className="t-headline mt-5 break-words text-fg">{doc.certType}</p>
-      <p className="t-sub mt-0.5 truncate text-fg-3" title={doc.filename}>
-        {doc.filename}
-      </p>
+      {doc.hasValue ? (
+        <p className="t-sub mt-1 text-fg-2">
+          <RevealValue doc={doc} onDark />
+        </p>
+      ) : null}
+      {doc.hasFile ? (
+        <p className="t-sub mt-0.5 truncate text-fg-3" title={doc.filename ?? undefined}>
+          {doc.filename}
+        </p>
+      ) : null}
       <p className="t-code mt-auto pt-4 text-fg-2">
-        {fmtBytes(doc.sizeBytes)} · {fmtDate(doc.uploadedAt)}
+        {doc.hasFile ? `${fmtBytes(doc.sizeBytes ?? 0)} · ` : ""}
+        {fmtDate(doc.uploadedAt)}
       </p>
       {doc.status === "rejected" && doc.rejectionReason ? (
         <p className="t-sub mt-3 rounded-[14px] bg-danger-soft px-3 py-2 text-danger">

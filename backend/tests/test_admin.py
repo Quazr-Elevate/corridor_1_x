@@ -86,13 +86,13 @@ async def test_verify_requires_mandatory_fields(client, admin_client):
     body = await signup_and_login(client, "v2@kaverifoods.in")
     await fill_mandatory(client)
     await client.post("/me/submit-verification")
-    # Admin blanks a mandatory field, then tries to approve.
-    r = await admin_client.patch(f"/admin/users/{body['userId']}", json={"profile": {"position": ""}})
+    # Admin blanks a required profile field, then tries to approve.
+    r = await admin_client.patch(f"/admin/users/{body['userId']}", json={"businessProfile": {"addressLine": ""}})
     assert r.status_code == 200, r.text
-    assert r.json()["missingMandatoryFields"] == ["position"]
+    assert r.json()["missingMandatoryFields"] == ["addressLine"]
     r = await admin_client.post(f"/admin/users/{body['userId']}/verify")
     assert r.status_code == 400
-    assert "position" in r.json()["detail"]
+    assert "Registered address" in r.json()["detail"]
 
 
 async def test_admin_patch_typed_and_unique(client, make_client, admin_client):

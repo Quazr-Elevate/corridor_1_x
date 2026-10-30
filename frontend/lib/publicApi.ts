@@ -67,7 +67,6 @@ async function get<T>(path: string, params?: Record<string, string | number | un
 export interface PublicSeller {
   /** The seller's business id. */
   sellerId: string;
-  businessName: string;
   city: string | null;
   state: string | null;
   verified: boolean;

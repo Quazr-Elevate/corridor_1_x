@@ -51,12 +51,15 @@ function accountExists(email: string): ReactNode {
 }
 
 /**
- * Signup is one screen in three steps: work email → 6-digit code from the
- * inbox → name and password. Creating the account signs the trader in.
+ * Signup is one screen in three steps: name, company and work email →
+ * 6-digit code from the inbox → password. Creating the account signs the
+ * trader in and opens the business profile (which they may skip).
  */
 export default function SignupPage() {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [sent, setSent] = useState<CodeSent | null>(null);
   const [restartNote, setRestartNote] = useState<ReactNode>(null);
 
@@ -70,6 +73,10 @@ export default function SignupPage() {
           <EmailStep
             email={email}
             onEmailChange={setEmail}
+            fullName={fullName}
+            onFullNameChange={setFullName}
+            companyName={companyName}
+            onCompanyNameChange={setCompanyName}
             note={restartNote}
             onSent={(s) => {
               setRestartNote(null);
@@ -90,6 +97,9 @@ export default function SignupPage() {
         {step === "details" && sent ? (
           <DetailsStep
             email={sent.email}
+            fullName={fullName}
+            companyName={companyName}
+            onCompanyNameChange={setCompanyName}
             onRestart={(note) => {
               setRestartNote(note);
               setSent(null);
@@ -104,19 +114,31 @@ export default function SignupPage() {
 
 /* ─────────────────────────────── 1 · Email ─────────────────────────────── */
 
+type StartKey = "fullName" | "companyName" | "email";
+
 function EmailStep({
   email,
   onEmailChange,
+  fullName,
+  onFullNameChange,
+  companyName,
+  onCompanyNameChange,
   note,
   onSent,
 }: {
   email: string;
   onEmailChange: (v: string) => void;
+  fullName: string;
+  onFullNameChange: (v: string) => void;
+  companyName: string;
+  onCompanyNameChange: (v: string) => void;
   note: ReactNode;
   onSent: (s: CodeSent) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
-  const [fieldError, setFieldError] = useState<string | undefined>();
+  const [errors, setErrors] = useState<Partial<Record<StartKey, string>>>({});
+  const fieldError = errors.email;
+  const setFieldError = (msg: string | undefined) => setErrors((e) => ({ ...e, email: msg }));
   const [formError, setFormError] = useState<ReactNode>(null);
 
   async function onSubmit(e: FormEvent) {
@@ -124,10 +146,13 @@ function EmailStep({
     if (submitting) return;
     setFormError(null);
     const clean = email.trim().toLowerCase();
-    if (!clean) {
-      setFieldError("Enter your work email.");
-      return;
-    }
+    const fe: Partial<Record<StartKey, string>> = {};
+    if (!fullName.trim()) fe.fullName = "Enter your full name.";
+    else if (/\d/.test(fullName)) fe.fullName = "Names can’t contain numbers.";
+    if (companyName.trim().length < 2) fe.companyName = "Enter your company’s registered name.";
+    if (!clean) fe.email = "Enter your work email.";
+    setErrors(fe);
+    if (Object.keys(fe).length) return;
     setSubmitting(true);
     try {
       const res = await api.signupCode(clean);
@@ -154,7 +179,7 @@ function EmailStep({
           Bring your company
           <br className="hidden sm:block" /> into the corridor.
         </h1>
-        <p className="t-callout mt-3 text-fg-2">We’ll email you a 6-digit code to confirm it’s you.</p>
+        <p className="t-callout mt-3 text-fg-2">Tell us who you are. We’ll email a 6-digit code to confirm it’s you.</p>
       </div>
 
       {note ? (
@@ -167,6 +192,39 @@ function EmailStep({
         <Input
           night
           size="lg"
+          label="Full name"
+          name="fullName"
+          autoComplete="name"
+          required
+          autoFocus
+          maxLength={100}
+          error={errors.fullName}
+          value={fullName}
+          onChange={(e) => {
+            onFullNameChange(e.target.value);
+            setErrors((x) => ({ ...x, fullName: undefined }));
+          }}
+        />
+        <Input
+          night
+          size="lg"
+          label="Company name"
+          name="organization"
+          autoComplete="organization"
+          required
+          maxLength={200}
+          placeholder="e.g. Kaveri Foods Pvt Ltd"
+          hint="Your registered business name."
+          error={errors.companyName}
+          value={companyName}
+          onChange={(e) => {
+            onCompanyNameChange(e.target.value);
+            setErrors((x) => ({ ...x, companyName: undefined }));
+          }}
+        />
+        <Input
+          night
+          size="lg"
           label="Work email"
           type="email"
           name="email"
@@ -175,7 +233,6 @@ function EmailStep({
           autoCapitalize="none"
           spellCheck={false}
           required
-          autoFocus
           placeholder="you@company.com"
           hint="Company addresses only. Gmail, Yahoo and similar aren’t accepted."
           error={fieldError}
@@ -388,13 +445,24 @@ function CodeStep({
 
 /* ─────────────────────────────── 3 · Details ─────────────────────────────── */
 
-type DetailKey = "fullName" | "position" | "password" | "confirm" | "terms";
+type DetailKey = "companyName" | "password" | "confirm" | "terms";
 type DetailErrors = Partial<Record<DetailKey, string>>;
 
-function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: ReactNode) => void }) {
+function DetailsStep({
+  email,
+  fullName,
+  companyName,
+  onCompanyNameChange,
+  onRestart,
+}: {
+  email: string;
+  fullName: string;
+  companyName: string;
+  onCompanyNameChange: (v: string) => void;
+  onRestart: (note: ReactNode) => void;
+}) {
   const router = useRouter();
-  const [fullName, setFullName] = useState("");
-  const [position, setPosition] = useState("");
+  const [editCompany, setEditCompany] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [accept, setAccept] = useState(false);
@@ -412,8 +480,7 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
 
   function validate(): DetailErrors {
     const fe: DetailErrors = {};
-    if (!fullName.trim()) fe.fullName = "Enter your full name.";
-    else if (/\d/.test(fullName)) fe.fullName = "Names can’t contain numbers.";
+    if (companyName.trim().length < 2) fe.companyName = "Enter your company’s registered name.";
     if (password.length < PASSWORD_MIN) fe.password = `Use at least ${PASSWORD_MIN} characters.`;
     else if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) fe.password = "That password is too long.";
     if (!fe.password && confirm !== password) fe.confirm = "Passwords don’t match.";
@@ -434,24 +501,30 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
       await api.signupComplete({
         email,
         fullName: fullName.trim(),
-        position: position.trim() || undefined,
+        companyName: companyName.trim(),
         password,
         acceptTerms: true,
       });
-      router.replace("/dashboard");
+      // The business profile opens next; it can be skipped.
+      router.replace("/dashboard/business?welcome=1");
       // Keep the button busy until the route changes.
     } catch (err) {
       setSubmitting(false);
       if (err instanceof ApiError) {
-        if (err.status === 409) {
+        if (err.status === 409 && /company/i.test(err.message)) {
+          setEditCompany(true);
+          setErrors({ companyName: err.message });
+        } else if (err.status === 409) {
           setFormError(accountExists(email));
         } else if (err.status === 400) {
           // Verification missing or expired — the only way forward is a new code.
           onRestart(err.message);
         } else if (err.status === 422) {
           const m = err.message;
-          if (/^fullName/i.test(m)) setErrors({ fullName: m.replace(/^fullName:\s*/i, "") });
-          else if (/^position/i.test(m)) setErrors({ position: m.replace(/^position:\s*/i, "") });
+          if (/^companyName/i.test(m)) {
+            setEditCompany(true);
+            setErrors({ companyName: m.replace(/^companyName:\s*/i, "") });
+          } else if (/^fullName/i.test(m)) onRestart(m.replace(/^fullName:\s*/i, ""));
           else if (/^password/i.test(m)) setErrors({ password: m.replace(/^password:\s*/i, "") });
           else if (/^acceptTerms/i.test(m)) setErrors({ terms: "Please accept the Terms and Privacy Policy to continue." });
           else setFormError(m);
@@ -469,47 +542,34 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
   return (
     <div className="mt-7 animate-fade">
       <NightEyebrow highlight="Confirmed">Email</NightEyebrow>
-      <h1 className="t-large mt-3 text-cream">Set up your account.</h1>
+      <h1 className="t-large mt-3 text-cream">Create your password.</h1>
       <p className="t-callout mt-3 text-fg-2">
-        Signing up as <span className="break-all font-medium text-cream">{email}</span>.
+        <span className="font-medium text-cream">{fullName}</span> for{" "}
+        <span className="font-medium text-cream">{companyName}</span> ·{" "}
+        <span className="break-all">{email}</span>
       </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 space-y-5">
         {/* Lets password managers pair the new password with the email. */}
         <input type="email" name="email" autoComplete="username" value={email} readOnly hidden />
 
-        <Input
-          night
-          size="lg"
-          label="Full name"
-          name="fullName"
-          autoComplete="name"
-          required
-          autoFocus
-          maxLength={120}
-          error={errors.fullName}
-          value={fullName}
-          onChange={(e) => {
-            setFullName(e.target.value);
-            clear("fullName");
-          }}
-        />
-        <Input
-          night
-          size="lg"
-          label="Position"
-          optional
-          name="position"
-          autoComplete="organization-title"
-          maxLength={120}
-          placeholder="e.g. Export manager"
-          error={errors.position}
-          value={position}
-          onChange={(e) => {
-            setPosition(e.target.value);
-            clear("position");
-          }}
-        />
+        {editCompany ? (
+          <Input
+            night
+            size="lg"
+            label="Company name"
+            name="organization"
+            autoComplete="organization"
+            required
+            maxLength={200}
+            error={errors.companyName}
+            value={companyName}
+            onChange={(e) => {
+              onCompanyNameChange(e.target.value);
+              clear("companyName");
+            }}
+          />
+        ) : null}
         <PasswordInput
           night
           size="lg"
@@ -517,6 +577,7 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
           name="password"
           autoComplete="new-password"
           required
+          autoFocus
           hint={`At least ${PASSWORD_MIN} characters.`}
           error={errors.password}
           value={password}

@@ -2,20 +2,27 @@
 and their business), verification submission, self-service deletion."""
 from __future__ import annotations
 
+import re
 import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BadRequest
+from app.core.errors import BadRequest, NotFound, PayloadTooLarge, UnsupportedMediaType
 from app.core.time import utcnow
+from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
 from app.models.business import Business, BusinessStatus
+from app.models.business_document import BusinessDocument
+from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
 from app.models.user import User, UserRole
 from app.modules.accounts import completion
 from app.modules.accounts.schemas import (
     COMPANY_OPTIONAL_FIELDS,
+    PROFILE_OPTIONAL_FIELDS,
+    BrandingData,
     BusinessData,
+    BusinessProfileSaveIn,
     BusinessProfileIn,
     CompanyInfoIn,
     MeResponse,
@@ -31,7 +38,14 @@ from app.modules.accounts.uniqueness import (
     ensure_phone_available,
 )
 from app.modules.fx.service import ensure_supported
-from app.modules.verification.rules import MANDATORY_FIELDS, SUBMITTABLE_STATUSES, missing_mandatory_keys
+from app.modules.verification.rules import SUBMITTABLE_STATUSES, requirements
+
+#: Public branding images (logo, banner) — served by ``GET /uploads/branding/<file>``.
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+BRANDING_PREFIX = "branding"
+BRANDING_URL_PREFIX = "/uploads/branding/"
+BRANDING_FILENAME_RE = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
+BRANDING_SLOTS = {"logo": "logo_key", "banner": "banner_key"}
 
 
 async def reload_user(db: AsyncSession, user_id: uuid.UUID) -> User:
@@ -56,11 +70,13 @@ async def _owner_of(db: AsyncSession, user: User) -> User | None:
     return user if user.role == UserRole.owner else await get_owner(db, user.business_id)
 
 
-def verification_state(owner: User | None, business: Business) -> VerificationState:
+async def verification_state(db: AsyncSession, business: Business) -> VerificationState:
+    report = await requirements(db, business)
     return VerificationState(
         status=business.verification_status.value,
-        missing=missing_mandatory_keys(owner, business),
-        mandatory_total=len(MANDATORY_FIELDS),
+        missing=[r.key for r in report.missing],
+        missing_labels=[r.label for r in report.missing],
+        mandatory_total=report.total,
         submitted_at=business.verification_submitted_at,
         verified_at=business.verified_at,
         rejected_reason=business.verification_rejected_reason,
@@ -113,10 +129,20 @@ async def me_view(db: AsyncSession, user: User) -> MeResponse:
         display_currency=u.display_currency,
         user_type="seller" if product_count > 0 else "buyer",
         status=b.verification_status.value,
-        verification=verification_state(await _owner_of(db, u), b),
+        verification=await verification_state(db, b),
         primary=primary_data(u),
         business=business_data(b),
+        branding=branding_data(b),
+        show_tour=u.tour_completed_at is None,
     )
+
+
+def _branding_url(key: str | None) -> str | None:
+    return f"{BRANDING_URL_PREFIX}{key.rsplit('/', 1)[-1]}" if key else None
+
+
+def branding_data(b: Business) -> BrandingData:
+    return BrandingData(logo_url=_branding_url(b.logo_key), banner_url=_branding_url(b.banner_key))
 
 
 async def update_me(db: AsyncSession, user: User, payload: MeUpdate) -> MeResponse:
@@ -125,6 +151,8 @@ async def update_me(db: AsyncSession, user: User, payload: MeUpdate) -> MeRespon
     u = await reload_user(db, user.id)
     if "display_currency" in payload.model_fields_set and payload.display_currency is not None:
         u.display_currency = ensure_supported(payload.display_currency, what="Display currency")
+    if "tour_completed" in payload.model_fields_set and payload.tour_completed is not None:
+        u.tour_completed_at = utcnow() if payload.tour_completed else None
     await commit_or_conflict(db)
     return await me_view(db, u)
 
@@ -132,17 +160,18 @@ async def update_me(db: AsyncSession, user: User, payload: MeUpdate) -> MeRespon
 async def submit_for_verification(db: AsyncSession, user: User) -> VerificationState:
     """"Send for verification" — on the business.
 
-    * all seven mandatory fields must be filled (400),
+    * company name, registered address, country and every mandatory KYB
+      document of that country must be present (400),
     * ``verified`` businesses can't resubmit (400),
     * ``pending_verification`` is an idempotent no-op,
     * ``draft`` / ``rejected`` → ``pending_verification`` (clears the old note).
     """
     u = await reload_user(db, user.id)
     b = u.business
-    owner = await _owner_of(db, u)
-    missing = missing_mandatory_keys(owner, b)
-    if missing:
-        raise BadRequest(f"Fill every mandatory field before submitting. Missing: {', '.join(missing)}.")
+    report = await requirements(db, b)
+    if report.missing:
+        labels = ", ".join(r.label for r in report.missing)
+        raise BadRequest(f"Complete your business profile before submitting. Missing: {labels}.")
     if b.verification_status == BusinessStatus.verified:
         raise BadRequest("Your business is already verified — nothing to submit.")
     if b.verification_status in SUBMITTABLE_STATUSES:
@@ -150,7 +179,7 @@ async def submit_for_verification(db: AsyncSession, user: User) -> VerificationS
         b.verification_submitted_at = utcnow()
         b.verification_rejected_reason = None
         await db.commit()
-    return verification_state(owner, b)
+    return await verification_state(db, b)
 
 
 async def delete_account(db: AsyncSession, user: User) -> None:
@@ -171,11 +200,20 @@ async def delete_account(db: AsyncSession, user: User) -> None:
             User.business_id == u.business_id, User.id != u.id, User.deleted_at.is_(None)
         )
     )
+    keys: list[str] = []
     if not others:
         # Partial unique indexes ignore deleted rows, so the company name /
         # website / phone are free to register again.
         u.business.deleted_at = now
+        # KYB entries go with the business (data minimisation; frees the
+        # GSTIN / PAN for a fresh registration). Files are removed after commit.
+        for doc in await db.scalars(select(BusinessDocument).where(BusinessDocument.business_id == u.business_id)):
+            if doc.storage_key:
+                keys.append(doc.storage_key)
+            await db.delete(doc)
     await db.commit()
+    for key in keys:
+        await _delete_image(key)
 
 
 # ── Passport saves ───────────────────────────────────────────────────
@@ -217,7 +255,7 @@ async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn
         if field in payload.model_fields_set:
             setattr(b, field, getattr(payload, field) or None)
     if "country" in payload.model_fields_set and payload.country:
-        b.country = payload.country  # NOT NULL column — blank leaves it unchanged
+        await _change_country(db, b, payload.country)  # NOT NULL column — blank leaves it unchanged
     return await _finish_save(db, u.id)
 
 
@@ -241,3 +279,94 @@ async def save_business_profile(db: AsyncSession, user: User, payload: BusinessP
     b.target_buyer_types = list(payload.target_buyer_types)
     b.company_introduction = payload.company_introduction or None
     return await _finish_save(db, u.id)
+
+
+# ── Business profile (company name, address, country) ───────────────
+
+
+async def _change_country(db: AsyncSession, business: Business, country: str) -> None:
+    """KYB document types are per country, so the country can only change
+    while the business has no entries of another country's types."""
+    country = country.upper()
+    if country == business.country:
+        return
+    foreign = await db.scalar(
+        select(KybDocumentType.name)
+        .join(BusinessDocument, BusinessDocument.document_type_id == KybDocumentType.id)
+        .where(BusinessDocument.business_id == business.id, KybDocumentType.country != country)
+        .limit(1)
+    )
+    if foreign is not None:
+        raise BadRequest(
+            f"Remove your {foreign} entry under Business verification before changing the country — "
+            "documents differ by country."
+        )
+    business.country = country
+
+
+async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSaveIn) -> MeResponse:
+    website = payload.website_url or None
+    sent = payload.model_fields_set
+    await ensure_company_available(
+        db, user.business_id, legal_name=payload.legal_name, website_url=website if "website_url" in sent else None
+    )
+    u = await reload_user(db, user.id)
+    b = u.business
+    b.legal_name = " ".join(payload.legal_name.split())
+    await _change_country(db, b, payload.country)
+    if "website_url" in sent:
+        b.website_url = website
+    for field in PROFILE_OPTIONAL_FIELDS:
+        if field in sent:
+            setattr(b, field, getattr(payload, field) or None)
+    await commit_or_conflict(db)
+    return await me_view(db, u)
+
+
+# ── Branding images (logo / banner) ──────────────────────────────────
+
+
+async def set_branding_image(db: AsyncSession, user: User, slot: str, content: bytes) -> str:
+    """Validate by magic bytes, store publicly, replace the old image."""
+    column = BRANDING_SLOTS[slot]
+    if not content:
+        raise BadRequest("Empty file.")
+    if len(content) > MAX_IMAGE_BYTES:
+        raise PayloadTooLarge("Image must be under 5 MB.")
+    ftype = detect(content)
+    if ftype is None or ftype not in IMAGE_TYPES:
+        raise UnsupportedMediaType("Only JPG, PNG or WEBP images are supported.")
+    key = f"{BRANDING_PREFIX}/{uuid.uuid4().hex}.{ftype.ext}"
+    await get_storage().save(content, key, ftype.mime)
+    u = await reload_user(db, user.id)
+    old = getattr(u.business, column)
+    setattr(u.business, column, key)
+    await db.commit()
+    await _delete_image(old)
+    return _branding_url(key)
+
+
+async def clear_branding_image(db: AsyncSession, user: User, slot: str) -> None:
+    column = BRANDING_SLOTS[slot]
+    u = await reload_user(db, user.id)
+    old = getattr(u.business, column)
+    setattr(u.business, column, None)
+    await db.commit()
+    await _delete_image(old)
+
+
+async def _delete_image(key: str | None) -> None:
+    if key:
+        try:
+            await get_storage().delete(key)
+        except StorageError:
+            pass
+
+
+async def read_branding_image(filename: str) -> bytes:
+    if not BRANDING_FILENAME_RE.match(filename):
+        raise NotFound("Not found")
+    try:
+        return await get_storage().open(f"{BRANDING_PREFIX}/{filename}")
+    except StorageError:
+        raise NotFound("Not found") from None

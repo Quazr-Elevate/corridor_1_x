@@ -41,7 +41,7 @@ const DOCK: ReadonlyArray<{ href: string; label: string; icon: IconName; match: 
   { href: "/dashboard", label: "Corridor", icon: "corridor", match: (p) => p === "/dashboard" },
   { href: "/products", label: "Market", icon: "grain", match: (p) => p.startsWith("/products") },
   { href: "/dashboard/products", label: "Listings", icon: "sack", match: (p) => p.startsWith("/dashboard/products") },
-  { href: "/dashboard/account", label: "Passport", icon: "passport", match: (p) => p.startsWith("/dashboard/account") },
+  { href: "/dashboard/business", label: "Business", icon: "building", match: (p) => p.startsWith("/dashboard/business") || p.startsWith("/dashboard/account") },
 ];
 
 /** The page measure shared by the top cluster and the content. */
@@ -286,7 +286,7 @@ function VerificationState({ me }: { me: Me }) {
         ? "In review"
         : s === "rejected"
           ? "Needs changes"
-          : `${filled} of ${v.mandatoryTotal} fields to verify`;
+          : `${filled} of ${v.mandatoryTotal} items to verify`;
   const chip =
     s === "verified" ? (
       <Chip tone="verified">Verified</Chip>
@@ -303,8 +303,8 @@ function VerificationState({ me }: { me: Me }) {
     );
   return (
     <Link
-      href="/dashboard/account"
-      aria-label={`Passport — ${label}`}
+      href="/dashboard/business"
+      aria-label={`Business profile — ${label}`}
       className="relative grid h-10 min-w-10 place-items-center rounded-full px-0 text-fg-2 transition-colors hover:bg-fg/5 hover:text-fg sm:px-1.5"
     >
       <span className="hidden sm:inline-flex">{chip}</span>

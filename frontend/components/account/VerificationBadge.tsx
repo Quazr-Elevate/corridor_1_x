@@ -5,7 +5,7 @@ import { useMe } from "@/lib/useMe";
 import { MANDATORY_KEYS } from "@/lib/verification";
 
 /**
- * Marker beside a field label: this is one of the seven fields the
+ * Marker beside a field label: this is one of the required fields the
  * Verified badge needs, and whether the *saved* value satisfies it.
  * Driven by `me.verification.missing`, so it flips after a save — not
  * on every keystroke.

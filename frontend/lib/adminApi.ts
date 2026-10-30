@@ -34,18 +34,59 @@ export interface StuckUser {
 
 export type DocStatus = "pending" | "approved" | "rejected";
 
+/** A KYB entry under review: a document type (or Other) + a number and/or a file. */
 export interface VerifyDoc {
   id: string;
+  documentTypeId: string | null;
+  documentTypeCode: string | null;
+  isOther: boolean;
   certType: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
+  hasValue: boolean;
+  /** "••••F1Z5" — the full number only via `adminApi.revealDocValue` (audited). */
+  valueMasked: string | null;
+  hasFile: boolean;
+  filename: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
   status: DocStatus;
   rejectionReason: string | null;
   uploadedAt: string;
   reviewedAt: string | null;
-  /** Authenticated, backend-relative path (e.g. /admin/docs/{id}/file). Use `docFileUrl()`. */
-  url: string;
+  /** Authenticated, backend-relative path (e.g. /admin/docs/{id}/file), or null without a file. */
+  url: string | null;
+}
+
+export type KybInputKind = "value" | "file" | "value_or_file" | "value_and_file";
+
+export interface AdminKybDocType {
+  id: string;
+  country: string;
+  code: string;
+  name: string;
+  inputKind: KybInputKind;
+  needsValue: boolean;
+  needsFile: boolean;
+  valuePattern: string | null;
+  valuePlaceholder: string | null;
+  helpText: string | null;
+  isMandatory: boolean;
+  isUnique: boolean;
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface AdminKybDocTypeIn {
+  country: string;
+  code: string;
+  name: string;
+  inputKind: KybInputKind;
+  valuePattern?: string | null;
+  valuePlaceholder?: string | null;
+  helpText?: string | null;
+  isMandatory?: boolean;
+  isUnique?: boolean;
+  sortOrder?: number;
+  active?: boolean;
 }
 
 export interface PendingDocRow {
@@ -198,7 +239,8 @@ export function errorStatus(e: unknown): number | undefined {
 }
 
 /** Absolute URL for an authenticated document file (admin cookie is sent). */
-export function docFileUrl(url: string): string {
+export function docFileUrl(url: string | null): string {
+  if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
   return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
 }
@@ -260,6 +302,14 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
+  revealDocValue: (docId: string) =>
+    req<{ id: string; certType: string; value: string }>(`/admin/docs/${docId}/reveal`, { method: "POST" }),
+  kybTypes: (country?: string) =>
+    req<AdminKybDocType[]>(`/admin/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
+  createKybType: (payload: AdminKybDocTypeIn) =>
+    req<AdminKybDocType>("/admin/kyb/document-types", { method: "POST", body: JSON.stringify(payload) }),
+  updateKybType: (id: string, patch: Partial<Omit<AdminKybDocTypeIn, "country" | "code">>) =>
+    req<AdminKybDocType>(`/admin/kyb/document-types/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   user: (id: string) => req<UserDetail>(`/admin/users/${id}`),
   patchUser: (id: string, patch: UserPatch) =>
     req<UserDetail>(`/admin/users/${id}`, {

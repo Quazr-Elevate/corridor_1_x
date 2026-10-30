@@ -385,7 +385,7 @@ function DocRow({
             rejected && "border-danger text-danger",
           )}
         >
-          <Icon name={doc.mimeType.startsWith("image/") ? "image" : approved ? "stamp" : "doc-check"} size={22} />
+          <Icon name={doc.mimeType?.startsWith("image/") ? "image" : approved ? "stamp" : "doc-check"} size={22} />
         </span>
         <div className="flex items-center gap-1">
           <DocChip status={doc.status} />
@@ -402,7 +402,7 @@ function DocRow({
         className="t-sub mt-0.5 inline-flex max-w-full items-center gap-1 text-fg-3 underline-offset-4 hover:text-fg hover:underline"
       >
         <span className="truncate">{doc.filename}</span>
-        <span className="shrink-0">· {fileSize(doc.sizeBytes)}</span>
+        {doc.sizeBytes ? <span className="shrink-0">· {fileSize(doc.sizeBytes)}</span> : null}
         <Icon name="external" size={13} className="shrink-0" />
         <span className="sr-only">(opens in a new tab)</span>
       </a>

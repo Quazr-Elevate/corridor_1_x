@@ -7,7 +7,7 @@ import { useMe } from "@/lib/useMe";
 import { focusField } from "@/lib/useFocusField";
 import {
   canSubmit,
-  fieldByKey,
+  missingItems,
   formatDay,
   statusMeta,
   verificationCounts,
@@ -44,7 +44,7 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
   const v = me.verification;
   const { filled, total } = verificationCounts(v);
   const meta = statusMeta(v.status);
-  const missing = v.missing.map(fieldByKey).filter((f): f is MandatoryField => Boolean(f));
+  const missing: MandatoryField[] = missingItems(v);
   const submittable = canSubmit(v);
 
   async function send() {
@@ -142,7 +142,7 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
             <div>
               <div className="flex items-center justify-between gap-3">
                 <p className="t-headline text-fg">
-                  {missing.length ? "Fields for verification" : "All seven fields are in"}
+                  {missing.length ? "Needed for verification" : "Profile and documents are in"}
                 </p>
                 <CountPill>
                   {filled}/{total}

@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+import uuid
 from datetime import timedelta
 
 from sqlalchemy import select, update
@@ -27,6 +28,7 @@ from app.integrations.email import EmailRejection, assert_work_email
 from app.models.business import Business, BusinessStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.user import AccountStatus, User, UserRole
+from app.modules.accounts.uniqueness import LEGAL_NAME_TAKEN, ensure_company_available
 
 log = logging.getLogger("app.auth")
 
@@ -174,12 +176,21 @@ async def verify_signup_code(db: AsyncSession, *, email: str, code: str) -> None
 
 
 async def complete_signup(
-    db: AsyncSession, *, email: str, full_name: str, position: str | None, password: str
+    db: AsyncSession,
+    *,
+    email: str,
+    full_name: str,
+    company_name: str,
+    position: str | None,
+    password: str,
 ) -> User:
-    """One transaction: business (draft) + owner user + code consumed."""
+    """One transaction: business (draft, named) + owner user + code consumed.
+    Country defaults to IN until set on the business profile."""
     email = normalize_email(email)
     if await _email_taken(db, email):
         raise Conflict(ACCOUNT_EXISTS)
+    company_name = " ".join(company_name.split())
+    await ensure_company_available(db, uuid.uuid4(), legal_name=company_name)
     row = await _latest_code(db, email, EmailCodePurpose.signup)
     if row is None or row.verified_at is None:
         raise BadRequest("Verify your email first.")
@@ -189,7 +200,7 @@ async def complete_signup(
     if ensure_aware(row.verified_at) + VERIFIED_WINDOW < now:
         raise BadRequest("Your email verification expired. Request a new code.")
 
-    business = Business(country="IN", verification_status=BusinessStatus.draft)
+    business = Business(country="IN", legal_name=company_name, verification_status=BusinessStatus.draft)
     user = User(
         business=business,
         role=UserRole.owner,
@@ -208,8 +219,10 @@ async def complete_signup(
     row.consumed_at = now
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         await db.rollback()
+        if "legal_name" in str(exc.orig):
+            raise Conflict(LEGAL_NAME_TAKEN) from None
         raise Conflict(ACCOUNT_EXISTS) from None
     return user
 

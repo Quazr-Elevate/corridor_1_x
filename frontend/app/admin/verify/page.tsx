@@ -10,7 +10,7 @@ import {
 } from "@/lib/adminApi";
 import { entityTypeLabel } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { MANDATORY_FIELDS } from "@/lib/verification";
+import { MANDATORY_FIELDS, fieldByKey, isDocumentKey } from "@/lib/verification";
 import { useTower } from "@/components/shell/TowerShell";
 import { Reveal } from "@/components/motion";
 import { Button, LinkButton } from "@/components/ui/Button";
@@ -361,13 +361,10 @@ export default function KybReviewsPage() {
 
 /** Where each mandatory field lives on the account. */
 const CHECK_SOURCE: Record<string, "profile" | "business"> = {
-  fullName: "profile",
-  position: "profile",
-  phone: "profile",
   legalName: "business",
-  industry: "business",
-  operatingCountries: "business",
-  tradePosition: "business",
+  addressLine: "business",
+  city: "business",
+  country: "business",
 };
 
 function DetailPanel({
@@ -565,15 +562,18 @@ function DetailPanel({
               .
             </p>
           ) : docs.length === 0 && !loadingDetail ? (
-            <p className="t-sub mt-4 text-fg-3">No documents uploaded — optional for the badge; the decision rests on the profile.</p>
+            <p className="t-sub mt-4 text-fg-3">No documents added yet.</p>
           ) : null}
         </div>
 
         {/* Checks + decision */}
         <div className="flex min-w-0 flex-col">
-          <p className="t-label text-fg-3">Checks · mandatory fields</p>
-          <ul className="mt-3 space-y-2.5" aria-label="Mandatory fields for the Verified badge">
-            {MANDATORY_FIELDS.map((f) => {
+          <p className="t-label text-fg-3">Checks · required for verification</p>
+          <ul className="mt-3 space-y-2.5" aria-label="Required for the Verified badge">
+            {[
+              ...MANDATORY_FIELDS,
+              ...missing.filter(isDocumentKey).map((k) => fieldByKey(k)!).filter(Boolean),
+            ].map((f) => {
               const empty = missing.includes(f.key);
               const value = empty ? null : checkValue(f.key);
               return (
@@ -593,7 +593,13 @@ function DetailPanel({
                         <span className="sr-only">{empty ? " — empty" : " — filled"}</span>
                       </p>
                       <p className="t-sub mt-0.5 break-words text-fg-3">
-                        {empty ? "Empty — fill it on the account page." : loadingDetail ? "Filled" : value ?? "Filled"}
+                        {empty
+                          ? isDocumentKey(f.key)
+                            ? "Required document not added yet."
+                            : "Empty — fill it on the account page."
+                          : loadingDetail
+                            ? "Filled"
+                            : value ?? "Filled"}
                       </p>
                     </div>
                     {empty && !decision ? (
@@ -637,8 +643,8 @@ function DetailPanel({
               <>
                 <p className="t-foot mb-3 text-fg-3">
                   {missing.length
-                    ? `${plural(missing.length, "mandatory field")} left to fill — approval needs all seven.`
-                    : "All seven mandatory fields are filled."}
+                    ? `${plural(missing.length, "required item")} missing — approval needs the profile and required documents.`
+                    : "Profile and required documents are in."}
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">

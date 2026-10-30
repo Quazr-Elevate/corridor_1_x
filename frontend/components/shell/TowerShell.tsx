@@ -67,6 +67,7 @@ const NAV: ReadonlyArray<{
     match: (p) => p.startsWith("/admin/docs"),
   },
   { href: "/admin/users", label: "Directory", icon: "users", match: (p) => p.startsWith("/admin/users") },
+  { href: "/admin/kyb-types", label: "Doc types", icon: "settings", match: (p) => p.startsWith("/admin/kyb-types") },
 ];
 
 export function TowerShell({ children }: { children: ReactNode }) {

@@ -55,11 +55,22 @@ class VerificationState(CamelModel):
     """
 
     status: str
+    #: Stable keys still to provide: field keys (``addressLine``) and
+    #: ``kyb:<code>`` for mandatory document types (``kyb:gstin``).
     missing: list[str]
+    #: Human labels, same order as ``missing``.
+    missing_labels: list[str] = []
     mandatory_total: int
     submitted_at: datetime | None = None
     verified_at: datetime | None = None
     rejected_reason: str | None = None
+
+
+class BrandingData(CamelModel):
+    """Public images of the business (dashboard hero)."""
+
+    logo_url: str | None = None
+    banner_url: str | None = None
 
 
 class MeResponse(CamelModel):
@@ -76,6 +87,9 @@ class MeResponse(CamelModel):
     verification: VerificationState
     primary: PrimaryData
     business: BusinessData
+    branding: BrandingData = BrandingData()
+    #: True until the user finishes or skips the quick tour.
+    show_tour: bool = False
 
 
 class MeUpdate(CamelModel):
@@ -83,6 +97,31 @@ class MeUpdate(CamelModel):
     changed when sent."""
 
     display_currency: text(3, 3) | None = None  # type: ignore[valid-type]
+    #: ``true`` = finished or skipped the quick tour; ``false`` = show it again.
+    tour_completed: bool | None = None
+
+
+class BusinessProfileSaveIn(CamelModel):
+    """PUT /me/business-profile — company name, registered address and
+    country (the KYB document list follows the country). Optional fields are
+    only changed when sent."""
+
+    legal_name: text(200, 2)  # type: ignore[valid-type]
+    country: CountryCode
+    address_line: text(200) | None = None  # type: ignore[valid-type]
+    city: text(100) | None = None  # type: ignore[valid-type]
+    state: text(100) | None = None  # type: ignore[valid-type]
+    pincode: text(10) | None = None  # type: ignore[valid-type]
+    website_url: text(300) | None = None  # type: ignore[valid-type]
+    entity_type: EntityType | None = None
+
+
+#: Optional profile fields saved only when present in the payload.
+PROFILE_OPTIONAL_FIELDS = ("address_line", "city", "state", "pincode", "entity_type")
+
+
+class ImageUploaded(CamelModel):
+    url: str
 
 
 # ── Passport section saves ──────────────────────────────────────────

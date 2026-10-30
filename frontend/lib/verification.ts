@@ -1,53 +1,86 @@
-// The seven mandatory profile fields that gate the Verified badge.
+// What a business still needs before it can send its profile for KYB.
 //
-// Mirrors the backend's MANDATORY_FIELDS — the server sends camelCase keys
-// over the wire (``me.verification.missing``, in this order); the frontend
-// owns the human-readable labels and the deep-link anchors on the Passport
-// page (/dashboard/account). Keep the two in lockstep.
-//
-// Order matters: the first missing entry is always "the next field".
+// The server reports it as ordered keys (``me.verification.missing``) with
+// matching labels (``missingLabels``):
+//   * profile fields — legalName, addressLine, city, country
+//   * mandatory documents of the business's country — ``kyb:<code>``
+//     (``kyb:gstin``), defined by admins per country.
+// The frontend owns the deep links into the Business profile page
+// (/dashboard/business). Order matters: the first entry is "the next step".
 
 import type { VerificationState, VerificationStatus } from "./api";
 
-export type MandatorySection = "profile" | "company" | "business";
+export type MandatorySection = "profile" | "company" | "business" | "documents";
 
-/** Section ids on the Passport page (``section-<id>``). */
+/** Section ids on the older Passport page (``section-<id>``). */
 export type AccountSection = "primary" | "company" | "business" | "certifications";
 
 export interface MandatoryField {
   key: string;
   label: string;
   section: MandatorySection;
-  /** Element id on /dashboard/account — `#<anchor>` scrolls to + focuses it. */
+  /** Element id on /dashboard/business — `#<anchor>` scrolls to + focuses it. */
   anchor: string;
-  /** Passport section that holds the field. */
+  /** Passport section that holds the field (older Passport page). */
   tab: Exclude<AccountSection, "certifications">;
 }
 
+/** The profile fields that gate KYB submission (documents come from the server). */
 export const MANDATORY_FIELDS: readonly MandatoryField[] = [
-  { key: "fullName",           label: "Full name",           section: "profile",  tab: "primary",  anchor: "full-name" },
-  { key: "position",           label: "Position / role",     section: "profile",  tab: "primary",  anchor: "position" },
-  { key: "phone",              label: "Phone number",        section: "profile",  tab: "primary",  anchor: "phone" },
-  { key: "legalName",          label: "Legal company name",  section: "company",  tab: "company",  anchor: "legal-name" },
-  { key: "industry",           label: "Industry",            section: "company",  tab: "company",  anchor: "industry" },
-  { key: "operatingCountries", label: "Operating countries", section: "company",  tab: "company",  anchor: "operating-countries" },
-  { key: "tradePosition",      label: "Trade position",      section: "business", tab: "business", anchor: "trade-position" },
+  { key: "legalName",   label: "Company name",       section: "company", tab: "company", anchor: "legal-name" },
+  { key: "addressLine", label: "Registered address", section: "company", tab: "company", anchor: "address-line" },
+  { key: "city",        label: "City",               section: "company", tab: "company", anchor: "city" },
+  { key: "country",     label: "Country",            section: "company", tab: "company", anchor: "country" },
 ];
 
 export const MANDATORY_KEYS = new Set(MANDATORY_FIELDS.map((f) => f.key));
 
-export const PASSPORT_PATH = "/dashboard/account";
+/** The Business profile page — company, branding and KYB documents. */
+export const PASSPORT_PATH = "/dashboard/business";
+/** The older, longer Passport page (trade profile, contact details). */
+export const DETAILS_PATH = "/dashboard/account";
 
-export function fieldByKey(key: string): MandatoryField | undefined {
-  return MANDATORY_FIELDS.find((f) => f.key === key);
+const KYB_PREFIX = "kyb:";
+
+export function isDocumentKey(key: string): boolean {
+  return key.startsWith(KYB_PREFIX);
 }
 
-/** Deep link that scrolls to + focuses one field on the Passport page. */
+/** Field (or document requirement) for a server key; ``label`` overrides. */
+export function fieldByKey(key: string, label?: string): MandatoryField | undefined {
+  const known = MANDATORY_FIELDS.find((f) => f.key === key);
+  if (known) return label ? { ...known, label } : known;
+  if (isDocumentKey(key)) {
+    const code = key.slice(KYB_PREFIX.length);
+    return {
+      key,
+      label: label ?? code.replace(/_/g, " ").toUpperCase(),
+      section: "documents",
+      tab: "company",
+      anchor: `kyb-${code}`,
+    };
+  }
+  return undefined;
+}
+
+/** Everything still missing, labelled with the server's labels. */
+export function missingItems(v: VerificationState): MandatoryField[] {
+  return v.missing
+    .map((key, i) => fieldByKey(key, v.missingLabels?.[i]))
+    .filter((f): f is MandatoryField => Boolean(f));
+}
+
+/** The next thing to do, or undefined when nothing is missing. */
+export function nextMissing(v: VerificationState): MandatoryField | undefined {
+  return missingItems(v)[0];
+}
+
+/** Deep link that scrolls to + focuses one field on the Business profile. */
 export function fieldHref(field: MandatoryField): string {
   return `${PASSPORT_PATH}#${field.anchor}`;
 }
 
-/** Deep link to the first missing field, or the Passport page when complete. */
+/** Deep link to the first missing item, or the Business profile when complete. */
 export function nextStepHref(missing: readonly string[]): string {
   const first = missing.length ? fieldByKey(missing[0]) : undefined;
   return first ? fieldHref(first) : PASSPORT_PATH;

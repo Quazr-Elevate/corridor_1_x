@@ -72,9 +72,11 @@ async def test_doc_access_control(client, make_client, admin_client):
     async with SessionLocal() as db:
         rows = list(await db.scalars(select(AdminAction).order_by(AdminAction.created_at)))
         stored = await db.get(BusinessDocument, uuid.UUID(doc["id"]))
-    assert [a.action for a in rows] == ["doc.reject", "doc.approve"]
-    assert {a.target_type for a in rows} == {"document"}
-    assert rows[0].details["businessId"] == owner["businessId"]
+    # The admin's file view is audited first (no file contents in the log).
+    assert [a.action for a in rows] == ["kyb.file_viewed", "doc.reject", "doc.approve"]
+    assert rows[0].target_type == "business_document" and rows[0].details["business_id"] == owner["businessId"]
+    assert {a.target_type for a in rows[1:]} == {"document"}
+    assert rows[1].details["businessId"] == owner["businessId"]
     # Stored per business, reviewer recorded.
     assert str(stored.business_id) == owner["businessId"] and str(stored.uploaded_by_user_id) == owner["userId"]
     assert stored.storage_key.startswith(f"verification/{stored.business_id}/")

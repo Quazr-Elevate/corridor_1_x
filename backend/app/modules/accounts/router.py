@@ -1,12 +1,16 @@
 """/me and /onboarding/* — the signed-in user's own account."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from typing import Literal
+
+from fastapi import APIRouter, File, Response, UploadFile
 
 from app.core.security import clear_session_cookie
 from app.modules.accounts import service
 from app.modules.accounts.schemas import (
     BusinessProfileIn,
+    BusinessProfileSaveIn,
+    ImageUploaded,
     CompanyInfoIn,
     MeResponse,
     MeUpdate,
@@ -16,9 +20,13 @@ from app.modules.accounts.schemas import (
     VerificationState,
 )
 from app.modules.auth.deps import CurrentUser, DbSession
+from app.shared.files import file_response
 
 me_router = APIRouter(tags=["me"])
 onboarding_router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+branding_router = APIRouter(tags=["uploads"])
+
+BrandingSlot = Literal["logo", "banner"]
 
 
 @me_router.get("/me", response_model=MeResponse, response_model_by_alias=True)
@@ -28,8 +36,35 @@ async def me(user: CurrentUser, db: DbSession) -> MeResponse:
 
 @me_router.patch("/me", response_model=MeResponse, response_model_by_alias=True)
 async def update_me(payload: MeUpdate, user: CurrentUser, db: DbSession) -> MeResponse:
-    """Update personal preferences — today ``{"displayCurrency": "AED"}``."""
+    """Update personal preferences — ``displayCurrency``, ``tourCompleted``."""
     return await service.update_me(db, user, payload)
+
+
+@me_router.put("/me/business-profile", response_model=MeResponse, response_model_by_alias=True)
+async def save_business_profile_v2(payload: BusinessProfileSaveIn, user: CurrentUser, db: DbSession) -> MeResponse:
+    """Company name, registered address and country (business profile)."""
+    return await service.save_profile(db, user, payload)
+
+
+@me_router.post(
+    "/me/business/{slot}", response_model=ImageUploaded, response_model_by_alias=True, status_code=201
+)
+async def upload_branding(slot: BrandingSlot, user: CurrentUser, db: DbSession, file: UploadFile = File(...)) -> ImageUploaded:
+    """Business logo or banner — JPG/PNG/WEBP (sniffed), ≤ 5 MB. Public."""
+    content = await file.read(service.MAX_IMAGE_BYTES + 1)
+    return ImageUploaded(url=await service.set_branding_image(db, user, slot, content))
+
+
+@me_router.delete("/me/business/{slot}", status_code=204, response_class=Response)
+async def delete_branding(slot: BrandingSlot, user: CurrentUser, db: DbSession) -> Response:
+    await service.clear_branding_image(db, user, slot)
+    return Response(status_code=204)
+
+
+@branding_router.get("/uploads/branding/{filename}")
+async def branding_image(filename: str) -> Response:
+    data = await service.read_branding_image(filename)
+    return file_response(data, cache_control="public, max-age=86400, immutable")
 
 
 @me_router.post("/me/submit-verification", response_model=VerificationState, response_model_by_alias=True)

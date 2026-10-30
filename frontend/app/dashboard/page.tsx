@@ -10,8 +10,9 @@ import { useMe } from "@/lib/useMe";
 import {
   PASSPORT_PATH,
   canSubmit,
-  fieldByKey,
   fieldHref,
+  missingItems,
+  nextMissing,
   formatDay,
   statusMeta,
   verificationCounts,
@@ -26,6 +27,8 @@ import { Beacon } from "@/components/trader/Beacon";
 import { dot, lotCode, memberCode, price, qty } from "@/components/trader/format";
 import { LENS_LABEL, useLens, type Lens } from "@/components/trader/lens";
 import { LotThumb } from "@/components/trader/LotThumb";
+import { BusinessHero } from "@/components/business/BusinessHero";
+import { QuickTour } from "@/components/business/QuickTour";
 
 /**
  * Corridor — the trader's home (reference: portal /corridor). The date and
@@ -105,11 +108,13 @@ export default function CorridorPage() {
         : v.status === "rejected"
           ? "Ops asked for changes."
           : v.missing.length
-            ? `${v.missing.length} field${v.missing.length === 1 ? "" : "s"} left to verify.`
+            ? `${v.missing.length} item${v.missing.length === 1 ? "" : "s"} left to verify.`
             : "Your passport is ready to send.";
 
   return (
     <div className="space-y-12 pt-6 sm:pt-10">
+      <QuickTour />
+      <BusinessHero me={me} />
       <header className="flex animate-rise flex-wrap items-end justify-between gap-x-10 gap-y-8">
         <div className="min-w-0">
           <p className="t-label text-fg-3">
@@ -234,7 +239,7 @@ function buildMoves(me: Me, lens: Lens, data: HomeData): Move[] {
   const out: Move[] = [];
 
   if (v.status === "rejected") {
-    const next = v.missing.length ? fieldByKey(v.missing[0]) : undefined;
+    const next = nextMissing(v);
     out.push({
       key: "rejected",
       isMove: true,
@@ -258,7 +263,7 @@ function buildMoves(me: Me, lens: Lens, data: HomeData): Move[] {
     });
   } else if (v.status !== "pending_verification" && !verified) {
     if (v.missing.length > 0) {
-      const missing = v.missing.map(fieldByKey).filter((f): f is NonNullable<typeof f> => !!f);
+      const missing = missingItems(v);
       const next = missing[0];
       const after = missing.slice(1).map((f) => f.label.toLowerCase());
       out.push({
@@ -297,7 +302,7 @@ function buildMoves(me: Me, lens: Lens, data: HomeData): Move[] {
             footRight="Review and send"
             move
           >
-            All seven fields are in. Hold to send it to Corridor ops.
+            Your profile and documents are in. Hold to send it to Corridor ops.
           </MoveCard>
         ),
       });
@@ -318,7 +323,7 @@ function buildMoves(me: Me, lens: Lens, data: HomeData): Move[] {
           kicker={first.certType}
           chip={<Chip tone="frozen">Rejected</Chip>}
           title={rejectedDocs.length === 1 ? "Replace a rejected document" : `Replace ${rejectedDocs.length} documents`}
-          footLeft={rejectedDocs.length === 1 ? first.filename : `${first.certType} and more`}
+          footLeft={rejectedDocs.length === 1 ? (first.filename ?? first.certType) : `${first.certType} and more`}
           footRight="See the note"
           tone="frozen"
         >
@@ -560,7 +565,7 @@ function railTiles(me: Me, own: ProductRead[] | null): RailTile[] {
   const { filled, total } = verificationCounts(v);
   const profileDone = v.missing.length === 0 || inReview || verified;
   const listed = (own?.length ?? 0) > 0;
-  const next = v.missing.length ? fieldByKey(v.missing[0]) : undefined;
+  const next = nextMissing(v);
 
   return [
     {
@@ -898,7 +903,7 @@ function PassportGlance({ me, docs }: { me: Me; docs: HomeData["docs"] }) {
   const v = me.verification;
   const { filled, total } = verificationCounts(v);
   const meta = statusMeta(v.status);
-  const next = v.missing.length ? fieldByKey(v.missing[0]) : undefined;
+  const next = nextMissing(v);
   const list = docs.data ?? [];
   const approved = list.filter((d) => d.status === "approved").length;
   const sendable = canSubmit(v);

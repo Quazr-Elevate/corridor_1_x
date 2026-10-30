@@ -108,11 +108,12 @@ class PhotoUploaded(CamelModel):
 
 
 class PublicSeller(CamelModel):
-    """Business name + city + verified badge only. ``seller_id`` is the
-    seller BUSINESS id."""
+    """City + verified badge only — never the company name or any contact
+    detail: the seller stays masked until a verified buyer reveals it
+    (POST /products/{id}/contact-reveal). ``seller_id`` is the seller
+    BUSINESS id."""
 
     seller_id: str
-    business_name: str
     city: str | None = None
     state: str | None = None
     verified: bool = True  # Reserved for when we differentiate tiers.

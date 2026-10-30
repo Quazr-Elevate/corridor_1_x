@@ -6,10 +6,10 @@ import { Icon } from "@/components/ui/Icon";
  * the current step is solid with a lime number disc, steps behind you
  * carry a check, steps ahead sit quiet in a well.
  *
- * Steps are the real in-page flow: work email → 6-digit code → name and
- * password.
+ * Steps are the real in-page flow: name, company and work email → 6-digit
+ * code → password.
  */
-const STEPS = ["Email", "Code", "Account"] as const;
+const STEPS = ["Company", "Code", "Password"] as const;
 
 export function SignupSteps({ current, className }: { current: number; className?: string }) {
   return (

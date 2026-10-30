@@ -67,11 +67,20 @@ class Settings(BaseSettings):
     # Signs the cor1x_session cookie and keys email-code hashes. ROTATE in prod.
     session_secret: str = "dev-only-session-secret-change-me"
 
+    # ─── KYB field encryption (app/core/crypto.py) ───────────────
+    # Comma-separated ``version:base64key`` list of 32-byte AES keys. The
+    # highest version encrypts new values; every listed version decrypts.
+    # Generate a key: python -c "import os,base64;print(base64.b64encode(os.urandom(32)).decode())"
+    # Required when DEBUG=false; development falls back to a marked local key.
+    kyb_enc_keys: str = ""
+    # Separate base64 32-byte key for the duplicate-check hash (value_hash).
+    kyb_hash_key: str = ""
+
     # ─── Email (app/integrations/email) ──────────────────────────
     email_provider: str = "console"  # console | resend | brevo
     email_api_key: str = ""
-    email_from: str = "no-reply@cor1x.local"
-    email_from_name: str = "Cor1x"
+    email_from: str = "enquiry@corridor1x.com"
+    email_from_name: str = "Corridor One X"
     email_reply_to: str = ""
     email_outbox_dir: str = "outbox"
     email_max_attempts: int = 3

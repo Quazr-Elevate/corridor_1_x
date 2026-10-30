@@ -148,7 +148,6 @@ async def delete_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
 def _seller_dto(business: Business | None, business_id: uuid.UUID) -> PublicSeller:
     return PublicSeller(
         seller_id=str(business_id),
-        business_name=(business.legal_name if business else None) or "Verified seller",
         city=business.city if business else None,
         state=business.state if business else None,
     )
