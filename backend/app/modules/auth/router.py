@@ -94,6 +94,7 @@ async def signup_complete(payload: SignupCompleteRequest, response: Response, db
         email=payload.email,
         full_name=payload.full_name,
         position=payload.position,
+        country=payload.country,
         password=payload.password,
     )
     set_session_cookie(response, user.id, user.session_version)

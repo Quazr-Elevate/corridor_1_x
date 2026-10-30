@@ -46,6 +46,15 @@ export interface VerifyDoc {
   reviewedAt: string | null;
   /** Authenticated, backend-relative path (e.g. /admin/docs/{id}/file). Use `docFileUrl()`. */
   url: string;
+  /** When set, this doc fills a country-mandated slot in the Documents
+   *  catalog; null for free-form "other" uploads. */
+  requiredDocTypeId: string | null;
+  /** Admin-defined display name of the catalog slot (e.g. "Business
+   *  registration certificate"). Null for custom uploads. */
+  requirementDisplayName: string | null;
+  /** Catalog slug of the slot (``business_registration``). Null for
+   *  custom uploads. Used as the stable key in reject-items lists. */
+  requirementSlug: string | null;
 }
 
 export interface PendingDocRow {
@@ -63,6 +72,8 @@ export interface VerifyQueueRow {
   businessId: string;
   email: string;
   fullName: string | null;
+  position: string | null;
+  phone: string | null;
   businessName: string | null;
   country: string | null;
   industry: string | null;
@@ -250,7 +261,8 @@ export const adminApi = {
   stuck: (limit = 10) =>
     req<StuckUser[]>(`/admin/dashboard/stuck?limit=${limit}`),
   verifyQueue: () => req<VerifyQueueRow[]>("/admin/verify/queue"),
-  pendingDocs: () => req<PendingDocRow[]>("/admin/docs/pending"),
+  pendingDocs: (kind?: "business" | "other") =>
+    req<PendingDocRow[]>(`/admin/docs/pending${kind ? `?kind=${kind}` : ""}`),
   approveDoc: (docId: string) =>
     req<{ docId: string; status: string }>(`/admin/docs/${docId}/approve`, {
       method: "POST",
@@ -283,9 +295,59 @@ export const adminApi = {
     req<{ userId: string; businessId: string; status: string }>(`/admin/users/${id}/verify`, {
       method: "POST",
     }),
-  rejectUser: (id: string, reason: string) =>
+  rejectUser: (id: string, reason: string, failedItems?: string[]) =>
     req<{ userId: string; businessId: string; status: string }>(`/admin/users/${id}/reject`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, failedItems: failedItems ?? [] }),
+    }),
+
+  listDocRequirements: (opts?: { country?: string; includeInactive?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (opts?.country) qs.set("country", opts.country);
+    if (opts?.includeInactive) qs.set("includeInactive", "true");
+    const q = qs.toString();
+    return req<DocRequirement[]>(`/admin/doc-requirements${q ? `?${q}` : ""}`);
+  },
+  createDocRequirement: (payload: DocRequirementIn) =>
+    req<DocRequirement>("/admin/doc-requirements", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateDocRequirement: (id: string, patch: DocRequirementPatch) =>
+    req<DocRequirement>(`/admin/doc-requirements/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
     }),
 };
+
+export interface DocRequirement {
+  id: string;
+  countryCode: string;
+  slug: string;
+  displayName: string;
+  description: string | null;
+  helpUrl: string | null;
+  isMandatory: boolean;
+  isActive: boolean;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DocRequirementIn {
+  countryCode: string;
+  slug: string;
+  displayName: string;
+  description?: string | null;
+  helpUrl?: string | null;
+  isMandatory: boolean;
+}
+
+export interface DocRequirementPatch {
+  displayName?: string;
+  description?: string | null;
+  helpUrl?: string | null;
+  isMandatory?: boolean;
+  isActive?: boolean;
+}

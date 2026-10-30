@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 from app.modules.verification.schemas import DocOut
 from app.shared.schemas import CamelModel, CountryCode, CountryList, TagList, text
@@ -60,6 +60,8 @@ class VerifyQueueRow(CamelModel):
     business_id: str
     email: str
     full_name: str | None
+    position: str | None = None
+    phone: str | None = None
     business_name: str | None
     country: str | None
     industry: str | None
@@ -180,3 +182,83 @@ class StatusChanged(CamelModel):
 
 class UserRejectIn(CamelModel):
     reason: str
+    #: Admin's checklist of what failed. Subset of the 7 mandatory profile
+    #: field keys (``fullName`` etc.) plus ``doc:<slug>`` tokens for each
+    #: cert slot that failed. Each ``doc:*`` picked cascades to the
+    #: underlying business_document being marked rejected with the same
+    #: reason, so the trader sees "Rejected — replace it" on their slot.
+    failed_items: list[str] | None = None
+
+
+# ── Country document requirements ────────────────────────────────────
+
+#: Lowercase slug: starts with letter/digit, then letters/digits/underscore/
+#: hyphen. Enforced client-side & here, kept portable (not a DB regex).
+RequirementSlug = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[a-z0-9][a-z0-9_-]{0,39}$")]
+
+
+def _safe_url_or_none(v: str | None) -> str | None:
+    """Only http:// or https:// URLs are stored. Reject javascript:/data:/ftp:.
+
+    Lower-cases scheme comparison, keeps the rest of the URL as entered.
+    """
+    if v is None:
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    scheme = s.split(":", 1)[0].lower() if ":" in s else ""
+    if scheme not in ("http", "https"):
+        raise ValueError("Help URL must start with http:// or https://.")
+    return s
+
+
+class DocRequirementIn(CamelModel):
+    """POST /admin/doc-requirements — create a new catalog entry."""
+
+    country_code: CountryCode  # type: ignore[valid-type]
+    slug: RequirementSlug  # type: ignore[valid-type]
+    display_name: text(100, 2)  # type: ignore[valid-type]
+    description: text(500) | None = None  # type: ignore[valid-type]
+    help_url: str | None = Field(default=None, max_length=500)
+    is_mandatory: bool = True
+
+    @field_validator("help_url")
+    @classmethod
+    def _check_help_url(cls, v: str | None) -> str | None:
+        return _safe_url_or_none(v)
+
+
+class DocRequirementUpdate(CamelModel):
+    """PATCH /admin/doc-requirements/{id} — edit mutable fields.
+
+    ``country_code`` and ``slug`` are intentionally omitted — changing them
+    would orphan every upload tied to the row. Deactivate the old row and
+    add a new one if the policy really changed shape.
+    """
+
+    display_name: text(100, 2) | None = None  # type: ignore[valid-type]
+    description: text(500) | None = None  # type: ignore[valid-type]
+    help_url: str | None = Field(default=None, max_length=500)
+    is_mandatory: bool | None = None
+    is_active: bool | None = None
+
+    @field_validator("help_url")
+    @classmethod
+    def _check_help_url(cls, v: str | None) -> str | None:
+        return _safe_url_or_none(v)
+
+
+class DocRequirementOut(CamelModel):
+    id: str
+    country_code: str
+    slug: str
+    display_name: str
+    description: str | None
+    help_url: str | None
+    is_mandatory: bool
+    is_active: bool
+    created_by: str
+    updated_by: str
+    created_at: datetime
+    updated_at: datetime

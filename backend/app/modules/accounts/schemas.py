@@ -60,6 +60,15 @@ class VerificationState(CamelModel):
     submitted_at: datetime | None = None
     verified_at: datetime | None = None
     rejected_reason: str | None = None
+    #: Keys the admin ticked on the last rejection — subset of the mandatory
+    #: profile field keys plus ``doc:<slug>`` tokens. Empty for anything
+    #: other than ``rejected`` and for rejections pre-dating the per-item flow.
+    rejected_items: list[str] | None = None
+    #: Human-friendly label for each ``doc:<slug>`` key in ``rejected_items``,
+    #: looked up from the catalog's current display name. Field keys are
+    #: NOT included — the frontend has those labels locally. Null when no
+    #: rejection or when no doc:* keys were ticked.
+    rejected_item_labels: dict[str, str] | None = None
 
 
 class MeResponse(CamelModel):

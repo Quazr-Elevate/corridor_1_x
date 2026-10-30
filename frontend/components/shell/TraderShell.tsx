@@ -15,6 +15,7 @@ import { EASE, SPRING } from "@/components/motion/tokens";
 import { LinkButton } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { canSubmit } from "@/lib/verification";
 import { Kbd } from "@/components/ui/Kbd";
 import { XMark } from "@/components/ui/Logo";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -279,6 +280,11 @@ function VerificationState({ me }: { me: Me }) {
   const s = v.status;
   const filled = v.mandatoryTotal - v.missing.length;
   const yourMove = s === "rejected" || (s !== "verified" && s !== "pending_verification");
+  // In draft, a full 7/7 means "ready to send to ops" — surface that
+  // positively instead of the misleading "7/7 to verify" that reads like
+  // "there's still work to do". ``canSubmit`` is the same signal the
+  // Passport uses to light up the Hold-to-send button.
+  const readyToSend = s === "draft" && canSubmit(v);
   const label =
     s === "verified"
       ? "Verified"
@@ -286,7 +292,9 @@ function VerificationState({ me }: { me: Me }) {
         ? "In review"
         : s === "rejected"
           ? "Needs changes"
-          : `${filled} of ${v.mandatoryTotal} fields to verify`;
+          : readyToSend
+            ? "Ready to send"
+            : `${filled} of ${v.mandatoryTotal} fields to verify`;
   const chip =
     s === "verified" ? (
       <Chip tone="verified">Verified</Chip>
@@ -296,6 +304,12 @@ function VerificationState({ me }: { me: Me }) {
       </Chip>
     ) : s === "rejected" ? (
       <Chip tone="frozen">Needs changes</Chip>
+    ) : readyToSend ? (
+      // Lime because the user has everything in — the next move is a
+      // single confirmation. Reads as encouragement, not a reminder.
+      <Chip tone="verified" noIcon>
+        Ready to send
+      </Chip>
     ) : (
       <Chip tone="move" noIcon>
         {filled}/{v.mandatoryTotal} to verify

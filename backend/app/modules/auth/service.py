@@ -174,7 +174,7 @@ async def verify_signup_code(db: AsyncSession, *, email: str, code: str) -> None
 
 
 async def complete_signup(
-    db: AsyncSession, *, email: str, full_name: str, position: str | None, password: str
+    db: AsyncSession, *, email: str, full_name: str, position: str | None, country: str, password: str
 ) -> User:
     """One transaction: business (draft) + owner user + code consumed."""
     email = normalize_email(email)
@@ -189,7 +189,14 @@ async def complete_signup(
     if ensure_aware(row.verified_at) + VERIFIED_WINDOW < now:
         raise BadRequest("Your email verification expired. Request a new code.")
 
-    business = Business(country="IN", verification_status=BusinessStatus.draft)
+    # Country is a hard requirement at signup — it drives the KYB document
+    # catalog the business will be asked to fill. Auto-seed operating_countries
+    # with the home country; the user can broaden later on the business profile.
+    business = Business(
+        country=country,
+        operating_countries=[country],
+        verification_status=BusinessStatus.draft,
+    )
     user = User(
         business=business,
         role=UserRole.owner,

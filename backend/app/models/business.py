@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CHAR, CheckConstraint, Enum, Index, String, Text, Uuid, func, text
+from sqlalchemy import CHAR, CheckConstraint, Enum, Index, JSON, String, Text, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base, UTCDateTime, str_array
@@ -116,6 +116,11 @@ class Business(Base):
     verification_submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     verification_rejected_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Camel-case keys the admin ticked when rejecting — e.g.
+    # ``["fullName", "doc:business_registration"]``. Lets the trader see
+    # exactly which fields or docs need to be fixed. Null for drafts
+    # and verified rows; cleared on resubmit.
+    verification_rejected_items: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

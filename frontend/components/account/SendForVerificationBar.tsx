@@ -34,6 +34,33 @@ import { useToast } from "@/components/ui/Toast";
  * `dirty` blocks sending while the page holds unsaved edits — the review
  * reads what's saved, not what's on screen.
  */
+
+function rejectedItemLabel(
+  key: string,
+  labels: Record<string, string> | null | undefined,
+): string {
+  if (key.startsWith("doc:")) {
+    // Prefer the admin-defined display name sent down with the state;
+    // fall back to a slug-prettified string if the catalog has shifted.
+    return labels?.[key] ?? `Document: ${key.slice(4).replace(/_/g, " ")}`;
+  }
+  const field = fieldByKey(key);
+  return field?.label ?? key;
+}
+
+/** Scroll + focus the field (or Documents section) a "To fix" chip refers to. */
+function jumpToRejectedItem(key: string): void {
+  if (key.startsWith("doc:")) {
+    const el = document.getElementById("section-certifications");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    return;
+  }
+  const field = fieldByKey(key);
+  if (field) focusField(field.anchor);
+}
+
 export function SendForVerificationBar({ dirty, className }: { dirty: boolean; className?: string }) {
   const { me, refetch } = useMe();
   const toast = useToast();
@@ -136,13 +163,32 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
                 <span className="whitespace-pre-wrap">
                   {v.rejectedReason || "Corridor ops couldn’t approve your passport. Check your details and resubmit."}
                 </span>
+                {v.rejectedItems && v.rejectedItems.length ? (
+                  <div className="mt-3">
+                    <p className="t-label text-fg-3">To fix</p>
+                    <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                      {v.rejectedItems.map((k) => (
+                        <li key={k}>
+                          <button
+                            type="button"
+                            onClick={() => jumpToRejectedItem(k)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-danger-soft px-3 py-1 text-[13px] font-medium text-danger ring-1 ring-danger/20 transition hover:bg-danger-soft/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--focus)]"
+                          >
+                            <Icon name="arrow-right" size={12} />
+                            {rejectedItemLabel(k, v.rejectedItemLabels)}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </Notice>
             ) : null}
 
             <div>
               <div className="flex items-center justify-between gap-3">
                 <p className="t-headline text-fg">
-                  {missing.length ? "Fields for verification" : "All seven fields are in"}
+                  {missing.length ? "Fields for verification" : `All ${total} items are in`}
                 </p>
                 <CountPill>
                   {filled}/{total}
@@ -177,9 +223,14 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
                 </ul>
               </div>
             ) : (
-              <p className="t-callout text-fg-2">
-                Hold to send your passport to Corridor ops. You can keep editing while it’s in review.
-              </p>
+              <div className="space-y-2">
+                <p className="t-callout text-fg-2">
+                  Hold to send your passport to Corridor ops. You can keep editing while it’s in review.
+                </p>
+                <p className="t-sub text-fg-3">
+                  Your documents are reviewed first, then your business profile.
+                </p>
+              </div>
             )}
 
             <HoldButton

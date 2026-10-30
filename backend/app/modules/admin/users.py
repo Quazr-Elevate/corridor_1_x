@@ -55,7 +55,9 @@ async def verify_user(user_id: str, admin: AdminEmail, db: DbSession, background
 async def reject_user(
     user_id: str, payload: UserRejectIn, admin: AdminEmail, db: DbSession, background: BackgroundTasks
 ) -> StatusChanged:
-    d = await service.reject_user(db, admin, parse_uuid(user_id), payload.reason)
+    d = await service.reject_user(
+        db, admin, parse_uuid(user_id), payload.reason, failed_items=payload.failed_items
+    )
     if d.email:
         background.add_task(
             notifications.deliver_safely,

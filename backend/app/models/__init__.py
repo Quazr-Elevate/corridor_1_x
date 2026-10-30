@@ -2,6 +2,7 @@ from app.models.admin_action import AdminAction
 from app.models.base import Base
 from app.models.business import ENTITY_TYPES, Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
+from app.models.business_document_requirement import BusinessDocumentRequirement
 from app.models.contact_reveal import ContactReveal
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
@@ -15,6 +16,7 @@ __all__ = [
     "Base",
     "Business",
     "BusinessDocument",
+    "BusinessDocumentRequirement",
     "BusinessStatus",
     "ContactReveal",
     "DocStatus",

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/adminApi";
 import { Button } from "@/components/ui/Button";
-import { HoldButton } from "@/components/ui/Controls";
+import { Checkbox, HoldButton } from "@/components/ui/Controls";
 import { Textarea } from "@/components/ui/Field";
 import { Sheet } from "@/components/ui/Sheet";
+import { Notice } from "@/components/ui/Surface";
 
 export const REJECT_MAX = 500;
 
@@ -145,6 +146,203 @@ export function RejectSheet({
             })}
           </div>
         </div>
+      ) : null}
+    </Sheet>
+  );
+}
+
+
+export interface RejectItem {
+  key: string;
+  label: string;
+  hint?: string;
+}
+
+/**
+ * Business-level reject — admin ticks which of the 8 items (the 7
+ * mandatory profile fields + each mandatory business-cert slot) failed
+ * and writes one reason that covers all of them. Submit is disabled
+ * until at least one item is picked and the reason is non-empty.
+ */
+export function BusinessRejectSheet({
+  open,
+  onClose,
+  title,
+  description,
+  items,
+  quickReasons = [],
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  items: ReadonlyArray<RejectItem>;
+  quickReasons?: ReadonlyArray<string>;
+  onSubmit: (payload: { reason: string; failedItems: string[] }) => Promise<void>;
+}) {
+  const [reason, setReason] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const close = useCallback(() => {
+    if (!busyRef.current) closeRef.current();
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setReason("");
+      setPicked(new Set());
+      setError(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  const trimmed = reason.trim();
+  const canSubmit = trimmed.length > 0 && picked.size > 0;
+
+  const orderedPicked = useMemo(
+    () => items.filter((i) => picked.has(i.key)).map((i) => i.key),
+    [items, picked],
+  );
+
+  const toggle = (key: string, on: boolean) => {
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+    if (error) setError(null);
+  };
+
+  const submit = async () => {
+    if (!canSubmit) {
+      setError(
+        !trimmed
+          ? "Write a reason — the trader sees it as written."
+          : "Pick at least one item that failed.",
+      );
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit({ reason: trimmed, failedItems: orderedPicked });
+      setBusy(false);
+      closeRef.current();
+    } catch (e) {
+      setError(errorMessage(e, "Reject failed. Try again."));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onClose={close}
+      size="lg"
+      title={title}
+      description={description}
+      footer={
+        <>
+          <Button variant="quiet" onClick={close} disabled={busy}>
+            Cancel
+          </Button>
+          <HoldButton
+            tone="danger"
+            icon="close"
+            onCommit={submit}
+            loading={busy}
+            disabled={!canSubmit}
+          >
+            Reject review
+          </HoldButton>
+        </>
+      }
+    >
+      <fieldset className="space-y-2">
+        <legend className="t-label text-fg-3">What failed? (pick one or more)</legend>
+        <ul className="mt-2 space-y-2">
+          {items.map((item) => (
+            <li
+              key={item.key}
+              className={cn(
+                "relief-sm rounded-[16px] px-4 py-3 transition-[box-shadow] duration-300",
+                picked.has(item.key) && "ring-1 ring-danger/40",
+              )}
+            >
+              <Checkbox
+                checked={picked.has(item.key)}
+                onChange={(on) => toggle(item.key, on)}
+                label={
+                  <span>
+                    <span className="font-medium text-fg">{item.label}</span>
+                    {item.hint ? (
+                      <span className="t-sub ml-2 text-fg-3">{item.hint}</span>
+                    ) : null}
+                  </span>
+                }
+              />
+            </li>
+          ))}
+        </ul>
+      </fieldset>
+
+      <div className="mt-6">
+        <Textarea
+          label="Reason"
+          required
+          counter
+          maxLength={REJECT_MAX}
+          value={reason}
+          onChange={(e) => {
+            setReason(e.target.value);
+            if (error) setError(null);
+          }}
+          placeholder="What should they fix, in plain language?"
+          error={error}
+          hint="Shown to them verbatim on their next sign-in."
+        />
+      </div>
+
+      {quickReasons.length ? (
+        <div className="mt-5">
+          <p className="t-label text-fg-3">Quick picks</p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {quickReasons.map((q) => {
+              const on = reason === q;
+              return (
+                <button
+                  key={q}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => {
+                    setReason(q);
+                    setError(null);
+                  }}
+                  className={cn(
+                    "rounded-[14px] px-3 py-2 text-left text-[13px] leading-snug transition-[box-shadow,color] duration-300 ease-expo",
+                    on ? "solid" : "relief-sm text-fg-2 hover:text-fg",
+                  )}
+                >
+                  {q}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {!canSubmit && (trimmed || picked.size > 0) ? (
+        <Notice tone="frozen" className="mt-5">
+          Pick at least one failed item and write a reason before rejecting.
+        </Notice>
       ) : null}
     </Sheet>
   );

@@ -11,6 +11,7 @@ import { HoldButton, Segmented } from "@/components/ui/Controls";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
+import { BusinessReviewView } from "@/components/admin/BusinessReviewView";
 import { DOC_REJECT_REASONS, RejectSheet } from "@/components/admin/RejectSheet";
 import { ClearQueue } from "@/components/admin/ClearQueue";
 import { LaneHeader } from "@/components/admin/tower";
@@ -26,6 +27,7 @@ import {
 import { dueState, fmtAgo, plural, refId } from "@/components/admin/format";
 
 type View = "queue" | "decided";
+type Kind = "business" | "other";
 type Outcome = "approved" | "rejected";
 
 interface Decided {
@@ -45,6 +47,10 @@ export default function DocsLanePage() {
   const [rows, setRows] = useState<PendingDocRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [view, setView] = useState<View>("queue");
+  // Business certificates (country-mandated slots) gate the KYB queue, so
+  // they're the admin's first priority — hence the default. Other certs
+  // (free-form uploads) stay in a separate tab.
+  const [kind, setKind] = useState<Kind>("business");
   const [decided, setDecided] = useState<Decided[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,17 +58,28 @@ export default function DocsLanePage() {
   const [rejectRow, setRejectRow] = useState<PendingDocRow | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
 
+  // Guard against racing loads: when the user flips tabs quickly, an
+  // in-flight request for the previous kind can resolve AFTER the new
+  // kind's request and overwrite its rows. We bump a token on every load
+  // start and discard any response whose token has been superseded.
+  // Also lets us skip the fetch entirely for kind=business, where
+  // BusinessReviewView does its own fetching and this page's rows are unused.
+  const loadToken = useRef(0);
   const load = useCallback(async () => {
+    if (kind === "business") return;
+    const token = ++loadToken.current;
     try {
-      const q = await adminApi.pendingDocs();
+      const q = await adminApi.pendingDocs(kind);
+      if (token !== loadToken.current) return;
       setRows(q);
       setErr(null);
       setSelectedId((cur) => (cur && q.some((r) => r.doc.id === cur) ? cur : q[0]?.doc.id ?? null));
     } catch (e) {
+      if (token !== loadToken.current) return;
       setErr(errorMessage(e, "Couldn't load documents."));
       setRows((r) => r ?? []);
     }
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     void load();
@@ -99,6 +116,17 @@ export default function DocsLanePage() {
     setView(v);
     const src = v === "queue" ? rows ?? [] : decided.map((d) => d.row);
     setSelectedId(src[0]?.doc.id ?? null);
+  };
+
+  // Switching tabs resets the per-session "decided" list — those were
+  // decisions on documents of the other kind, not relevant here.
+  const switchKind = (k: Kind) => {
+    if (k === kind) return;
+    setKind(k);
+    setView("queue");
+    setDecided([]);
+    setSelectedId(null);
+    setRows(null);
   };
 
   const settle = (row: PendingDocRow, outcome: Outcome, reason?: string) => {
@@ -178,21 +206,39 @@ export default function DocsLanePage() {
           </>
         }
         actions={
-          <>
-            <KbdHints />
-            <Segmented<View>
-              label="Queue view"
-              value={view}
-              onChange={switchView}
-              options={[
-                { value: "queue", label: "Queue", count: rows?.length ?? 0 },
-                { value: "decided", label: "Decided", count: decided.length },
-              ]}
-            />
-          </>
+          kind === "other" ? (
+            <>
+              <KbdHints />
+              <Segmented<View>
+                label="Queue view"
+                value={view}
+                onChange={switchView}
+                options={[
+                  { value: "queue", label: "Queue", count: rows?.length ?? 0 },
+                  { value: "decided", label: "Decided", count: decided.length },
+                ]}
+              />
+            </>
+          ) : undefined
         }
       />
 
+      <div className="mt-6">
+        <Segmented<Kind>
+          label="Document kind"
+          value={kind}
+          onChange={switchKind}
+          options={[
+            { value: "business", label: "Business certificate" },
+            { value: "other", label: "Other certificate" },
+          ]}
+        />
+      </div>
+
+      {kind === "business" ? (
+        <BusinessReviewView />
+      ) : (
+        <>
       {err ? (
         <div className="mt-8">
           <Notice
@@ -295,6 +341,8 @@ export default function DocsLanePage() {
         submitLabel="Reject"
         onSubmit={reject}
       />
+        </>
+      )}
     </div>
   );
 }

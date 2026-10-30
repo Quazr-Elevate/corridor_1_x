@@ -7,7 +7,7 @@ from fastapi import APIRouter, File, Form, Response, UploadFile
 from app.core.security import parse_uuid
 from app.modules.auth.deps import CurrentUser, DbSession
 from app.modules.verification import service
-from app.modules.verification.schemas import DocOut, doc_to_out
+from app.modules.verification.schemas import DocOut, DocRequirementsResponse, doc_to_out
 from app.shared.files import file_response
 
 router = APIRouter(prefix="/me/verification-docs", tags=["verification"])
@@ -19,10 +19,28 @@ async def upload_doc(
     db: DbSession,
     cert_type: str = Form(...),
     file: UploadFile = File(...),
+    required_doc_type_id: str | None = Form(None),
 ) -> DocOut:
     content = await file.read(service.MAX_DOC_BYTES + 1)
-    doc = await service.upload_doc(db, user, cert_type=cert_type, filename=file.filename, content=content)
+    slot_id = parse_uuid(required_doc_type_id) if required_doc_type_id else None
+    doc = await service.upload_doc(
+        db,
+        user,
+        cert_type=cert_type,
+        filename=file.filename,
+        content=content,
+        required_doc_type_id=slot_id,
+    )
     return doc_to_out(doc)
+
+
+@router.get(
+    "/requirements",
+    response_model=DocRequirementsResponse,
+    response_model_by_alias=True,
+)
+async def list_requirements(user: CurrentUser, db: DbSession) -> DocRequirementsResponse:
+    return await service.list_doc_requirements(db, user)
 
 
 @router.get("", response_model=list[DocOut], response_model_by_alias=True)

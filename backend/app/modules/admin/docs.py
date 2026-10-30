@@ -1,7 +1,7 @@
 """/admin/docs/* — KYB document review + authenticated download."""
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Response
+from fastapi import APIRouter, BackgroundTasks, Query, Response
 
 from app import notifications
 from app.core.security import AdminEmail, parse_uuid
@@ -16,8 +16,15 @@ router = APIRouter()
 
 
 @router.get("/docs/pending", response_model=list[PendingDocRow], response_model_by_alias=True)
-async def pending_docs(_: AdminEmail, db: DbSession) -> list[PendingDocRow]:
-    return await service.pending_docs(db)
+async def pending_docs(
+    _: AdminEmail,
+    db: DbSession,
+    kind: str | None = Query(
+        None,
+        description="'business' for country-mandated slots, 'other' for custom uploads. Omit for both.",
+    ),
+) -> list[PendingDocRow]:
+    return await service.pending_docs(db, kind=kind)
 
 
 @router.get("/docs/{doc_id}/file")

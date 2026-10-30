@@ -1,6 +1,6 @@
 from pydantic import EmailStr, Field, field_validator
 
-from app.shared.schemas import CamelModel, text
+from app.shared.schemas import CamelModel, CountryCode, text
 
 
 def _bcrypt_limit(v: str) -> str:
@@ -41,11 +41,18 @@ class SignupVerifyResponse(CamelModel):
 
 
 class SignupCompleteRequest(CamelModel):
-    """POST /auth/signup/complete — step 3: create business + owner."""
+    """POST /auth/signup/complete — step 3: create business + owner.
+
+    ``country`` is the home country of the business — it drives which
+    documents the business is asked to upload during KYB
+    (``business_document_requirements``). Separate from the ``operating_countries``
+    list the user maintains later on the business profile.
+    """
 
     email: EmailStr
     full_name: text(100, 2)  # type: ignore[valid-type]
     position: text(120) | None = None  # type: ignore[valid-type]
+    country: CountryCode  # type: ignore[valid-type]
     password: str = Field(min_length=8, max_length=200)
     accept_terms: bool
 

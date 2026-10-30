@@ -78,6 +78,17 @@ export interface VerificationState {
   submittedAt: string | null;
   verifiedAt: string | null;
   rejectedReason: string | null;
+  /** When the admin ticked specific items on a reject — subset of the
+   *  mandatory field keys plus ``doc:<slug>`` tokens. Null for drafts
+   *  and verified. Shows up on the Passport card so the user sees
+   *  exactly what to fix. */
+  rejectedItems: string[] | null;
+  /** Display name per ``doc:<slug>`` key in ``rejectedItems`` — looked up
+   *  from the current catalog so the trader sees "Business registration
+   *  certificate" even when they typed something else as cert_type. Field
+   *  keys are NOT in this map; the frontend labels those from
+   *  MANDATORY_FIELDS. Null when no rejection or no doc:* keys. */
+  rejectedItemLabels: Record<string, string> | null;
 }
 
 export type MemberRole = "owner" | "admin" | "member";
@@ -134,6 +145,28 @@ export interface VerificationDoc {
   uploadedAt: string;
   reviewedAt: string | null;
   url: string;
+  requiredDocTypeId: string | null;
+  requirementDisplayName: string | null;
+  requirementSlug: string | null;
+}
+
+/** One row of the Documents tab — either a mandatory/optional slot
+ *  (``requirementId`` set) or a free-form custom upload. */
+export interface DocSlot {
+  requirementId: string | null;
+  slug: string | null;
+  displayName: string;
+  description: string | null;
+  helpUrl: string | null;
+  isMandatory: boolean;
+  upload: VerificationDoc | null;
+}
+
+export interface DocRequirementsResponse {
+  countryCode: string;
+  required: DocSlot[];
+  optional: DocSlot[];
+  customUploads: VerificationDoc[];
 }
 
 export interface ProductRead {
@@ -176,6 +209,8 @@ export interface SignupCompleteIn {
   email: string;
   fullName: string;
   position?: string;
+  /** ISO 3166-1 alpha-2 — the home country of the business. */
+  country: string;
   password: string;
   acceptTerms: true;
 }
@@ -320,6 +355,7 @@ export const api = {
 
   session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
   logout: () => jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  logoutAll: () => jsonFetch<{ ok: boolean }>("/auth/logout-all", { method: "POST" }),
 
   // ─── Onboarding wizard ───
   onboardingStatus: () => jsonFetch<OnboardingStatus>("/onboarding/status"),
@@ -355,14 +391,21 @@ export const api = {
     }),
   listVerificationDocs: () =>
     jsonFetch<VerificationDoc[]>("/me/verification-docs"),
-  uploadVerificationDoc: (certType: string, file: File): Promise<VerificationDoc> => {
+  uploadVerificationDoc: (
+    certType: string,
+    file: File,
+    opts?: { requiredDocTypeId?: string | null },
+  ): Promise<VerificationDoc> => {
     const form = new FormData();
     form.append("cert_type", certType);
     form.append("file", file);
+    if (opts?.requiredDocTypeId) form.append("required_doc_type_id", opts.requiredDocTypeId);
     return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
   },
   deleteVerificationDoc: (id: string) =>
     jsonFetch<void>(`/me/verification-docs/${id}`, { method: "DELETE" }),
+  listDocRequirements: () =>
+    jsonFetch<DocRequirementsResponse>("/me/verification-docs/requirements"),
 
   // ─── Products / reveals ───
   revealContact: (productId: string) =>

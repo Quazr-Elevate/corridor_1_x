@@ -47,6 +47,19 @@ class BusinessDocument(Base):
     uploaded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_business_documents_uploaded_by_user_id"), nullable=True
     )
+    # When this upload fills a known country-mandated slot
+    # (business_document_requirements.id); NULL for custom uploads that
+    # don't match any catalog entry. ON DELETE SET NULL so retiring a
+    # requirement leaves the file intact as a "custom" doc.
+    required_doc_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "business_document_requirements.id",
+            ondelete="SET NULL",
+            name="fk_business_documents_required_doc_type_id",
+        ),
+        nullable=True,
+    )
     # Free text — the UI offers a searchable list ("GST Certificate", "IEC"…).
     doc_type: Mapped[str] = mapped_column(String(150), nullable=False)
     # Uploader's filename (sanitised) — display only.

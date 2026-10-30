@@ -52,12 +52,15 @@ const NAV: ReadonlyArray<{
   match: (p: string) => boolean;
 }> = [
   { href: "/admin", label: "Tower", icon: "radar", match: (p) => p === "/admin" },
+  // KYB now points at the full account directory — the old "review queue"
+  // page (/admin/verify) has moved into the Docs lane where profile +
+  // business cert are reviewed together. Admins come here to list every
+  // account, filter by status, and edit a specific business.
   {
-    href: "/admin/verify",
+    href: "/admin/users",
     label: "KYB",
     icon: "passport",
-    count: (s) => s.pendingVerificationBusinesses,
-    match: (p) => p.startsWith("/admin/verify"),
+    match: (p) => p.startsWith("/admin/users") || p.startsWith("/admin/verify"),
   },
   {
     href: "/admin/docs",
@@ -66,7 +69,12 @@ const NAV: ReadonlyArray<{
     count: (s) => s.pendingDocs,
     match: (p) => p.startsWith("/admin/docs"),
   },
-  { href: "/admin/users", label: "Directory", icon: "users", match: (p) => p.startsWith("/admin/users") },
+  {
+    href: "/admin/doc-requirements",
+    label: "Doc rules",
+    icon: "settings",
+    match: (p) => p.startsWith("/admin/doc-requirements"),
+  },
 ];
 
 export function TowerShell({ children }: { children: ReactNode }) {

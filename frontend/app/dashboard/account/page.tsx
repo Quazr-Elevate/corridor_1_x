@@ -21,6 +21,7 @@ import { useFocusField } from "@/lib/useFocusField";
 import { useDirtyFlag } from "@/lib/useUnsavedGuard";
 import { sectionProgress, statusMeta, verificationCounts, type AccountSection } from "@/lib/verification";
 import { CertificationsBlock, useVerificationDocs } from "@/components/account/CertificationsBlock";
+import { RequiredDocsBlock } from "@/components/account/RequiredDocsBlock";
 import { Combobox } from "@/components/account/Combobox";
 import { COUNTRIES, DIAL_OPTIONS, countryName, parsePhone, toCountryCodes } from "@/components/account/countries";
 import { SendForVerificationBar } from "@/components/account/SendForVerificationBar";
@@ -31,6 +32,7 @@ import { Chip, CountPill } from "@/components/ui/Chip";
 import { ChoiceChips, Segmented } from "@/components/ui/Controls";
 import { FieldShell, Input, ReadField, Select, Textarea } from "@/components/ui/Field";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { Sheet } from "@/components/ui/Sheet";
 import { Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { PassportIdentityCard, type PassportView } from "@/components/account/PassportIdentityCard";
@@ -196,6 +198,31 @@ function Passport() {
     return () => window.clearTimeout(t);
   }, [justSaved]);
 
+  // When a verified business edits any of the 7 mandatory fields, the
+  // backend auto-flips it back to pending_verification. We prompt before
+  // the save so the user knows it's going back to Corridor ops for a
+  // fresh check. Non-mandatory edits (website, intro, etc.) don't trigger
+  // the flip, so no prompt needed. The modal gates `saveAll`; "Keep
+  // editing" cancels, "Save and re-review" proceeds.
+  const [confirmUnverify, setConfirmUnverify] = useState(false);
+
+  const willUnverify =
+    me?.verification.status === "verified" && FORM_KEYS.some((k) => dirty[k]);
+
+  const requestSave = () => {
+    if (!anyDirty || saving) return;
+    if (willUnverify) {
+      setConfirmUnverify(true);
+    } else {
+      void saveAll();
+    }
+  };
+
+  const confirmAndSave = () => {
+    setConfirmUnverify(false);
+    void saveAll();
+  };
+
   async function saveAll() {
     if (!anyDirty || saving) return;
     setSaving(true);
@@ -340,10 +367,18 @@ function Passport() {
             id="certifications"
             index="04"
             title="Documents"
-            subtitle="Optional. Certificates and licences — each one is reviewed on its own by Corridor ops."
+            subtitle="Required documents are set by Corridor ops for your country. Add any further certificates below — each one is reviewed on its own."
             me={me}
           >
-            <CertificationsBlock state={docsState} />
+            <div className="space-y-10">
+              <RequiredDocsBlock onChange={docsState.reload} />
+              <div>
+                <p className="t-label text-fg-3">Other certifications</p>
+                <div className="mt-3">
+                  <CertificationsBlock state={docsState} />
+                </div>
+              </div>
+            </div>
           </SectionCard>
         </div>
       </div>
@@ -357,8 +392,36 @@ function Passport() {
         saving={saving}
         error={saveError}
         justSaved={justSaved}
-        onSave={() => void saveAll()}
+        onSave={requestSave}
       />
+
+      <Sheet
+        open={confirmUnverify}
+        onClose={() => setConfirmUnverify(false)}
+        title="This will unverify your account"
+        description="Changing a mandatory field sends your passport back to Corridor ops for a fresh review. Buyers won't see the Verified badge on your lots until it's approved again."
+        footer={
+          <>
+            <Button variant="quiet" onClick={() => setConfirmUnverify(false)}>
+              Keep editing
+            </Button>
+            <Button variant="danger" icon="shield" onClick={confirmAndSave}>
+              Save and re-review
+            </Button>
+          </>
+        }
+      >
+        <ul className="t-sub space-y-2 text-fg-2">
+          <li className="flex items-start gap-2">
+            <Icon name="info" size={14} className="mt-0.5 shrink-0 text-fg-3" />
+            Your current approved business certificate stays on file — Corridor ops will re-check it with the updated profile.
+          </li>
+          <li className="flex items-start gap-2">
+            <Icon name="info" size={14} className="mt-0.5 shrink-0 text-fg-3" />
+            You'll keep access to the dashboard while under review.
+          </li>
+        </ul>
+      </Sheet>
     </div>
   );
 }
@@ -716,6 +779,46 @@ function CountryPicker({
   );
 }
 
+/** For a mandatory-field key that admin flagged on the current rejection,
+ * return the rejection reason to show as a red hint under the field — but
+ * only while the user's current value matches what's saved on the server
+ * (i.e. they haven't started fixing it yet). As soon as they edit, the
+ * message disappears; if they revert, it reappears. */
+function useFieldRejectHint(key: string, currentValue: string | null): string | null {
+  const { me } = useMe();
+  if (!me) return null;
+  const v = me.verification;
+  if (v.status !== "rejected" || !v.rejectedItems?.includes(key)) return null;
+  const serverValue = (() => {
+    switch (key) {
+      case "fullName": return me.primary.fullName ?? "";
+      case "position": return me.primary.position ?? "";
+      case "phone": return me.primary.phone ?? "";
+      case "legalName": return me.business.legalName ?? "";
+      case "industry": return me.business.industry ?? "";
+      case "tradePosition": return me.business.tradePosition ?? "";
+      default: return "";
+    }
+  })();
+  if ((currentValue ?? "") !== serverValue) return null;
+  const prefix = v.rejectedReason ? `Rejected — ${v.rejectedReason}` : "Rejected — please update this field.";
+  return prefix;
+}
+
+/** Same for list-valued mandatory fields (operating countries). */
+function useFieldRejectHintList(key: string, currentValue: readonly string[] | null): string | null {
+  const { me } = useMe();
+  if (!me) return null;
+  const v = me.verification;
+  if (v.status !== "rejected" || !v.rejectedItems?.includes(key)) return null;
+  const serverValue = key === "operatingCountries" ? me.business.operatingCountries ?? [] : [];
+  const same =
+    (currentValue ?? []).length === serverValue.length &&
+    (currentValue ?? []).every((v, i) => v === serverValue[i]);
+  if (!same) return null;
+  return v.rejectedReason ? `Rejected — ${v.rejectedReason}` : "Rejected — please update this list.";
+}
+
 /** Hydrate once from `me`; report dirty against that baseline. */
 function useBaseline<T>(snapshot: T, ready: boolean, onDirtyChange: (d: boolean) => void) {
   const initial = useRef<string | null>(null);
@@ -759,6 +862,11 @@ const PrimarySection = forwardRef<SectionHandle, SectionProps>(function PrimaryS
   }, [me, hydrated]);
 
   const { markClean } = useBaseline({ fullName, position, phoneDial, phoneNumber }, hydrated, onDirtyChange);
+
+  const phoneCombined = phoneNumber.trim() ? `${phoneDial} ${phoneNumber.trim()}` : "";
+  const fullNameRejectHint = useFieldRejectHint("fullName", fullName);
+  const positionRejectHint = useFieldRejectHint("position", position);
+  const phoneRejectHint = useFieldRejectHint("phone", phoneCombined);
 
   const clear = (k: string) => setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
 
@@ -811,7 +919,7 @@ const PrimarySection = forwardRef<SectionHandle, SectionProps>(function PrimaryS
           clear("fullName");
         }}
         placeholder="e.g. Rhea Kapoor"
-        error={errors.fullName}
+        error={errors.fullName ?? fullNameRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="fullName" />}
       />
       <Input
@@ -825,14 +933,14 @@ const PrimarySection = forwardRef<SectionHandle, SectionProps>(function PrimaryS
           clear("position");
         }}
         placeholder="e.g. Export manager"
-        error={errors.position}
+        error={errors.position ?? positionRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="position" />}
       />
       <FieldShell
         label="Phone"
         htmlFor="phone"
         hint="For Corridor ops — not shown on your lots or in a contact reveal."
-        error={errors.phone}
+        error={errors.phone ?? phoneRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="phone" />}
       >
         <div className="flex gap-2">
@@ -950,6 +1058,10 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
   );
 
   const clear = (k: string) => setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
+
+  const legalNameRejectHint = useFieldRejectHint("legalName", legalName);
+  const industryRejectHint = useFieldRejectHint("industry", industry);
+  const operatingCountriesRejectHint = useFieldRejectHintList("operatingCountries", operatingCountries);
 
   // Older rows may hold an industry outside today's list — keep it selectable.
   const industryOptions = industry && !INDUSTRIES.includes(industry) ? [industry, ...INDUSTRIES] : INDUSTRIES;
@@ -1069,7 +1181,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
           clear("legalName");
         }}
         placeholder="As registered"
-        error={errors.legalName}
+        error={errors.legalName ?? legalNameRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="legalName" />}
       />
       <div className="grid gap-5 sm:grid-cols-2">
@@ -1097,7 +1209,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
           }}
           placeholder="Choose the closest match"
           options={industryOptions}
-          error={errors.industry}
+          error={errors.industry ?? industryRejectHint ?? undefined}
           action={<VerificationBadge fieldKey="industry" />}
         />
       </div>
@@ -1110,7 +1222,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
           setOperatingCountries(v);
           clear("operatingCountries");
         }}
-        error={errors.operatingCountries}
+        error={errors.operatingCountries ?? operatingCountriesRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="operatingCountries" />}
       />
       <Input
@@ -1318,6 +1430,8 @@ const BusinessSection = forwardRef<SectionHandle, SectionProps>(function Busines
 
   const clear = (k: string) => setErrors((e) => (e[k] ? { ...e, [k]: undefined } : e));
 
+  const tradePositionRejectHint = useFieldRejectHint("tradePosition", tradePosition);
+
   const sellerTypeOptions = sellerType && !SELLER_TYPES.includes(sellerType) ? [sellerType, ...SELLER_TYPES] : SELLER_TYPES;
   const exportOptions =
     exportStatus && !EXPORT_STATUSES.includes(exportStatus) ? [exportStatus, ...EXPORT_STATUSES] : EXPORT_STATUSES;
@@ -1371,7 +1485,7 @@ const BusinessSection = forwardRef<SectionHandle, SectionProps>(function Busines
     <SectionForm error={error}>
       <FieldShell
         label="What do you want to do on Corridor?"
-        error={errors.tradePosition}
+        error={errors.tradePosition ?? tradePositionRejectHint ?? undefined}
         action={<VerificationBadge fieldKey="tradePosition" />}
       >
         <TradePositionCards

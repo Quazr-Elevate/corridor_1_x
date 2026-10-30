@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import case, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, NotFound
@@ -14,6 +15,7 @@ from app.core.time import ensure_aware, utcnow
 from app.models.admin_action import AdminAction
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
+from app.models.business_document_requirement import BusinessDocumentRequirement
 from app.models.product import Product
 from app.models.user import User
 from app.modules.accounts.uniqueness import (
@@ -23,6 +25,9 @@ from app.modules.accounts.uniqueness import (
 )
 from app.modules.admin.schemas import (
     DashboardStats,
+    DocRequirementIn,
+    DocRequirementOut,
+    DocRequirementUpdate,
     PendingDocRow,
     StuckUser,
     TimelinePoint,
@@ -35,6 +40,7 @@ from app.modules.admin.schemas import (
 from app.modules.verification.rules import (
     ADMIN_REJECTABLE_STATUSES,
     ADMIN_VERIFIABLE_STATUSES,
+    MANDATORY_FIELDS,
     missing_mandatory_keys,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
@@ -186,18 +192,31 @@ async def _docs_by_business(db: AsyncSession, business_ids: list[uuid.UUID]) -> 
     out: dict[uuid.UUID, list[DocOut]] = {}
     if not business_ids:
         return out
-    rows = await db.scalars(
-        select(BusinessDocument)
-        .where(BusinessDocument.business_id.in_(business_ids))
-        .order_by(BusinessDocument.uploaded_at.asc())
-    )
-    for d in rows:
-        out.setdefault(d.business_id, []).append(doc_to_out(d, for_admin=True))
+    rows = (
+        await db.execute(
+            select(BusinessDocument, BusinessDocumentRequirement)
+            .outerjoin(
+                BusinessDocumentRequirement,
+                BusinessDocumentRequirement.id == BusinessDocument.required_doc_type_id,
+            )
+            .where(BusinessDocument.business_id.in_(business_ids))
+            .order_by(BusinessDocument.uploaded_at.asc())
+        )
+    ).all()
+    for d, req in rows:
+        out.setdefault(d.business_id, []).append(doc_to_out(d, for_admin=True, requirement=req))
     return out
 
 
 async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
-    """Businesses in ``pending_verification``, oldest submission first."""
+    """Businesses in ``pending_verification``, oldest submission first.
+
+    Under the new single-review flow the admin reviews the business
+    certificate and the 7 mandatory fields together in the Docs lane —
+    there's no separate doc-approval gate. This query is the source for
+    that queue, with each row carrying the business's docs so the
+    reviewer sees everything at once.
+    """
     rows = (
         await db.execute(
             _owner_join()
@@ -212,6 +231,8 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
             business_id=str(b.id),
             email=u.email,
             full_name=u.full_name,
+            position=u.position,
+            phone=u.phone,
             business_name=b.legal_name,
             country=b.country,
             industry=b.industry,
@@ -411,7 +432,13 @@ async def _decision(db: AsyncSession, user: User, business: Business) -> Decisio
 
 
 async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None) -> Decision:
-    """Approve the user's business."""
+    """Approve the user's business.
+
+    The business cert doc(s) submitted alongside the profile are
+    implicitly approved too — admins review the whole package in one
+    place under the single-review flow, so a verify here cascades to
+    "approved" on every pending/rejected mandatory doc.
+    """
     user = await load_user(db, uid)
     b = user.business
     if b.verification_status not in ADMIN_VERIFIABLE_STATUSES:
@@ -427,14 +454,31 @@ async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None)
     b.verified_at = now
     b.verification_submitted_at = b.verification_submitted_at or now
     b.verification_rejected_reason = None
+    b.verification_rejected_items = None
+    await _cascade_cert_docs(db, b, admin_email, DocStatus.approved, reason=None, now=now)
     record_action(db, admin_email=admin_email, action="business.verify", target_type="business", target_id=b.id)
     decision = await _decision(db, user, b)
     await db.commit()
     return decision
 
 
-async def reject_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None, reason: str) -> Decision:
-    """Reject (or revoke) the user's business with a reason."""
+async def reject_user(
+    db: AsyncSession,
+    admin_email: str,
+    uid: uuid.UUID | None,
+    reason: str,
+    *,
+    failed_items: list[str] | None = None,
+) -> Decision:
+    """Reject (or revoke) the user's business with a reason.
+
+    ``failed_items`` is the admin's checklist of which specific items
+    failed — any subset of the 7 mandatory profile keys plus
+    ``doc:<slug>`` tokens. For every ``doc:*`` key picked, the business's
+    pending-or-approved upload for that slug is marked rejected with the
+    same reason, so the trader's Documents tab shows the file as
+    "Rejected — replace it".
+    """
     reason = clean_reason(reason)
     user = await load_user(db, uid)
     b = user.business
@@ -443,34 +487,118 @@ async def reject_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None,
             "Only businesses awaiting verification (or verified) can be rejected "
             f"(current status: {b.verification_status.value})."
         )
+    items = _validate_failed_items(failed_items or [], b)
+    doc_slugs = [key.split(":", 1)[1] for key in items if key.startswith("doc:")]
+    now = utcnow()
     b.verification_status = BusinessStatus.rejected
     b.verification_rejected_reason = reason
+    b.verification_rejected_items = items or None
+    if doc_slugs:
+        await _cascade_cert_docs(
+            db, b, admin_email, DocStatus.rejected, reason=reason, now=now, only_slugs=doc_slugs
+        )
     record_action(
-        db, admin_email=admin_email, action="business.reject", target_type="business", target_id=b.id, reason=reason
+        db,
+        admin_email=admin_email,
+        action="business.reject",
+        target_type="business",
+        target_id=b.id,
+        reason=reason,
+        details={"failed_items": items} if items else None,
     )
     decision = await _decision(db, user, b)
     await db.commit()
     return decision
 
 
+def _validate_failed_items(items: list[str], business: Business) -> list[str]:
+    """Keeps only known-good keys: the 7 field keys and ``doc:<slug>`` for
+    slugs currently used by one of the business's uploaded docs. Unknown
+    keys are dropped silently — the admin's reason text carries the full
+    context either way."""
+    out: list[str] = []
+    valid_fields = {f.key for f in MANDATORY_FIELDS}
+    for raw in items:
+        key = (raw or "").strip()
+        if not key:
+            continue
+        if key in valid_fields:
+            out.append(key)
+        elif key.startswith("doc:") and len(key) > 4:
+            out.append(key)
+    # De-duplicate while preserving order.
+    return list(dict.fromkeys(out))
+
+
+async def _cascade_cert_docs(
+    db: AsyncSession,
+    business: Business,
+    admin_email: str,
+    target: DocStatus,
+    *,
+    reason: str | None,
+    now,
+    only_slugs: list[str] | None = None,
+) -> None:
+    """Flip the business's mandatory-cert docs to ``target``.
+
+    - Verify flow: approve every pending/rejected cert the business has
+      uploaded against a known slot (``only_slugs=None``).
+    - Reject flow: reject only the cert docs whose slot slug the admin
+      picked in the failed-items list (``only_slugs=[...]``).
+    """
+    stmt = (
+        select(BusinessDocument, BusinessDocumentRequirement)
+        .join(
+            BusinessDocumentRequirement,
+            BusinessDocumentRequirement.id == BusinessDocument.required_doc_type_id,
+        )
+        .where(BusinessDocument.business_id == business.id)
+        .where(BusinessDocument.required_doc_type_id.is_not(None))
+    )
+    if only_slugs is not None:
+        stmt = stmt.where(BusinessDocumentRequirement.slug.in_(only_slugs))
+    for doc, _req in (await db.execute(stmt)).all():
+        if doc.status == target:
+            continue
+        doc.status = target
+        doc.reviewed_at = now
+        doc.reviewed_by = admin_email
+        doc.rejection_reason = reason if target == DocStatus.rejected else None
+
+
 # ── Documents ────────────────────────────────────────────────────────
 
 
-async def pending_docs(db: AsyncSession) -> list[PendingDocRow]:
-    rows = (
-        await db.execute(
-            select(BusinessDocument, Business)
-            .join(Business, Business.id == BusinessDocument.business_id)
-            .where(BusinessDocument.status == DocStatus.pending, Business.deleted_at.is_(None))
-            .order_by(BusinessDocument.uploaded_at.asc())
+async def pending_docs(db: AsyncSession, *, kind: str | None = None) -> list[PendingDocRow]:
+    """Pending uploads for admin review.
+
+    ``kind=business`` returns only uploads filling a country-mandated slot
+    (``required_doc_type_id`` set). ``kind=other`` returns the custom
+    (free-form) uploads. ``None`` returns both.
+    """
+    stmt = (
+        select(BusinessDocument, Business, BusinessDocumentRequirement)
+        .join(Business, Business.id == BusinessDocument.business_id)
+        .outerjoin(
+            BusinessDocumentRequirement,
+            BusinessDocumentRequirement.id == BusinessDocument.required_doc_type_id,
         )
-    ).all()
+        .where(BusinessDocument.status == DocStatus.pending, Business.deleted_at.is_(None))
+    )
+    if kind == "business":
+        stmt = stmt.where(BusinessDocument.required_doc_type_id.is_not(None))
+    elif kind == "other":
+        stmt = stmt.where(BusinessDocument.required_doc_type_id.is_(None))
+    elif kind is not None:
+        raise BadRequest("kind must be 'business' or 'other'.")
+    rows = (await db.execute(stmt.order_by(BusinessDocument.uploaded_at.asc()))).all()
     out = []
-    for d, b in rows:
+    for d, b, req in rows:
         owner = await get_owner(db, b.id)
         out.append(
             PendingDocRow(
-                doc=doc_to_out(d, for_admin=True),
+                doc=doc_to_out(d, for_admin=True, requirement=req),
                 user_id=str(owner.id) if owner else None,
                 business_id=str(b.id),
                 user_email=owner.email if owner else None,
@@ -527,3 +655,122 @@ async def review_doc(
     )
     await db.commit()
     return result
+
+
+# ── Country document requirements (admin CRUD) ──────────────────────
+
+
+def _req_to_out(r: BusinessDocumentRequirement) -> DocRequirementOut:
+    return DocRequirementOut(
+        id=str(r.id),
+        country_code=r.country_code,
+        slug=r.slug,
+        display_name=r.display_name,
+        description=r.description,
+        help_url=r.help_url,
+        is_mandatory=r.is_mandatory,
+        is_active=r.is_active,
+        created_by=r.created_by,
+        updated_by=r.updated_by,
+        created_at=ensure_aware(r.created_at),
+        updated_at=ensure_aware(r.updated_at),
+    )
+
+
+async def list_doc_requirements(
+    db: AsyncSession, *, country: str | None, include_inactive: bool
+) -> list[DocRequirementOut]:
+    """Return the catalog, newest first within (country, is_active) grouping."""
+    stmt = select(BusinessDocumentRequirement)
+    if country:
+        stmt = stmt.where(BusinessDocumentRequirement.country_code == country.upper())
+    if not include_inactive:
+        stmt = stmt.where(BusinessDocumentRequirement.is_active.is_(True))
+    stmt = stmt.order_by(
+        BusinessDocumentRequirement.country_code,
+        BusinessDocumentRequirement.is_active.desc(),
+        BusinessDocumentRequirement.display_name,
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_req_to_out(r) for r in rows]
+
+
+async def create_doc_requirement(
+    db: AsyncSession, admin_email: str, payload: DocRequirementIn
+) -> DocRequirementOut:
+    """Create a new catalog row. Conflicts if an active row exists for the
+    same (country, slug) — the admin should either reuse it or deactivate
+    the old one first."""
+    row = BusinessDocumentRequirement(
+        country_code=payload.country_code,
+        slug=payload.slug,
+        display_name=payload.display_name,
+        description=payload.description,
+        help_url=payload.help_url,
+        is_mandatory=payload.is_mandatory,
+        is_active=True,
+        created_by=admin_email,
+        updated_by=admin_email,
+    )
+    db.add(row)
+    record_action(
+        db,
+        admin_email=admin_email,
+        action="doc_requirement.create",
+        target_type="doc_requirement",
+        target_id=row.id,
+        details={
+            "country_code": row.country_code,
+            "slug": row.slug,
+            "display_name": row.display_name,
+            "is_mandatory": row.is_mandatory,
+        },
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise Conflict(
+            f"A requirement for {payload.country_code}/{payload.slug} already exists."
+        ) from None
+    await db.refresh(row)
+    return _req_to_out(row)
+
+
+async def update_doc_requirement(
+    db: AsyncSession, admin_email: str, req_id: uuid.UUID, payload: DocRequirementUpdate
+) -> DocRequirementOut:
+    """PATCH-style merge. ``country_code`` / ``slug`` stay immutable."""
+    row = await db.get(BusinessDocumentRequirement, req_id)
+    if row is None:
+        raise NotFound("Requirement not found")
+    data = payload.model_dump(exclude_unset=True)
+    if not data:
+        return _req_to_out(row)
+    before = {k: getattr(row, k) for k in data}
+    for k, v in data.items():
+        setattr(row, k, v)
+    row.updated_by = admin_email
+    row.updated_at = utcnow()
+    record_action(
+        db,
+        admin_email=admin_email,
+        action="doc_requirement.update",
+        target_type="doc_requirement",
+        target_id=row.id,
+        details={"before": _jsonable(before), "after": _jsonable(data)},
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise Conflict(
+            "This change collides with another active row for the same country+slug."
+        ) from None
+    await db.refresh(row)
+    return _req_to_out(row)
+
+
+def _jsonable(d: dict[str, Any]) -> dict[str, Any]:
+    """Make the audit-log details column JSON-safe for enum / UUID values."""
+    return {k: (v.value if hasattr(v, "value") else v) for k, v in d.items()}

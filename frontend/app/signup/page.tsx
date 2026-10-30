@@ -14,7 +14,8 @@ import {
 import { SignupSteps } from "@/components/auth/SignupSteps";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Field";
+import { Input, Select } from "@/components/ui/Field";
+import { COUNTRIES } from "@/components/account/countries";
 import { Checkbox } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { Notice } from "@/components/ui/Surface";
@@ -388,13 +389,16 @@ function CodeStep({
 
 /* ─────────────────────────────── 3 · Details ─────────────────────────────── */
 
-type DetailKey = "fullName" | "position" | "password" | "confirm" | "terms";
+type DetailKey = "fullName" | "position" | "country" | "password" | "confirm" | "terms";
 type DetailErrors = Partial<Record<DetailKey, string>>;
+
+const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ value: c.code, label: c.name }));
 
 function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: ReactNode) => void }) {
   const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [position, setPosition] = useState("");
+  const [country, setCountry] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [accept, setAccept] = useState(false);
@@ -414,6 +418,7 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
     const fe: DetailErrors = {};
     if (!fullName.trim()) fe.fullName = "Enter your full name.";
     else if (/\d/.test(fullName)) fe.fullName = "Names can’t contain numbers.";
+    if (!country) fe.country = "Pick the home country of your business.";
     if (password.length < PASSWORD_MIN) fe.password = `Use at least ${PASSWORD_MIN} characters.`;
     else if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) fe.password = "That password is too long.";
     if (!fe.password && confirm !== password) fe.confirm = "Passwords don’t match.";
@@ -435,6 +440,7 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
         email,
         fullName: fullName.trim(),
         position: position.trim() || undefined,
+        country,
         password,
         acceptTerms: true,
       });
@@ -452,6 +458,7 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
           const m = err.message;
           if (/^fullName/i.test(m)) setErrors({ fullName: m.replace(/^fullName:\s*/i, "") });
           else if (/^position/i.test(m)) setErrors({ position: m.replace(/^position:\s*/i, "") });
+          else if (/^country/i.test(m)) setErrors({ country: m.replace(/^country:\s*/i, "") });
           else if (/^password/i.test(m)) setErrors({ password: m.replace(/^password:\s*/i, "") });
           else if (/^acceptTerms/i.test(m)) setErrors({ terms: "Please accept the Terms and Privacy Policy to continue." });
           else setFormError(m);
@@ -508,6 +515,22 @@ function DetailsStep({ email, onRestart }: { email: string; onRestart: (note: Re
           onChange={(e) => {
             setPosition(e.target.value);
             clear("position");
+          }}
+        />
+        <Select
+          night
+          size="lg"
+          label="Country"
+          name="country"
+          required
+          hint="The home country of your business — drives which KYB documents we'll ask for."
+          error={errors.country}
+          placeholder="Choose a country"
+          value={country}
+          options={COUNTRY_OPTIONS}
+          onChange={(e) => {
+            setCountry(e.target.value);
+            clear("country");
           }}
         />
         <PasswordInput

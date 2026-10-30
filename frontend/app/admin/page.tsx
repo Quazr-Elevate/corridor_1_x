@@ -64,16 +64,23 @@ export default function TowerHomePage() {
     void load();
   }, [load]);
 
-  const now = Date.now();
+  // B7 — `now` must tick: the overdue partition is derived from
+  // `Date.now()`, so freezing it at mount leaves the operator looking at
+  // "on target" rows that are actually past their 24h deadline. 30s is
+  // enough to catch the deadline crossing within the operator's natural
+  // scanning rhythm without churning renders.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
   const overdueKyb = useMemo(
     () => (queues.kyb ?? []).filter((r) => dueState(r.submittedAt ?? r.createdAt, now).over),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [queues.kyb],
+    [queues.kyb, now],
   );
   const overdueDocs = useMemo(
     () => (queues.docs ?? []).filter((r) => dueState(r.doc.uploadedAt, now).over),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [queues.docs],
+    [queues.docs, now],
   );
   const queuesKnown = queues.kyb !== null && queues.docs !== null;
 
@@ -290,11 +297,10 @@ export default function TowerHomePage() {
 
         <Reveal delay={0.08}>
           <section
-            data-surface="trader"
             aria-labelledby="signups-h"
-            className="rounded-[30px] bg-cream p-6 text-ink shadow-[0_30px_60px_-30px_rgb(0_0_0/0.9),inset_0_1px_0_rgb(255_255_255/0.6)]"
+            className="relief rounded-[30px] p-6"
           >
-            <p className="t-label text-accent">Last 30 days</p>
+            <p className="t-label text-fg-3">Last 30 days</p>
             <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 id="signups-h" className="t-title3 text-fg">
