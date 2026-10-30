@@ -162,6 +162,24 @@ async def list_docs(db: AsyncSession, business_id: uuid.UUID) -> Sequence[Busine
     )
 
 
+async def list_docs_out(db: AsyncSession, business_id: uuid.UUID) -> list["DocOut"]:
+    """List as DocOut with requirement join — the trader list_docs
+    endpoint relies on this to surface ``requirementSlug`` and
+    ``requirementDisplayName`` on each row, matching the admin side."""
+    rows = (
+        await db.execute(
+            select(BusinessDocument, BusinessDocumentRequirement)
+            .outerjoin(
+                BusinessDocumentRequirement,
+                BusinessDocumentRequirement.id == BusinessDocument.required_doc_type_id,
+            )
+            .where(BusinessDocument.business_id == business_id)
+            .order_by(BusinessDocument.uploaded_at.desc())
+        )
+    ).all()
+    return [doc_to_out(d, requirement=req) for d, req in rows]
+
+
 async def get_doc(
     db: AsyncSession, doc_id: uuid.UUID | None, *, business_id: uuid.UUID | None = None
 ) -> BusinessDocument:

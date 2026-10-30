@@ -45,7 +45,7 @@ async def list_requirements(user: CurrentUser, db: DbSession) -> DocRequirements
 
 @router.get("", response_model=list[DocOut], response_model_by_alias=True)
 async def list_docs(user: CurrentUser, db: DbSession) -> list[DocOut]:
-    return [doc_to_out(d) for d in await service.list_docs(db, user.business_id)]
+    return await service.list_docs_out(db, user.business_id)
 
 
 @router.get("/{doc_id}/file")

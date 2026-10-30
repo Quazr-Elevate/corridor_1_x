@@ -372,7 +372,9 @@ function BusinessDetail({
   onApprove: () => void;
   onReject: () => void;
 }) {
-  const cert = (row.docs || []).find((d) => d.requiredDocTypeId) ?? row.docs[0];
+  // Every mandatory cert the trader has uploaded — one card each so the
+  // admin can preview and judge each one, not just the first.
+  const certs = (row.docs || []).filter((d) => d.requirementSlug);
   return (
     <Card className="rounded-[32px] p-6 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -393,11 +395,20 @@ function BusinessDetail({
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-2">
-        <section aria-label="Business certificate">
-          <h3 className="t-label text-fg-3">Business certificate</h3>
-          {cert ? <CertViewer doc={cert} /> : (
+        <section aria-label="Business certificates">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="t-label text-fg-3">Business certificates</h3>
+            <span className="t-code tabular text-fg-3">{certs.length} uploaded</span>
+          </div>
+          {certs.length ? (
+            <div className="mt-3 space-y-3">
+              {certs.map((d) => (
+                <CertViewer key={d.id} doc={d} />
+              ))}
+            </div>
+          ) : (
             <div className="relief mt-3 rounded-[22px] p-6 text-center text-fg-3">
-              No certificate uploaded yet.
+              No certificates uploaded yet.
             </div>
           )}
         </section>
@@ -538,9 +549,11 @@ function CertViewer({ doc }: { doc: VerifyDoc }) {
             <Icon name="doc-check" size={22} className="text-fg-3" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="t-callout break-all text-fg">{doc.filename}</p>
-            <p className="t-sub mt-0.5 text-fg-3">
-              {doc.certType} · {doc.mimeType} · {Math.max(1, Math.round(doc.sizeBytes / 1024))} KB
+            <p className="t-headline break-words text-fg">
+              {doc.requirementDisplayName ?? doc.certType}
+            </p>
+            <p className="t-sub mt-1 break-all text-fg-3">
+              {doc.filename} · {Math.max(1, Math.round(doc.sizeBytes / 1024))} KB
             </p>
           </div>
           <Button variant="quiet" size="sm" onClick={() => setOpen(true)}>
