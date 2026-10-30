@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CHAR, CheckConstraint, Enum, ForeignKey, Index, Integer, String, Uuid, event, func, text
+from sqlalchemy import CHAR, CheckConstraint, Enum, ForeignKey, Index, Integer, String, Uuid, event, func, text, select
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.models.base import Base, UTCDateTime
@@ -121,18 +121,20 @@ class User(Base):
         return value
 
 
-#: Business country → default display currency (everything else: USD).
-COUNTRY_CURRENCY = {"IN": "INR", "AE": "AED"}
+def default_display_currency(country: str | None, conn=None) -> str:
+    """The country's ``default_currency`` (countries table), else USD."""
+    code = (country or "").strip().upper()
+    if not code or conn is None:
+        return "USD"
+    from app.models.country import Country
 
-
-def default_display_currency(country: str | None) -> str:
-    return COUNTRY_CURRENCY.get((country or "").strip().upper(), "USD")
+    return conn.execute(select(Country.default_currency).where(Country.code == code)).scalar() or "USD"
 
 
 @event.listens_for(User, "before_insert")
 def _default_display_currency(_mapper, _conn, target: User) -> None:
     """New users without an explicit choice get their business country's
-    currency (IN → INR, AE → AED, else USD)."""
+    default currency (``countries.default_currency``; else USD)."""
     if not target.display_currency:
         business = target.__dict__.get("business")
-        target.display_currency = default_display_currency(business.country if business is not None else None)
+        target.display_currency = default_display_currency(business.country if business is not None else None, _conn)

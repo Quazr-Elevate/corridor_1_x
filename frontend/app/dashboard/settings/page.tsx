@@ -169,7 +169,7 @@ function SectionCard({
       aria-labelledby={`${id}-title`}
       className={cn(
         "relief scroll-mt-32 rounded-[30px] p-5 sm:p-8",
-        tone === "danger" && "shadow-[var(--relief),inset_0_0_0_1px_rgb(179_38_30/0.18)]",
+        tone === "danger" && "[box-shadow:var(--relief),inset_0_0_0_1px_rgb(179_38_30/0.18)]",
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -391,6 +391,7 @@ function CurrencySection() {
 function SessionSection() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [busyAll, setBusyAll] = useState(false);
 
   async function signOut() {
     setBusy(true);
@@ -403,17 +404,52 @@ function SessionSection() {
     }
   }
 
+  // S3 — "Sign out everywhere" revokes every active session (every browser,
+  // every phone), so it matches Delete-account's destructive weight. The
+  // HoldButton gives it the same intentional friction the rest of the
+  // destructive actions carry; plain Sign-out stays one-click because it
+  // only affects this device.
+  async function signOutAll() {
+    setBusyAll(true);
+    try {
+      await api.logoutAll();
+    } catch {
+      // Even on failure, the current cookie may be cleared — go to login.
+    } finally {
+      router.replace("/login");
+    }
+  }
+
   return (
     <SectionCard
       id="session"
       index="03"
       icon="logout"
       title="Session"
-      description="Sign out of Corridor on this device."
+      description="Sign out of this device, or every device you're signed in on."
     >
-      <Button variant="secondary" icon="logout" loading={busy} onClick={signOut} className="w-full sm:w-auto">
-        Sign out
-      </Button>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <Button
+          variant="secondary"
+          icon="logout"
+          loading={busy}
+          onClick={signOut}
+          disabled={busyAll}
+          className="w-full sm:w-auto"
+        >
+          Sign out
+        </Button>
+        <HoldButton
+          tone="danger"
+          icon="logout"
+          loading={busyAll}
+          onCommit={signOutAll}
+          disabled={busy}
+          className="w-full sm:w-auto"
+        >
+          Sign out everywhere
+        </HoldButton>
+      </div>
     </SectionCard>
   );
 }

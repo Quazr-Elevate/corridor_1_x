@@ -9,6 +9,26 @@ from app.models.kyb_document_type import KybDocumentType
 from app.shared.schemas import CamelModel
 
 
+class CountryOut(CamelModel):
+    """A country businesses can pick, with its address conventions."""
+
+    code: str
+    name: str
+    flag: str | None = None
+    dial_code: str | None = None
+    default_currency: str
+    region_label: str
+    postal_label: str
+    postal_pattern: str | None = None
+
+
+def country_to_out(c) -> CountryOut:
+    return CountryOut(
+        code=c.code, name=c.name, flag=c.flag, dial_code=c.dial_code, default_currency=c.default_currency,
+        region_label=c.region_label, postal_label=c.postal_label, postal_pattern=c.postal_pattern,
+    )
+
+
 class DocTypeOut(CamelModel):
     """One option of the KYB dropdown (``kyb_document_types``)."""
 

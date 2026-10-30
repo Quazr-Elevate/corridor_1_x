@@ -526,3 +526,69 @@ Existing rows keep their file and name and appear as "Other".
 
 Company name + registered address with country + every **mandatory** document
 type for that country. Logo, banner and other profile fields are optional.
+
+---
+
+## Combined KYB review (`0022_reject_items`)
+
+Approved 2026-10-31.
+
+* `businesses.verification_rejected_items` — JSON list, nullable. Keys the
+  admin ticked when rejecting: profile fields (`legalName`, `addressLine`,
+  `city`, `country`) and KYB entries (`kyb:<code>` for listed documents,
+  `doc:<entry id>` for "Other"). Flagged entries are rejected with the same
+  reason. Cleared on resubmit and on approval.
+
+Rules (API, not schema):
+
+* **Countries** — a country exists only once an admin adds it *together
+  with* its documents (`POST /admin/kyb/countries`, ≥ 1 required). The last
+  active required document of a country can't be hidden or made optional.
+  Businesses may only pick set-up countries (`GET /kyb/countries`).
+* **One review** — `/admin/verify` reviews profile and documents together.
+  Approving a business approves its pending documents. The queue also lists
+  verified businesses with new pending documents (reviewed per document; the
+  business stays verified).
+* **Re-review** — a verified business that changes its company name,
+  address, city or country, or adds / changes / removes a *required*
+  document, goes back to `pending_verification` (its listings leave the
+  market until re-approved). The UI asks for confirmation first.
+
+---
+
+## Countries (`0023_countries`)
+
+Approved 2026-10-31.
+
+### 10. `countries`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `code` | char(2) | PK | ISO 3166-1 alpha-2; `ck_countries_code` (2 upper-case letters) |
+| `name` | varchar(100) | no | unique (`uq_countries_name`) |
+| `flag` | varchar(8) | yes | emoji |
+| `dial_code` | varchar(6) | yes | `+91`; `ck_countries_dial_code` |
+| `default_currency` | char(3) | no | INR / AED / USD (`ck_countries_default_currency`) — a new user's display currency |
+| `region_label` | varchar(30) | no | "State", "Emirate"… (address form) |
+| `postal_label` | varchar(30) | no | "PIN code", "PO Box"… |
+| `postal_pattern` | varchar(100) | yes | postcode format check |
+| `active` | bool | no | open for onboarding; false = paused (existing businesses unaffected) |
+| `created_by` / `updated_by` | varchar(200) | no | admin email or `system` |
+| `created_at` / `updated_at` | timestamptz | no | |
+
+Index `ix_countries_active`. Never deleted.
+
+Foreign keys (ON DELETE RESTRICT): `businesses.country` → `countries.code`
+(`fk_businesses_country`), `kyb_document_types.country` → `countries.code`
+(`fk_kyb_document_types_country`). `operating_countries` / `target_markets`
+stay free lists (informational).
+
+Seed: India and the UAE, plus every code already used by businesses or
+document types (known codes from a 20-country reference; unknown codes as a
+paused placeholder named by its code).
+
+Rules: a country is offered to businesses when `active` **and** it has an
+active required document. `POST /admin/kyb/countries` creates (or completes a
+seeded) country together with its documents; `PATCH /admin/kyb/countries/{code}`
+edits details or pauses / resumes. Postcodes are checked against
+`postal_pattern`. Changes are audited (`kyb_country.create` / `kyb_country.update`).

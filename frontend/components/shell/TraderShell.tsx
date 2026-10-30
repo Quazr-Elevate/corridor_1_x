@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, type Me } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { canSubmit } from "@/lib/verification";
 import { MEDIA } from "@/lib/media";
 import { MeContext } from "@/lib/useMe";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -278,6 +279,9 @@ function VerificationState({ me }: { me: Me }) {
   const v = me.verification;
   const s = v.status;
   const filled = v.mandatoryTotal - v.missing.length;
+  // Everything is in but not yet sent: say so positively ("12/12 to verify"
+  // reads like work is still left).
+  const readyToSend = s === "draft" && canSubmit(v);
   const yourMove = s === "rejected" || (s !== "verified" && s !== "pending_verification");
   const label =
     s === "verified"
@@ -286,7 +290,9 @@ function VerificationState({ me }: { me: Me }) {
         ? "In review"
         : s === "rejected"
           ? "Needs changes"
-          : `${filled} of ${v.mandatoryTotal} items to verify`;
+          : readyToSend
+            ? "Ready to send"
+            : `${filled} of ${v.mandatoryTotal} items to verify`;
   const chip =
     s === "verified" ? (
       <Chip tone="verified">Verified</Chip>
@@ -296,6 +302,10 @@ function VerificationState({ me }: { me: Me }) {
       </Chip>
     ) : s === "rejected" ? (
       <Chip tone="frozen">Needs changes</Chip>
+    ) : readyToSend ? (
+      <Chip tone="verified" noIcon>
+        Ready to send
+      </Chip>
     ) : (
       <Chip tone="move" noIcon>
         {filled}/{v.mandatoryTotal} to verify

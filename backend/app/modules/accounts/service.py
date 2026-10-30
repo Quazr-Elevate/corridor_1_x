@@ -13,6 +13,7 @@ from app.core.time import utcnow
 from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument
+from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
 from app.models.user import User, UserRole
@@ -38,7 +39,13 @@ from app.modules.accounts.uniqueness import (
     ensure_phone_available,
 )
 from app.modules.fx.service import ensure_supported
-from app.modules.verification.rules import SUBMITTABLE_STATUSES, requirements
+from app.modules.verification.rules import (
+    PROFILE_FIELDS,
+    SUBMITTABLE_STATUSES,
+    is_configured,
+    reopen_review,
+    requirements,
+)
 
 #: Public branding images (logo, banner) — served by ``GET /uploads/branding/<file>``.
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -77,10 +84,30 @@ async def verification_state(db: AsyncSession, business: Business) -> Verificati
         missing=[r.key for r in report.missing],
         missing_labels=[r.label for r in report.missing],
         mandatory_total=report.total,
+        rejected_items=list(business.verification_rejected_items or []),
+        rejected_item_labels=await _rejected_labels(db, business),
         submitted_at=business.verification_submitted_at,
         verified_at=business.verified_at,
         rejected_reason=business.verification_rejected_reason,
     )
+
+
+async def _rejected_labels(db: AsyncSession, business: Business) -> list[str]:
+    """Labels for the flagged keys: profile fields, ``kyb:<code>`` (the
+    admin's document name), ``doc:<id>`` (the entry's custom name)."""
+    items = list(business.verification_rejected_items or [])
+    if not items:
+        return []
+    fields = {f.key: f.label for f in PROFILE_FIELDS}
+    types = {
+        f"kyb:{t.code}": t.name
+        for t in await db.scalars(select(KybDocumentType).where(KybDocumentType.country == business.country))
+    }
+    entries = {
+        f"doc:{d.id}": d.doc_type
+        for d in await db.scalars(select(BusinessDocument).where(BusinessDocument.business_id == business.id))
+    }
+    return [fields.get(k) or types.get(k) or entries.get(k) or "A removed document" for k in items]
 
 
 def primary_data(u: User) -> PrimaryData:
@@ -178,6 +205,7 @@ async def submit_for_verification(db: AsyncSession, user: User) -> VerificationS
         b.verification_status = BusinessStatus.pending_verification
         b.verification_submitted_at = utcnow()
         b.verification_rejected_reason = None
+        b.verification_rejected_items = None
         await db.commit()
     return await verification_state(db, b)
 
@@ -245,6 +273,7 @@ async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn
     await ensure_company_available(db, user.business_id, legal_name=payload.legal_name, website_url=website)
     u = await reload_user(db, user.id)
     b = u.business
+    before = _kyb_snapshot(b)
     b.legal_name = payload.legal_name
     b.industry = payload.industry
     b.operating_countries = list(payload.operating_countries)
@@ -256,6 +285,8 @@ async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn
             setattr(b, field, getattr(payload, field) or None)
     if "country" in payload.model_fields_set and payload.country:
         await _change_country(db, b, payload.country)  # NOT NULL column — blank leaves it unchanged
+    if _kyb_snapshot(b) != before:
+        reopen_review(b)
     return await _finish_save(db, u.id)
 
 
@@ -290,6 +321,8 @@ async def _change_country(db: AsyncSession, business: Business, country: str) ->
     country = country.upper()
     if country == business.country:
         return
+    if not await is_configured(db, country):
+        raise BadRequest("Corridor One X doesn’t onboard businesses from that country yet.")
     foreign = await db.scalar(
         select(KybDocumentType.name)
         .join(BusinessDocument, BusinessDocument.document_type_id == KybDocumentType.id)
@@ -312,6 +345,7 @@ async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSav
     )
     u = await reload_user(db, user.id)
     b = u.business
+    before = _kyb_snapshot(b)
     b.legal_name = " ".join(payload.legal_name.split())
     await _change_country(db, b, payload.country)
     if "website_url" in sent:
@@ -319,8 +353,28 @@ async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSav
     for field in PROFILE_OPTIONAL_FIELDS:
         if field in sent:
             setattr(b, field, getattr(payload, field) or None)
+    await _check_postcode(db, b)
+    if _kyb_snapshot(b) != before:
+        reopen_review(b)
     await commit_or_conflict(db)
     return await me_view(db, u)
+
+
+async def _check_postcode(db: AsyncSession, b: Business) -> None:
+    """Postcode must match the country's pattern when one is set."""
+    if not b.pincode:
+        return
+    country = await db.get(Country, b.country)
+    if country is not None and country.postal_pattern:
+        if not re.fullmatch(country.postal_pattern, b.pincode.strip().upper()):
+            raise BadRequest(f"That doesn’t look like a valid {country.postal_label} for {country.name}.")
+
+
+def _kyb_snapshot(b: Business) -> tuple:
+    """The company fields KYB verifies — a change on a verified business
+    sends it back to review."""
+    norm = lambda v: " ".join((v or "").split()).lower()  # noqa: E731
+    return (norm(b.legal_name), norm(b.address_line), norm(b.city), (b.country or "").upper())
 
 
 # ── Branding images (logo / banner) ──────────────────────────────────

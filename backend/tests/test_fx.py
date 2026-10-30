@@ -337,7 +337,13 @@ async def test_display_currency_default_update_and_validation(client):
 
 
 async def test_display_currency_default_follows_business_country():
+    """Comes from ``countries.default_currency`` (SA is added here: USD)."""
+    from app.models.country import Country
+    from app.modules.verification.seed import country_row
+
     async with SessionLocal() as db:
+        db.add(Country(**country_row("SA")))
+        await db.commit()
         for country, expected in (("AE", "AED"), ("IN", "INR"), ("SA", "USD")):
             u = User(
                 business=Business(country=country, verification_status=BusinessStatus.draft),

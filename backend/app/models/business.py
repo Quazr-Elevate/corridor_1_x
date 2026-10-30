@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CHAR, CheckConstraint, Enum, Index, String, Text, Uuid, func, text
+from sqlalchemy import CHAR, JSON, CheckConstraint, Enum, ForeignKey, Index, String, Text, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base, UTCDateTime, str_array
@@ -92,7 +92,13 @@ class Business(Base):
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
     pincode: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    country: Mapped[str] = mapped_column(CHAR(2), nullable=False, default="IN", server_default="IN")
+    country: Mapped[str] = mapped_column(
+        CHAR(2),
+        ForeignKey("countries.code", ondelete="RESTRICT", name="fk_businesses_country"),
+        nullable=False,
+        default="IN",
+        server_default="IN",
+    )
 
     # ─── Branding (public images; shown on the dashboard hero) ─
     logo_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
@@ -120,6 +126,10 @@ class Business(Base):
     verification_submitted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     verification_rejected_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Keys the admin ticked when rejecting — profile fields (``addressLine``)
+    # and KYB entries (``kyb:gstin`` / ``doc:<entry id>``) — so the business
+    # sees exactly what to fix. Cleared on resubmit and on approval.
+    verification_rejected_items: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

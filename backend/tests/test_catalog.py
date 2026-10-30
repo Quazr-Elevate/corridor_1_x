@@ -114,7 +114,7 @@ async def test_market_visibility_is_business_level(client, make_client, admin_cl
     assert facets["categories"] == [{"value": "Rice", "count": 1}]
 
     # Revoking the business hides its listings again.
-    r = await admin_client.post(f"/admin/users/{seller['userId']}/reject", json={"reason": "Expired GST"})
+    r = await admin_client.post(f"/admin/users/{seller['userId']}/reject", json={"reason": "Expired GST", "failedItems": ["legalName"]})
     assert r.status_code == 200
     assert (await anon.get("/public/products")).json()["total"] == 0
     assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200

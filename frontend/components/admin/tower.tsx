@@ -40,7 +40,7 @@ export function QueueTile({
       href={href}
       className={cn(
         "relief relief-hover group flex h-full flex-col rounded-[26px] p-5",
-        alert && "shadow-[var(--relief),inset_0_0_0_1.5px_var(--c-amber)]",
+        alert && "[box-shadow:var(--relief),inset_0_0_0_1.5px_var(--c-amber)]",
         className,
       )}
     >

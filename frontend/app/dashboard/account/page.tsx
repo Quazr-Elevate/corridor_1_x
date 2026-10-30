@@ -1492,7 +1492,7 @@ function TradePositionCards({
               // solid once chosen with the icon on a lime disc.
               "relative flex items-center gap-4 rounded-[24px] p-4 text-left transition-[box-shadow,background-color,color,transform] duration-500 ease-expo sm:min-h-[176px] sm:flex-col sm:items-start sm:gap-0 sm:rounded-[28px] sm:p-6",
               on ? "solid" : "relief text-fg hover:-translate-y-0.5",
-              invalid && !on && "shadow-[var(--relief),0_0_0_1.5px_var(--c-danger)]",
+              invalid && !on && "[box-shadow:var(--relief),0_0_0_1.5px_var(--c-danger)]",
             )}
           >
             <span

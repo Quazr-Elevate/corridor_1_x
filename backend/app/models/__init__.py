@@ -3,6 +3,7 @@ from app.models.base import Base
 from app.models.business import ENTITY_TYPES, Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.contact_reveal import ContactReveal
+from app.models.country import Country
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
@@ -18,6 +19,7 @@ __all__ = [
     "BusinessDocument",
     "BusinessStatus",
     "ContactReveal",
+    "Country",
     "DocStatus",
     "EmailCode",
     "EmailCodePurpose",

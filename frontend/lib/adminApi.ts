@@ -75,6 +75,32 @@ export interface AdminKybDocType {
   active: boolean;
 }
 
+/** A country in the admin list (open or paused) with counts. */
+export interface AdminCountry {
+  code: string;
+  name: string;
+  flag: string | null;
+  dialCode: string | null;
+  defaultCurrency: string;
+  regionLabel: string;
+  postalLabel: string;
+  postalPattern: string | null;
+  active: boolean;
+  documents: number;
+  requiredDocuments: number;
+  businesses: number;
+}
+
+export interface AdminCountryFields {
+  name?: string | null;
+  flag?: string | null;
+  dialCode?: string | null;
+  defaultCurrency?: "INR" | "AED" | "USD" | null;
+  regionLabel?: string | null;
+  postalLabel?: string | null;
+  postalPattern?: string | null;
+}
+
 export interface AdminKybDocTypeIn {
   country: string;
   code: string;
@@ -113,6 +139,9 @@ export interface VerifyQueueRow {
   createdAt: string;
   missingFields: string[];
   docs: VerifyDoc[];
+  /** "submitted" — sent for KYB; "documents" — a verified business added documents. */
+  reviewKind: "submitted" | "documents";
+  status: string;
 }
 
 export interface UserDetail {
@@ -134,6 +163,7 @@ export interface UserDetail {
   verificationSubmittedAt: string | null;
   verifiedAt: string | null;
   verificationRejectedReason: string | null;
+  verificationRejectedItems: string[];
   missingMandatoryFields: string[];
 }
 
@@ -333,9 +363,21 @@ export const adminApi = {
     req<{ userId: string; businessId: string; status: string }>(`/admin/users/${id}/verify`, {
       method: "POST",
     }),
-  rejectUser: (id: string, reason: string) =>
+  rejectUser: (id: string, reason: string, failedItems: string[] = []) =>
     req<{ userId: string; businessId: string; status: string }>(`/admin/users/${id}/reject`, {
       method: "POST",
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, failedItems }),
     }),
+  kybCountries: () => req<AdminCountry[]>("/admin/kyb/countries"),
+  createKybCountry: (
+    country: string,
+    documents: Array<Omit<AdminKybDocTypeIn, "country">>,
+    details: AdminCountryFields = {},
+  ) =>
+    req<AdminKybDocType[]>("/admin/kyb/countries", {
+      method: "POST",
+      body: JSON.stringify({ country, ...details, documents }),
+    }),
+  updateKybCountry: (code: string, patch: AdminCountryFields & { active?: boolean }) =>
+    req<AdminCountry>(`/admin/kyb/countries/${code}`, { method: "PATCH", body: JSON.stringify(patch) }),
 };

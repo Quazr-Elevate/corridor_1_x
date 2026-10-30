@@ -273,6 +273,15 @@ export function ProductForm() {
 
   const errorCount = Object.keys(errors).length;
   const busy = saving || published;
+  // U6 — Publish is blocked without a name and at least one photo (both
+  // enforced by the backend). Reflect that in the button state so the user
+  // reads "not ready yet" from the UI, not from a click → inline error.
+  const canPublish = name.trim().length > 0 && photos.length > 0;
+  const notReadyReason = canPublish
+    ? null
+    : photos.length === 0
+      ? "Add at least one photo to publish."
+      : "Name the lot to publish.";
 
   const unitSwitch = (
     <Segmented
@@ -881,6 +890,8 @@ export function ProductForm() {
               </span>
             ) : uploading ? (
               <span className="text-fg-2">Waiting for photos to finish…</span>
+            ) : notReadyReason ? (
+              <span className="text-fg-3">{notReadyReason}</span>
             ) : (
               <span className="text-fg-3">
                 {live ? "Goes live in the market when you publish." : "Buyers see it once your company is verified."}
@@ -901,7 +912,8 @@ export function ProductForm() {
               variant="primary"
               iconRight="arrow-right"
               loading={busy}
-              disabled={uploading > 0}
+              disabled={uploading > 0 || !canPublish}
+              title={notReadyReason ?? undefined}
               className="flex-[2] sm:flex-none"
             >
               Publish listing

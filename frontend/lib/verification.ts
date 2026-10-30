@@ -50,6 +50,10 @@ export function isDocumentKey(key: string): boolean {
 export function fieldByKey(key: string, label?: string): MandatoryField | undefined {
   const known = MANDATORY_FIELDS.find((f) => f.key === key);
   if (known) return label ? { ...known, label } : known;
+  if (key.startsWith("doc:")) {
+    const id = key.slice(4);
+    return { key, label: label ?? "Other document", section: "documents", tab: "company", anchor: `doc-${id}` };
+  }
   if (isDocumentKey(key)) {
     const code = key.slice(KYB_PREFIX.length);
     return {

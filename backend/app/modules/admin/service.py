@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, NotFound
@@ -14,6 +14,7 @@ from app.core.time import ensure_aware, utcnow
 from app.models.admin_action import AdminAction
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
+from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
 from app.models.user import User
 from app.modules.accounts.uniqueness import (
@@ -35,6 +36,7 @@ from app.modules.admin.schemas import (
 from app.modules.verification.rules import (
     ADMIN_REJECTABLE_STATUSES,
     ADMIN_VERIFIABLE_STATUSES,
+    PROFILE_FIELDS,
     requirements,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
@@ -201,17 +203,37 @@ async def _docs_by_business(db: AsyncSession, business_ids: list[uuid.UUID]) -> 
 
 
 async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
-    """Businesses in ``pending_verification``, oldest submission first."""
+    """The single KYB review queue, oldest first:
+
+    * businesses sent for verification (``pending_verification``), and
+    * verified businesses that added or changed documents still pending
+      (reviewed per document; the business stays verified).
+    """
+    pending_doc = (
+        select(BusinessDocument.business_id)
+        .where(BusinessDocument.status == DocStatus.pending)
+        .distinct()
+    )
     rows = (
         await db.execute(
-            _owner_join()
-            .where(Business.verification_status == BusinessStatus.pending_verification)
-            .order_by(Business.verification_submitted_at.asc())
+            _owner_join().where(
+                or_(
+                    Business.verification_status == BusinessStatus.pending_verification,
+                    and_(Business.verification_status == BusinessStatus.verified, Business.id.in_(pending_doc)),
+                )
+            )
         )
     ).all()
     docs = await _docs_by_business(db, [b.id for _, b in rows])
     missing = {b.id: await missing_keys(db, b) for _, b in rows}
-    return [
+
+    def since(b: Business):
+        if b.verification_status == BusinessStatus.pending_verification:
+            return b.verification_submitted_at or b.created_at
+        pend = [d.uploaded_at for d in docs.get(b.id, []) if d.status == DocStatus.pending.value]
+        return min(pend) if pend else b.created_at
+
+    out = [
         VerifyQueueRow(
             user_id=str(u.id),
             business_id=str(b.id),
@@ -222,13 +244,16 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
             industry=b.industry,
             trade_position=b.trade_position,
             operating_countries=b.operating_countries,
-            submitted_at=b.verification_submitted_at,
+            submitted_at=since(b),
             created_at=b.created_at,
             missing_fields=missing.get(b.id, []),
             docs=docs.get(b.id, []),
+            review_kind="submitted" if b.verification_status == BusinessStatus.pending_verification else "documents",
+            status=b.verification_status.value,
         )
         for u, b in rows
     ]
+    return sorted(out, key=lambda r: r.submitted_at or r.created_at)
 
 
 # ── Users / businesses ───────────────────────────────────────────────
@@ -343,6 +368,7 @@ async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
         verification_submitted_at=b.verification_submitted_at,
         verified_at=b.verified_at,
         verification_rejected_reason=b.verification_rejected_reason,
+        verification_rejected_items=list(b.verification_rejected_items or []),
         missing_mandatory_fields=await missing_keys(db, b),
     )
 
@@ -433,14 +459,29 @@ async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None)
     b.verified_at = now
     b.verification_submitted_at = b.verification_submitted_at or now
     b.verification_rejected_reason = None
-    record_action(db, admin_email=admin_email, action="business.verify", target_type="business", target_id=b.id)
+    b.verification_rejected_items = None
+    # One review: approving the business approves the documents verification
+    # rests on — its pending *required* entries. Optional and "Other" uploads
+    # keep their own per-document decision (nothing unseen gets approved).
+    approved = await _set_doc_status(db, b.id, admin_email, DocStatus.approved, now=now, required_only=True)
+    record_action(
+        db, admin_email=admin_email, action="business.verify", target_type="business", target_id=b.id,
+        details={"documents_approved": len(approved)} if approved else None,
+    )
     decision = await _decision(db, user, b)
     await db.commit()
     return decision
 
 
-async def reject_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None, reason: str) -> Decision:
-    """Reject (or revoke) the user's business with a reason."""
+async def reject_user(
+    db: AsyncSession,
+    admin_email: str,
+    uid: uuid.UUID | None,
+    reason: str,
+    failed_items: list[str] | None = None,
+) -> Decision:
+    """Reject (or revoke) the user's business with a reason and the items
+    that failed. Flagged KYB entries are rejected with the same reason."""
     reason = clean_reason(reason)
     user = await load_user(db, uid)
     b = user.business
@@ -449,14 +490,64 @@ async def reject_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None,
             "Only businesses awaiting verification (or verified) can be rejected "
             f"(current status: {b.verification_status.value})."
         )
+    entries = list(await db.scalars(select(BusinessDocument).where(BusinessDocument.business_id == b.id)))
+    items = _valid_failed_items(failed_items or [], entries)
     b.verification_status = BusinessStatus.rejected
     b.verification_rejected_reason = reason
+    b.verification_rejected_items = items or None
+    flagged = {e.id for e in entries if _entry_key(e) in items}
+    now = utcnow()
+    for e in entries:
+        if e.id in flagged:
+            e.status = DocStatus.rejected
+            e.rejection_reason = reason
+            e.reviewed_at = now
+            e.reviewed_by = admin_email
     record_action(
-        db, admin_email=admin_email, action="business.reject", target_type="business", target_id=b.id, reason=reason
+        db, admin_email=admin_email, action="business.reject", target_type="business", target_id=b.id, reason=reason,
+        details={"failed_items": items} if items else None,
     )
     decision = await _decision(db, user, b)
     await db.commit()
     return decision
+
+
+def _entry_key(e: BusinessDocument) -> str:
+    """Stable key of a KYB entry in ``failed_items``."""
+    return f"kyb:{e.document_type.code}" if e.document_type is not None else f"doc:{e.id}"
+
+
+def _valid_failed_items(items: list[str], entries: list[BusinessDocument]) -> list[str]:
+    """Keep known keys only (profile fields + this business's entries + its
+    still-missing required documents), in a stable order, de-duplicated."""
+    allowed = [f.key for f in PROFILE_FIELDS] + [_entry_key(e) for e in entries]
+    unknown = [i for i in items if i not in allowed and not i.startswith("kyb:")]
+    if unknown:
+        raise BadRequest(f"Unknown item(s) to fix: {', '.join(unknown[:5])}.")
+    seen: list[str] = []
+    for i in items:
+        if i not in seen:
+            seen.append(i)
+    return seen
+
+
+async def _set_doc_status(
+    db: AsyncSession, business_id: uuid.UUID, admin_email: str, status: DocStatus, *, now, required_only: bool = False
+) -> list[BusinessDocument]:
+    stmt = select(BusinessDocument).where(
+        BusinessDocument.business_id == business_id, BusinessDocument.status == DocStatus.pending
+    )
+    if required_only:
+        stmt = stmt.join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id).where(
+            KybDocumentType.is_mandatory.is_(True)
+        )
+    rows = list(await db.scalars(stmt))
+    for d in rows:
+        d.status = status
+        d.rejection_reason = None
+        d.reviewed_at = now
+        d.reviewed_by = admin_email
+    return rows
 
 
 # ── Documents ────────────────────────────────────────────────────────

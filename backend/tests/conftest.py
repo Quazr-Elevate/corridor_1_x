@@ -86,10 +86,12 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 async def _seed(conn) -> None:
-    """Default KYB document types (what migration 0021 seeds)."""
+    """Default countries + KYB document types (what migrations 0021/0023 seed)."""
+    from app.models.country import Country
     from app.models.kyb_document_type import KybDocumentType
-    from app.modules.verification.seed import default_rows
+    from app.modules.verification.seed import default_country_rows, default_rows
 
+    await conn.execute(Country.__table__.insert(), default_country_rows())
     await conn.execute(KybDocumentType.__table__.insert(), default_rows())
 
 

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import Field, BaseModel, StringConstraints
 
 from app.modules.verification.schemas import DocOut
 from app.shared.schemas import CamelModel, CountryCode, CountryList, TagList, text
@@ -69,6 +69,10 @@ class VerifyQueueRow(CamelModel):
     created_at: datetime
     missing_fields: list[str]
     docs: list[DocOut]
+    #: "submitted" — sent for KYB; "documents" — a verified business added or
+    #: changed documents that still need a look.
+    review_kind: str = "submitted"
+    status: str = "pending_verification"
 
 
 class PendingDocRow(CamelModel):
@@ -126,6 +130,7 @@ class UserDetail(CamelModel):
     verification_submitted_at: datetime | None
     verified_at: datetime | None
     verification_rejected_reason: str | None
+    verification_rejected_items: list[str] = []
     missing_mandatory_fields: list[str]
 
 
@@ -180,3 +185,7 @@ class StatusChanged(CamelModel):
 
 class UserRejectIn(CamelModel):
     reason: str
+    #: What failed: profile field keys (``addressLine``) and KYB entries
+    #: (``kyb:<code>`` / ``doc:<entry id>``). Flagged entries are rejected
+    #: with the same reason.
+    failed_items: list[str] = Field(min_length=1, max_length=60)

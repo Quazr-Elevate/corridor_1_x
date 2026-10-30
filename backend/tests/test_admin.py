@@ -51,9 +51,9 @@ async def test_verify_flow_with_audit_and_email(client, admin_client):
     assert queue[0]["country"] == "IN" and queue[0]["missingFields"] == []
 
     # Reject needs a reason.
-    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "   "})
+    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "   ", "failedItems": ["addressLine"]})
     assert r.status_code == 400
-    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "Upload your GST certificate"})
+    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "Upload your GST certificate", "failedItems": ["addressLine"]})
     assert r.status_code == 200 and r.json() == {"userId": uid, "businessId": bid, "status": "rejected"}
     rejected_mail = [m for m in sent_emails(email) if "needs changes" in m.subject]
     assert rejected_mail and "Upload your GST certificate" in rejected_mail[0].text

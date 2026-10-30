@@ -6,6 +6,7 @@ import {
   adminApi,
   errorMessage,
   type UserDetail,
+  type VerifyDoc,
   type VerifyQueueRow,
 } from "@/lib/adminApi";
 import { entityTypeLabel } from "@/lib/api";
@@ -19,7 +20,7 @@ import { HoldButton, Segmented } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
-import { RejectSheet, USER_REJECT_REASONS } from "@/components/admin/RejectSheet";
+import { DOC_REJECT_REASONS, RejectSheet, USER_REJECT_REASONS, type RejectItem } from "@/components/admin/RejectSheet";
 import { ClearQueue } from "@/components/admin/ClearQueue";
 import { LaneHeader } from "@/components/admin/tower";
 import {
@@ -62,7 +63,30 @@ function companyName(row: VerifyQueueRow, detail?: UserDetail | null) {
 }
 
 function rowSub(row: VerifyQueueRow) {
-  return [tradeLabel(row.tradePosition), row.country].filter(Boolean).join(" · ") || row.email;
+  const base = [tradeLabel(row.tradePosition), row.country].filter(Boolean).join(" · ") || row.email;
+  return row.reviewKind === "documents" ? `New documents · ${base}` : base;
+}
+
+/** Key of a KYB entry in failed items — mirrors the backend. */
+function entryKey(doc: VerifyDoc): string {
+  return doc.documentTypeCode ? `kyb:${doc.documentTypeCode}` : `doc:${doc.id}`;
+}
+
+/** What the admin can tick when rejecting a business. */
+function rejectItems(row: VerifyQueueRow, detail?: UserDetail | null): RejectItem[] {
+  const docs = detail?.docs ?? row.docs;
+  const missing = detail?.missingMandatoryFields ?? row.missingFields;
+  return [
+    ...MANDATORY_FIELDS.map((f) => ({ key: f.key, label: f.label, sub: "Company profile" })),
+    ...docs.map((d) => ({
+      key: entryKey(d),
+      label: d.certType,
+      sub: `Document · ${d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "to check"}`,
+    })),
+    ...missing
+      .filter(isDocumentKey)
+      .map((k) => ({ key: k, label: fieldByKey(k)?.label ?? k, sub: "Required document · not added" })),
+  ];
 }
 
 export default function KybReviewsPage() {
@@ -80,6 +104,7 @@ export default function KybReviewsPage() {
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [rejectRow, setRejectRow] = useState<VerifyQueueRow | null>(null);
+  const [rejectDoc, setRejectDoc] = useState<{ row: VerifyQueueRow; doc: VerifyDoc } | null>(null);
   const detailRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -183,13 +208,55 @@ export default function KybReviewsPage() {
     }
   };
 
-  const reject = async (reason: string) => {
+  const reject = async (reason: string, failedItems: string[]) => {
     if (!rejectRow) return;
     const row = rejectRow;
     const rowDetail = details[row.userId];
-    await adminApi.rejectUser(row.userId, reason);
+    await adminApi.rejectUser(row.userId, reason, failedItems);
     toast(`${companyName(row, typeof rowDetail === "object" ? rowDetail : null)} rejected`);
     settle(row, "rejected", reason);
+  };
+
+  /** A single document decided: update it in place; a verified business's
+   *  "new documents" row leaves the queue once nothing is pending. */
+  const decideDoc = (row: VerifyQueueRow, doc: VerifyDoc, status: "approved" | "rejected", reason?: string) => {
+    const patch = (d: VerifyDoc): VerifyDoc =>
+      d.id === doc.id ? { ...d, status, rejectionReason: reason ?? null, reviewedAt: new Date().toISOString() } : d;
+    const nextRow = { ...row, docs: row.docs.map(patch) };
+    setRows((rs) => (rs ?? []).map((r) => (r.userId === row.userId ? nextRow : r)));
+    setDetails((ds) => {
+      const cur = ds[row.userId];
+      return typeof cur === "object" ? { ...ds, [row.userId]: { ...cur, docs: cur.docs.map(patch) } } : ds;
+    });
+    if (row.reviewKind === "documents" && !nextRow.docs.some((d) => d.status === "pending")) {
+      settle(nextRow, status, reason);
+    } else {
+      void refreshStats();
+    }
+  };
+
+  const approveDoc = async (row: VerifyQueueRow, doc: VerifyDoc) => {
+    setBusy(true);
+    setActionErr(null);
+    try {
+      await adminApi.approveDoc(doc.id);
+      toast(`${doc.certType} approved`, "verified");
+      decideDoc(row, doc, "approved");
+    } catch (e) {
+      const msg = errorMessage(e, "Approve failed.");
+      setActionErr(msg);
+      toast(msg, "frozen");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rejectOneDoc = async (reason: string) => {
+    if (!rejectDoc) return;
+    const { row, doc } = rejectDoc;
+    await adminApi.rejectDoc(doc.id, reason);
+    toast(`${doc.certType} rejected`);
+    decideDoc(row, doc, "rejected", reason);
   };
 
   const items: QueueItem[] = list.map((r) => {
@@ -219,10 +286,11 @@ export default function KybReviewsPage() {
     <div className="pt-4">
       <LaneHeader
         eyebrow="Lane · Verification"
-        title="KYB reviews"
+        title="Business reviews"
         subtitle={
           <>
-            Check what each company submitted, then hold to approve. Target: 24 hours from submission.
+            Profile and documents in one place. Approving a company approves its required documents; others are
+            decided one by one. Rejecting lets you flag exactly what to fix. Target: 24 hours.
             {overdue ? <span className="font-medium text-danger"> {plural(overdue, "company", "companies")} past it.</span> : null}
           </>
         }
@@ -266,8 +334,8 @@ export default function KybReviewsPage() {
               title="Queue is clear"
               actions={
                 <>
-                  <LinkButton href="/admin/docs" variant="secondary" size="sm" icon="doc-check">
-                    Docs lane
+                  <LinkButton href="/admin/kyb-types" variant="secondary" size="sm" icon="settings">
+                    Doc types
                   </LinkButton>
                   <LinkButton href="/admin/users?status=active" variant="quiet" size="sm" iconRight="arrow-right">
                     Active accounts
@@ -338,6 +406,8 @@ export default function KybReviewsPage() {
                 actionErr={actionErr}
                 onApprove={approve}
                 onReject={() => setRejectRow(selected)}
+                onApproveDoc={(doc) => approveDoc(selected, doc)}
+                onRejectDoc={(doc) => setRejectDoc({ row: selected, doc })}
               />
             ) : null}
           </div>
@@ -348,10 +418,20 @@ export default function KybReviewsPage() {
         open={rejectRow !== null}
         onClose={closeReject}
         title={rejectRow ? `Reject ${companyName(rejectRow)}?` : "Reject"}
-        description="They'll see your reason on their next sign-in and can fix and resubmit."
+        description="Tick what failed. They'll see your reason and a “To fix” list, and can resubmit."
         quickReasons={USER_REJECT_REASONS}
         submitLabel="Reject"
+        items={rejectRow ? rejectItems(rejectRow, typeof details[rejectRow.userId] === "object" ? (details[rejectRow.userId] as UserDetail) : null) : []}
         onSubmit={reject}
+      />
+      <RejectSheet
+        open={rejectDoc !== null}
+        onClose={() => setRejectDoc(null)}
+        title={rejectDoc ? `Reject ${rejectDoc.doc.certType}?` : "Reject document"}
+        description="Only this document goes back to them with your reason."
+        quickReasons={DOC_REJECT_REASONS}
+        submitLabel="Reject document"
+        onSubmit={rejectOneDoc}
       />
     </div>
   );
@@ -378,6 +458,8 @@ function DetailPanel({
   actionErr,
   onApprove,
   onReject,
+  onApproveDoc,
+  onRejectDoc,
 }: {
   row: VerifyQueueRow;
   detail: UserDetail | "error" | undefined;
@@ -389,7 +471,10 @@ function DetailPanel({
   actionErr: string | null;
   onApprove: () => void | Promise<void>;
   onReject: () => void;
+  onApproveDoc: (doc: VerifyDoc) => void | Promise<void>;
+  onRejectDoc: (doc: VerifyDoc) => void;
 }) {
+  const docsOnly = row.reviewKind === "documents";
   const d = typeof detail === "object" ? detail : null;
   const p = d?.profile ?? {};
   const b = d?.businessProfile ?? {};
@@ -406,9 +491,9 @@ function DetailPanel({
 
   const sectionDot = (keys: string[]): PillDot => (keys.some((k) => missing.includes(k)) ? "move" : "verified");
   const tabs: PillTab<string>[] = [
-    { value: "company", label: "Company", dot: sectionDot(["legalName", "industry", "operatingCountries"]) },
-    { value: "contact", label: "Contact", dot: sectionDot(["fullName", "position", "phone"]) },
-    { value: "business", label: "Business", dot: sectionDot(["tradePosition"]) },
+    { value: "company", label: "Company", dot: sectionDot(["legalName", "addressLine", "city", "country"]) },
+    { value: "contact", label: "Contact" },
+    { value: "business", label: "Business" },
     ...docs.map((doc) => ({
       value: `doc:${doc.id}`,
       label: doc.certType,
@@ -553,13 +638,29 @@ function DetailPanel({
           <div role="tabpanel" id={`kyb-${row.userId}-panel`} aria-labelledby={`kyb-${row.userId}-tab-${current}`}>
             {paper}
           </div>
-          {pendingDocs ? (
+          {doc && !decision ? (
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              {doc.status === "pending" ? (
+                <span className="t-sub mr-auto text-fg-3">Decide this document on its own, or with the company.</span>
+              ) : (
+                <span className="t-sub mr-auto text-fg-3">
+                  {doc.status === "approved" ? "Approved" : "Rejected"} — you can change it.
+                </span>
+              )}
+              {doc.status !== "rejected" ? (
+                <Button variant="danger" size="sm" icon="close" onClick={() => onRejectDoc(doc)} disabled={busy}>
+                  Reject document…
+                </Button>
+              ) : null}
+              {doc.status !== "approved" ? (
+                <HoldButton tone="commit" icon="check" size="sm" onCommit={() => onApproveDoc(doc)} loading={busy}>
+                  Approve document
+                </HoldButton>
+              ) : null}
+            </div>
+          ) : pendingDocs ? (
             <p className="t-sub mt-4 text-fg-3">
-              {plural(pendingDocs, "document")} still to check —{" "}
-              <Link href="/admin/docs" className="text-fg underline decoration-line-2 underline-offset-4 hover:decoration-fg">
-                open the Docs lane
-              </Link>
-              .
+              {plural(pendingDocs, "document")} to check — open each tab above.
             </p>
           ) : docs.length === 0 && !loadingDetail ? (
             <p className="t-sub mt-4 text-fg-3">No documents added yet.</p>
@@ -636,6 +737,17 @@ function DetailPanel({
                   iconRight="arrow-up-right"
                   className="-ml-3 mt-2"
                 >
+                  Open account
+                </LinkButton>
+              </div>
+            ) : docsOnly ? (
+              <div className="well rounded-[18px] p-4">
+                <p className="t-callout text-fg">Verified business · new documents</p>
+                <p className="t-sub mt-1 text-fg-3">
+                  The company stays verified. Open each document tab and approve or reject it.
+                  {pendingDocs ? ` ${plural(pendingDocs, "document")} left.` : ""}
+                </p>
+                <LinkButton href={`/admin/users/${row.userId}`} variant="quiet" size="sm" iconRight="arrow-up-right" className="-ml-3 mt-2">
                   Open account
                 </LinkButton>
               </div>

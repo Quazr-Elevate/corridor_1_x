@@ -19,6 +19,7 @@ import {
 } from "@/lib/verification";
 import { ApproxPrice } from "@/components/fx/FxContext";
 import { Stagger, StaggerItem } from "@/components/motion";
+import { Button, LinkButton } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Progress } from "@/components/ui/Controls";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -51,22 +52,39 @@ function firstName(me: Me): string {
 }
 
 /** Fetch something optional for the home page; failures stay quiet. */
-function useQuiet<T>(load: () => Promise<T>, key: string | undefined): { data: T | null; loading: boolean } {
-  const [state, setState] = useState<{ data: T | null; loading: boolean }>({ data: null, loading: true });
+interface QuietState<T> {
+  data: T | null;
+  loading: boolean;
+  /** Error on the LAST attempt — null while loading or on success. */
+  error: boolean;
+  /** Re-run the fetch. Used by the error branch's Retry button. */
+  reload: () => void;
+}
+
+function useQuiet<T>(load: () => Promise<T>, key: string | undefined): QuietState<T> {
+  const [state, setState] = useState<{ data: T | null; loading: boolean; error: boolean }>({
+    data: null,
+    loading: true,
+    error: false,
+  });
+  // Tick increments each time the caller asks for a reload. Depending on
+  // it from the fetch effect means we don't have to recreate the loader
+  // in a useCallback or juggle refs.
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
-    setState((s) => ({ ...s, loading: true }));
+    setState((s) => ({ ...s, loading: true, error: false }));
     load()
-      .then((data) => !cancelled && setState({ data, loading: false }))
-      .catch(() => !cancelled && setState({ data: null, loading: false }));
+      .then((data) => !cancelled && setState({ data, loading: false, error: false }))
+      .catch(() => !cancelled && setState({ data: null, loading: false, error: true }));
     return () => {
       cancelled = true;
     };
-    // `load` is a stable module-level call; re-run only per user.
+    // `load` is a stable module-level call; re-run only per user or tick.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  return state;
+  }, [key, tick]);
+  return { ...state, reload: () => setTick((n) => n + 1) };
 }
 
 const loadOwn = () => api.listProducts();
@@ -75,10 +93,10 @@ const loadMarket = () => publicApi.listProducts({ limit: 5 });
 const loadFacets = () => publicApi.facets();
 
 interface HomeData {
-  own: { data: ProductRead[] | null; loading: boolean };
-  docs: { data: VerificationDoc[] | null; loading: boolean };
-  market: { data: PublicProductList | null; loading: boolean };
-  facets: { data: CatalogFacets | null; loading: boolean };
+  own: QuietState<ProductRead[]>;
+  docs: QuietState<VerificationDoc[]>;
+  market: QuietState<PublicProductList>;
+  facets: QuietState<CatalogFacets>;
 }
 
 export default function CorridorPage() {
@@ -317,7 +335,7 @@ function buildMoves(me: Me, lens: Lens, data: HomeData): Move[] {
       isMove: true,
       node: (
         <MoveCard
-          href={`${PASSPORT_PATH}?doc=${first.id}`}
+          href={`${PASSPORT_PATH}#${first.documentTypeCode ? `kyb-${first.documentTypeCode}` : `doc-${first.id}`}`}
           thumb={<GlyphThumb icon="doc-check" tone="frozen" />}
           code={`DOC-${first.id.replace(/-/g, "").slice(0, 4).toUpperCase()}`}
           kicker={first.certType}
@@ -861,13 +879,30 @@ function MarketLots({ market }: { market: HomeData["market"] }) {
       />
       {market.loading ? (
         <RowsSkeleton />
+      ) : market.error ? (
+        // Error branch — distinguishable from "no lots live" so a flaky
+        // network isn't mistaken for a quiet market. Retry button lets
+        // the user re-run the fetch without a full page reload.
+        <div className="well flex flex-col items-center rounded-[30px] px-6 py-12 text-center">
+          <LotThumb media={MEDIA.warehouse} size={56} radius={18} />
+          <p className="t-title3 mt-5 text-fg">Couldn’t load the market</p>
+          <p className="t-sub mt-1.5 max-w-sm text-fg-3">
+            Network looked grumpy. Give it another go or open the full market page.
+          </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            <Button variant="secondary" icon="refund" onClick={market.reload}>
+              Retry
+            </Button>
+            <LinkButton variant="quiet" icon="arrow-right" href="/products">
+              Open market
+            </LinkButton>
+          </div>
+        </div>
       ) : items.length === 0 ? (
         <div className="well flex flex-col items-center rounded-[30px] px-6 py-12 text-center">
           <LotThumb media={MEDIA.warehouse} size={56} radius={18} />
-          <p className="t-title3 mt-5 text-fg">{market.data ? "No lots live right now" : "Couldn’t load the market"}</p>
-          <p className="t-sub mt-1.5 text-fg-3">
-            {market.data ? "Verified sellers list here first." : "Open the market to try again."}
-          </p>
+          <p className="t-title3 mt-5 text-fg">No lots live right now</p>
+          <p className="t-sub mt-1.5 text-fg-3">Verified sellers list here first.</p>
         </div>
       ) : (
         <Stagger as="ul" className="space-y-3">

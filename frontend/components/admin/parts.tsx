@@ -477,6 +477,10 @@ export function DocPaper({
             </a>
           )}
         </div>
+      ) : preview && doc.mimeType === "application/pdf" && src ? (
+        <div className="mt-5 overflow-hidden rounded-[14px] bg-white shadow-[inset_0_0_0_1px_rgb(10_10_10/0.08)]">
+          <iframe src={src} title={`${doc.certType} — ${doc.filename ?? "PDF"}`} className="h-[460px] w-full" />
+        </div>
       ) : null}
     </Paper>
   );
@@ -588,7 +592,7 @@ export function DocCard({ doc, actions }: { doc: VerifyDoc; actions?: ReactNode 
     <article
       className={cn(
         "relief relative flex min-h-[188px] w-full flex-col overflow-hidden rounded-[26px] p-5",
-        doc.status === "pending" && "shadow-[var(--relief),inset_0_0_0_1.5px_var(--c-amber)]",
+        doc.status === "pending" && "[box-shadow:var(--relief),inset_0_0_0_1.5px_var(--c-amber)]",
       )}
     >
       <div className="flex items-start justify-between gap-3">

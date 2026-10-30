@@ -12,8 +12,16 @@ from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 from app.core.errors import BadRequest
 from app.core.security import parse_uuid
 from app.modules.auth.deps import CurrentUser, DbSession
-from app.modules.verification import service
-from app.modules.verification.schemas import DocOut, DocTypeOut, RevealedValue, doc_to_out, doc_type_to_out
+from app.modules.verification import rules, service
+from app.modules.verification.schemas import (
+    CountryOut,
+    DocOut,
+    DocTypeOut,
+    RevealedValue,
+    country_to_out,
+    doc_to_out,
+    doc_type_to_out,
+)
 from app.ratelimit import RateLimitRule, get_limiter
 from app.shared.files import file_response
 
@@ -32,6 +40,13 @@ async def _read(file: UploadFile | None) -> bytes | None:
 
 def _flag(raw: str | None) -> bool:
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@types_router.get("/countries", response_model=list[CountryOut], response_model_by_alias=True)
+async def kyb_countries(_: CurrentUser, db: DbSession) -> list[CountryOut]:
+    """Countries a business may pick — active and set up by admins with
+    required documents — with their address labels."""
+    return [country_to_out(c) for c in await rules.open_countries(db)]
 
 
 @types_router.get("/document-types", response_model=list[DocTypeOut], response_model_by_alias=True)

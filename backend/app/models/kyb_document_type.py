@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Enum,
+    ForeignKey,
     Index,
     SmallInteger,
     String,
@@ -47,7 +48,9 @@ class KybDocumentType(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    country: Mapped[str] = mapped_column(CHAR(2), nullable=False)
+    country: Mapped[str] = mapped_column(
+        CHAR(2), ForeignKey("countries.code", ondelete="RESTRICT", name="fk_kyb_document_types_country"), nullable=False
+    )
     # Stable slug, e.g. ``gstin`` — never shown to users.
     code: Mapped[str] = mapped_column(String(40), nullable=False)
     name: Mapped[str] = mapped_column(String(150), nullable=False)

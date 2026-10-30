@@ -53,18 +53,12 @@ const NAV: ReadonlyArray<{
 }> = [
   { href: "/admin", label: "Tower", icon: "radar", match: (p) => p === "/admin" },
   {
+    // One review for the profile and its documents (the Docs lane merged in).
     href: "/admin/verify",
-    label: "KYB",
+    label: "Reviews",
     icon: "passport",
     count: (s) => s.pendingVerificationBusinesses,
-    match: (p) => p.startsWith("/admin/verify"),
-  },
-  {
-    href: "/admin/docs",
-    label: "Docs",
-    icon: "doc-check",
-    count: (s) => s.pendingDocs,
-    match: (p) => p.startsWith("/admin/docs"),
+    match: (p) => p.startsWith("/admin/verify") || p.startsWith("/admin/docs"),
   },
   { href: "/admin/users", label: "Directory", icon: "users", match: (p) => p.startsWith("/admin/users") },
   { href: "/admin/kyb-types", label: "Doc types", icon: "settings", match: (p) => p.startsWith("/admin/kyb-types") },

@@ -75,6 +75,11 @@ export interface VerificationState {
   missing: string[];
   /** Human labels, same order as `missing`. */
   missingLabels: string[];
+  /** Items Corridor ops flagged on the last rejection ("addressLine",
+   *  "kyb:gstin", "doc:<entry id>"); cleared on resubmit. */
+  rejectedItems: string[];
+  /** Labels for `rejectedItems`, same order (document names from the server). */
+  rejectedItemLabels: string[];
   mandatoryTotal: number;
   submittedAt: string | null;
   verifiedAt: string | null;
@@ -150,6 +155,18 @@ export interface VerificationDoc {
   reviewedAt: string | null;
   /** Authenticated file route, or null when the entry has no file. */
   url: string | null;
+}
+
+/** A country businesses can pick (set up by Corridor ops), with its address conventions. */
+export interface KybCountry {
+  code: string;
+  name: string;
+  flag: string | null;
+  dialCode: string | null;
+  defaultCurrency: string;
+  regionLabel: string;
+  postalLabel: string;
+  postalPattern: string | null;
 }
 
 /** An option of the KYB dropdown (admin-defined, per country). */
@@ -378,6 +395,7 @@ export const api = {
 
   session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
   logout: () => jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  logoutAll: () => jsonFetch<{ ok: boolean }>("/auth/logout-all", { method: "POST" }),
 
   // ─── Onboarding wizard ───
   onboardingStatus: () => jsonFetch<OnboardingStatus>("/onboarding/status"),
@@ -427,6 +445,7 @@ export const api = {
     form.append("file", file);
     return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
   },
+  kybCountries: () => jsonFetch<KybCountry[]>("/kyb/countries"),
   kybDocTypes: (country?: string) =>
     jsonFetch<KybDocType[]>(`/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
   addKybEntry: (entry: KybEntryIn): Promise<VerificationDoc> => {

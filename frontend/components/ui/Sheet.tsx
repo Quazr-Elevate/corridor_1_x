@@ -37,8 +37,63 @@ export function Sheet({
   useEffect(() => {
     if (!open) return;
     lastFocus.current = document.activeElement as HTMLElement | null;
+
+    // Focus trap. `aria-modal="true"` on the panel promises containment
+    // to assistive tech — we have to actually deliver it. Tab from the
+    // last focusable element wraps to the first; Shift+Tab from the
+    // first wraps to the last; focus that has somehow escaped the panel
+    // (e.g. user clicked the dim backdrop then pressed Tab) snaps back.
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !panelRef.current) return;
+
+      const panel = panelRef.current;
+      const focusables = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'a[href], area[href], button, input, textarea, select, details, iframe, [tabindex]',
+        ),
+      ).filter((el) => {
+        if (el.hasAttribute("disabled") || el.getAttribute("aria-hidden") === "true") {
+          return false;
+        }
+        // tabindex="-1" is explicitly out of tab order.
+        const ti = el.getAttribute("tabindex");
+        if (ti !== null && Number(ti) < 0) return false;
+        // ``offsetParent === null`` catches ``display:none`` and
+        // detached elements — but not visibility:hidden; cheap enough
+        // for the modal content we trap.
+        return el.offsetParent !== null;
+      });
+
+      // Panel has nothing to tab through — pin focus on the panel itself.
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+
+      // Focus has escaped (background click or a programmatic focus() by
+      // some library). Snap it back to the nearest edge of the panel.
+      if (!active || !panel.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
+
+      if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;

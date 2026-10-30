@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, type Me } from "@/lib/api";
+import { api, ApiError, type KybCountry, type Me } from "@/lib/api";
 import { useFocusField } from "@/lib/useFocusField";
 import { useMe } from "@/lib/useMe";
 import { useDirtyFlag } from "@/lib/useUnsavedGuard";
-import { DETAILS_PATH, statusMeta } from "@/lib/verification";
-import { COUNTRIES } from "@/components/account/countries";
+import { DETAILS_PATH, fieldByKey, statusMeta } from "@/lib/verification";
+import { focusField } from "@/lib/useFocusField";
+import { ReviewConfirmProvider, useReviewConfirm } from "@/components/business/ReviewConfirm";
+import { COUNTRIES, countryName } from "@/components/account/countries";
 import { SendForVerificationBar } from "@/components/account/SendForVerificationBar";
 import { BrandingSection } from "@/components/business/BrandingSection";
 import { KybSection } from "@/components/business/KybSection";
@@ -45,6 +47,28 @@ function BusinessProfile() {
   useFocusField();
 
   if (!me) return <ProfileSkeleton />;
+  return (
+    <ReviewConfirmProvider verified={me.verification.status === "verified"}>
+      <BusinessProfileBody me={me} refetch={refetch} welcome={welcome} router={router} companyDirty={companyDirty} setCompanyDirty={setCompanyDirty} />
+    </ReviewConfirmProvider>
+  );
+}
+
+function BusinessProfileBody({
+  me,
+  refetch,
+  welcome,
+  router,
+  companyDirty,
+  setCompanyDirty,
+}: {
+  me: Me;
+  refetch: () => Promise<void>;
+  welcome: boolean;
+  router: ReturnType<typeof useRouter>;
+  companyDirty: boolean;
+  setCompanyDirty: (d: boolean) => void;
+}) {
   const meta = statusMeta(me.verification.status);
   const name = me.business.legalName || me.businessName || "Your company";
 
@@ -69,8 +93,9 @@ function BusinessProfile() {
         }
       />
 
-      {me.verification.status === "rejected" && me.verification.rejectedReason ? (
-        <Notice tone="frozen">Corridor ops asked for changes: {me.verification.rejectedReason}</Notice>
+      {me.verification.status === "rejected" ? <ToFix me={me} /> : null}
+      {me.verification.status === "pending_verification" ? (
+        <Notice tone="move">Corridor ops is reviewing your business. You can keep editing — changes go into the same review.</Notice>
       ) : null}
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
@@ -94,7 +119,11 @@ function BusinessProfile() {
             title="Business verification"
             sub="The documents Corridor ops checks for your country. Required ones are marked."
           >
-            <KybSection country={me.business.country ?? "IN"} onChanged={() => void refetch()} />
+            <KybSection
+              country={me.business.country ?? "IN"}
+              rejectedItems={me.verification.status === "rejected" ? me.verification.rejectedItems ?? [] : []}
+              onChanged={() => void refetch()}
+            />
           </Section>
 
           <p className="t-sub text-fg-3">
@@ -116,6 +145,36 @@ function BusinessProfile() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** After a rejection: the reason plus one chip per flagged item that jumps to it. */
+function ToFix({ me }: { me: Me }) {
+  const v = me.verification;
+  const items = (v.rejectedItems ?? [])
+    .map((k, i) => fieldByKey(k, v.rejectedItemLabels?.[i]))
+    .filter((f): f is NonNullable<typeof f> => Boolean(f));
+  return (
+    <Notice tone="frozen" title="Corridor ops asked for changes">
+      <span className="block">{v.rejectedReason || "Check your details and send again."}</span>
+      {items.length ? (
+        <span className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="t-label">To fix</span>
+          {items.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => focusField(f.anchor)}
+              className="inline-flex items-center gap-1.5 rounded-full bg-danger/10 px-3 py-1 text-[13px] font-medium text-danger hover:bg-danger/15"
+            >
+              {f.label}
+              <span aria-hidden="true">→</span>
+            </button>
+          ))}
+        </span>
+      ) : null}
+      <span className="t-sub mt-3 block">Fix these, then send for verification again.</span>
+    </Notice>
   );
 }
 
@@ -181,6 +240,12 @@ function CompanyForm({
   onDirty: (dirty: boolean) => void;
 }) {
   const toast = useToast();
+  const confirmReview = useReviewConfirm();
+  const [countries, setCountries] = useState<KybCountry[] | null>(null);
+  useEffect(() => {
+    api.kybCountries().then(setCountries).catch(() => setCountries(null));
+  }, []);
+  const flagged = new Set(me.verification.status === "rejected" ? me.verification.rejectedItems ?? [] : []);
   // Re-sync only when the saved values change — not whenever a fresh `me`
   // object arrives (that would wipe what the user is typing).
   const initialKey = JSON.stringify(fromMe(me));
@@ -207,8 +272,15 @@ function CompanyForm({
     if (v.legalName.trim().length < 2) fe.legalName = "Enter the registered company name.";
     if (!v.addressLine.trim()) fe.addressLine = "Enter the registered address.";
     if (!v.city.trim()) fe.city = "Enter the city.";
+    const pattern = countries?.find((c) => c.code === v.country)?.postalPattern;
+    if (pattern && v.pincode.trim() && !new RegExp(`^(?:${pattern})$`).test(v.pincode.trim().toUpperCase())) {
+      fe.pincode = `That doesn’t look like a valid ${countries?.find((c) => c.code === v.country)?.postalLabel ?? "postal code"}.`;
+    }
     setErrors(fe);
     if (Object.keys(fe).length) return;
+    const norm = (x: string) => x.trim().replace(/\s+/g, " ").toLowerCase();
+    const kybChanged = (["legalName", "addressLine", "city", "country"] as const).some((k) => norm(v[k]) !== norm(initial[k]));
+    if (kybChanged && !(await confirmReview("your company details"))) return;
     setSaving(true);
     try {
       await api.saveBusinessProfileV2({
@@ -229,6 +301,20 @@ function CompanyForm({
   }
 
   const countryChanged = v.country !== initial.country;
+  // Only countries Corridor ops has set up (plus the saved one, so it shows).
+  const countryOptions = [
+    ...(countries ?? []).map((c) => ({ value: c.code, label: `${c.flag ?? ""} ${c.name}`.trim() })),
+    ...(countries && !countries.some((c) => c.code === initial.country)
+      ? [{ value: initial.country, label: `${COUNTRIES.find((x) => x.code === initial.country)?.flag ?? ""} ${countryName(initial.country)} (not open for new businesses)`.trim() }]
+      : []),
+  ];
+  if (!countries) countryOptions.push({ value: initial.country, label: countryName(initial.country) });
+  const selected = countries?.find((c) => c.code === v.country);
+  const regionLabel = selected?.regionLabel ?? "State / region";
+  const postalLabel = selected?.postalLabel ?? "Postal code";
+  /** Red hint while a field the admin flagged still holds the rejected value. */
+  const flag = (key: keyof CompanyValues): string | undefined =>
+    flagged.has(key) && v[key].trim() === initial[key].trim() ? "Flagged by Corridor ops — please correct this." : undefined;
 
   return (
     <form onSubmit={submit} noValidate className="relief space-y-4 rounded-[26px] p-5 sm:p-6">
@@ -238,7 +324,7 @@ function CompanyForm({
         required
         maxLength={200}
         autoComplete="organization"
-        error={errors.legalName}
+        error={errors.legalName ?? flag("legalName")}
         value={v.legalName}
         onChange={(e) => set("legalName")(e.target.value)}
       />
@@ -249,8 +335,9 @@ function CompanyForm({
           required
           value={v.country}
           onChange={(e) => set("country")(e.target.value)}
-          options={COUNTRIES.map((c) => ({ value: c.code, label: `${c.flag} ${c.name}` }))}
-          hint={countryChanged ? "The document list below changes with the country." : undefined}
+          options={countryOptions}
+          error={flag("country")}
+          hint={countryChanged ? "The document list below changes with the country." : "Countries Corridor One X onboards today."}
         />
         <Input
           id="city"
@@ -258,7 +345,7 @@ function CompanyForm({
           required
           maxLength={100}
           autoComplete="address-level2"
-          error={errors.city}
+          error={errors.city ?? flag("city")}
           value={v.city}
           onChange={(e) => set("city")(e.target.value)}
         />
@@ -270,13 +357,13 @@ function CompanyForm({
         maxLength={200}
         autoComplete="street-address"
         placeholder="Building, street, area"
-        error={errors.addressLine}
+        error={errors.addressLine ?? flag("addressLine")}
         value={v.addressLine}
         onChange={(e) => set("addressLine")(e.target.value)}
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <Input
-          label={v.country === "IN" ? "State" : "State / emirate"}
+          label={regionLabel}
           optional
           maxLength={100}
           autoComplete="address-level1"
@@ -284,7 +371,8 @@ function CompanyForm({
           onChange={(e) => set("state")(e.target.value)}
         />
         <Input
-          label={v.country === "IN" ? "PIN code" : "Postal code"}
+          label={postalLabel}
+          error={errors.pincode}
           optional
           maxLength={10}
           autoComplete="postal-code"

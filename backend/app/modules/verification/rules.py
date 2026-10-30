@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
+from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
 
 
@@ -92,6 +93,29 @@ async def mandatory_types(db: AsyncSession, country: str) -> list[KybDocumentTyp
     )
 
 
+async def open_countries(db: AsyncSession) -> list[Country]:
+    """Countries a business may pick: ``active`` and with at least one
+    active, required document type (set up by an admin)."""
+    has_required = (
+        select(KybDocumentType.country)
+        .where(KybDocumentType.is_mandatory.is_(True), KybDocumentType.active.is_(True))
+        .distinct()
+    )
+    return list(
+        await db.scalars(
+            select(Country).where(Country.active.is_(True), Country.code.in_(has_required)).order_by(Country.name)
+        )
+    )
+
+
+async def configured_countries(db: AsyncSession) -> list[str]:
+    return sorted(c.code for c in await open_countries(db))
+
+
+async def is_configured(db: AsyncSession, country: str) -> bool:
+    return country.upper() in await configured_countries(db)
+
+
 async def requirements(db: AsyncSession, business: Business) -> RequirementsReport:
     """What the business still needs before it can submit for KYB."""
     missing = [
@@ -114,6 +138,22 @@ async def requirements(db: AsyncSession, business: Business) -> RequirementsRepo
             if t.id not in entries or not satisfies(entries[t.id], t)
         ]
     return RequirementsReport(missing=missing, total=len(PROFILE_FIELDS) + len(types))
+
+
+def reopen_review(business: Business) -> bool:
+    """A verified business changed something KYB depends on → back to
+    ``pending_verification`` so Corridor ops re-checks it. Returns whether
+    the status changed. (Its listings leave the market until re-approved.)"""
+    if business.verification_status != BusinessStatus.verified:
+        return False
+    from app.core.time import utcnow
+
+    business.verification_status = BusinessStatus.pending_verification
+    business.verified_at = None
+    business.verification_submitted_at = utcnow()
+    business.verification_rejected_reason = None
+    business.verification_rejected_items = None
+    return True
 
 
 #: Statuses an admin may approve from. ``rejected`` is allowed so an admin

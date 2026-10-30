@@ -44,7 +44,7 @@ def test_0021_on_0020_db(tmp_path):
     con.commit()
     con.close()
 
-    proc = _alembic(db, "upgrade", "head")
+    proc = _alembic(db, "upgrade", "0021_kyb_profile")
     assert proc.returncode == 0, proc.stderr
 
     con = sqlite3.connect(db)

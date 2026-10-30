@@ -8,8 +8,10 @@ import { Button, IconButton } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Input, Select } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
+import { Sheet } from "@/components/ui/Sheet";
 import { Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
+import { useReviewConfirm } from "./ReviewConfirm";
 
 const OTHER = "__other__";
 const MAX_MB = 10;
@@ -41,7 +43,17 @@ function statusChip(doc: VerificationDoc) {
  * (left) and its number and/or a copy (right). "Other" takes a custom name.
  * Numbers are stored encrypted and shown masked; "Show" reveals one.
  */
-export function KybSection({ country, onChanged }: { country: string; onChanged: () => void }) {
+export function KybSection({
+  country,
+  rejectedItems = [],
+  onChanged,
+}: {
+  country: string;
+  /** Keys Corridor ops flagged on the last rejection (kyb:<code> / doc:<id>). */
+  rejectedItems?: string[];
+  onChanged: () => void;
+}) {
+  const flagged = new Set(rejectedItems);
   const toast = useToast();
   const [types, setTypes] = useState<KybDocType[] | null>(null);
   const [entries, setEntries] = useState<VerificationDoc[] | null>(null);
@@ -108,6 +120,7 @@ export function KybSection({ country, onChanged }: { country: string; onChanged:
               anchor={`kyb-${t.code}`}
               doc={entry}
               type={t}
+              flagged={flagged.has(`kyb:${t.code}`)}
               onUpdated={(d) => changed((xs) => xs.map((x) => (x.id === d.id ? d : x)))}
               onDeleted={() => changed((xs) => xs.filter((x) => x.id !== entry.id))}
             />
@@ -136,8 +149,10 @@ export function KybSection({ country, onChanged }: { country: string; onChanged:
       {others.map((e) => (
         <EntryRow
           key={e.id}
+          anchor={`doc-${e.id}`}
           doc={e}
           type={null}
+          flagged={flagged.has(`doc:${e.id}`)}
           onUpdated={(d) => changed((xs) => xs.map((x) => (x.id === d.id ? d : x)))}
           onDeleted={() => changed((xs) => xs.filter((x) => x.id !== e.id))}
         />
@@ -208,19 +223,24 @@ function EntryRow({
   anchor,
   doc,
   type,
+  flagged,
   onUpdated,
   onDeleted,
 }: {
   anchor?: string;
   doc: VerificationDoc;
   type: KybDocType | null;
+  flagged?: boolean;
   onUpdated: (d: VerificationDoc) => void;
   onDeleted: () => void;
 }) {
   const toast = useToast();
+  const confirmReview = useReviewConfirm();
+  const required = Boolean(type?.isMandatory);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [busy, setBusy] = useState<"reveal" | "delete" | "save" | null>(null);
   const [editing, setEditing] = useState(false);
+  const [viewing, setViewing] = useState(false);
   const [value, setValue] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -241,7 +261,7 @@ function EntryRow({
   }
 
   async function remove() {
-    if (!window.confirm(`Remove ${doc.certType}?`)) return;
+    if (required ? !(await confirmReview(`your ${doc.certType}`)) : !window.confirm(`Remove ${doc.certType}?`)) return;
     setBusy("delete");
     try {
       await api.deleteVerificationDoc(doc.id);
@@ -256,6 +276,7 @@ function EntryRow({
   async function save() {
     setError(null);
     if (!value.trim() && !file) return setError("Enter a new number or choose a new file.");
+    if (required && !(await confirmReview(`your ${doc.certType}`))) return;
     setBusy("save");
     try {
       const d = await api.updateKybEntry(doc.id, { value: value.trim() || undefined, file });
@@ -273,7 +294,14 @@ function EntryRow({
   }
 
   return (
-    <div id={anchor} tabIndex={-1} className="relief rounded-[22px] px-4 py-4 outline-none sm:px-5">
+    <div
+      id={anchor}
+      tabIndex={-1}
+      className={cn(
+        "relief rounded-[22px] px-4 py-4 outline-none sm:px-5",
+        flagged && doc.status === "rejected" && "![box-shadow:var(--relief),inset_0_0_0_1.5px_var(--c-danger)]",
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="t-headline flex flex-wrap items-center gap-2 text-fg">
@@ -298,15 +326,15 @@ function EntryRow({
               </span>
             ) : null}
             {doc.hasFile && doc.url ? (
-              <a
-                href={assetUrl(doc.url)}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => setViewing(true)}
                 className="inline-flex max-w-[240px] items-center gap-1 underline-offset-4 hover:text-fg hover:underline"
+                aria-label={`View ${doc.filename ?? doc.certType}`}
               >
                 <Icon name="file" size={14} className="shrink-0" />
                 <span className="truncate">{doc.filename}</span>
-              </a>
+              </button>
             ) : null}
             <span className="t-code text-[11px]">Added {formatDay(doc.uploadedAt)}</span>
           </div>
@@ -324,6 +352,8 @@ function EntryRow({
           />
         </div>
       </div>
+
+      <FileViewer doc={doc} open={viewing} onClose={() => setViewing(false)} />
 
       {doc.status === "rejected" && doc.rejectionReason ? (
         <p className="t-sub mt-3 border-l-2 border-danger/50 pl-3 text-fg-2">Corridor ops: {doc.rejectionReason}</p>
@@ -385,6 +415,7 @@ function AddEntryForm({
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const confirmReview = useReviewConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
   const type = types.find((t) => t.id === typeId) ?? null;
   const isOther = typeId === OTHER;
@@ -403,6 +434,7 @@ function AddEntryForm({
         return setError(`That doesn’t look like a valid ${type.name}.${type.valuePlaceholder ? ` Expected: ${type.valuePlaceholder}` : ""}`);
       }
     }
+    if (type?.isMandatory && !(await confirmReview(`your ${type.name}`))) return;
     setSaving(true);
     try {
       onAdded(
@@ -544,5 +576,35 @@ function FilePick({
         )}
       </div>
     </div>
+  );
+}
+
+/** In-page preview of an entry's file: images inline, PDFs in a frame. */
+function FileViewer({ doc, open, onClose }: { doc: VerificationDoc; open: boolean; onClose: () => void }) {
+  if (!doc.url) return null;
+  const src = assetUrl(doc.url);
+  const isPdf = doc.mimeType === "application/pdf";
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={doc.certType}
+      description={doc.filename ?? undefined}
+      footer={
+        <a href={src} target="_blank" rel="noreferrer" className="t-sub inline-flex items-center gap-1.5 font-medium text-fg hover:underline">
+          <Icon name="external" size={14} /> Open in a new tab
+        </a>
+      }
+    >
+      {open ? (
+        isPdf ? (
+          <iframe src={src} title={doc.filename ?? doc.certType} className="h-[65vh] w-full rounded-[14px] bg-white" />
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={src} alt={doc.certType} className="mx-auto max-h-[65vh] w-auto rounded-[14px] object-contain" />
+        )
+      ) : null}
+    </Sheet>
   );
 }

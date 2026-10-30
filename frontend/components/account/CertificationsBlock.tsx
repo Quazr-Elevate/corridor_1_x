@@ -372,7 +372,7 @@ function DocRow({
       className={cn(
         // A stamp: relief card, dashed seal (tilted once approved), mono date.
         "relief relative flex min-h-[188px] scroll-mt-32 flex-col rounded-[26px] p-5",
-        rejected && "shadow-[var(--relief),inset_0_0_0_1.5px_var(--c-danger)] sm:col-span-2",
+        rejected && "[box-shadow:var(--relief),inset_0_0_0_1.5px_var(--c-danger)] sm:col-span-2",
       )}
     >
       <div className="flex items-start justify-between gap-3">

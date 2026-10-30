@@ -61,6 +61,11 @@ class VerificationState(CamelModel):
     #: Human labels, same order as ``missing``.
     missing_labels: list[str] = []
     mandatory_total: int
+    #: Items the admin flagged on the last rejection (same key format as
+    #: ``missing``, plus ``doc:<entry id>`` for "Other" entries).
+    rejected_items: list[str] = []
+    #: Human labels, same order as ``rejected_items``.
+    rejected_item_labels: list[str] = []
     submitted_at: datetime | None = None
     verified_at: datetime | None = None
     rejected_reason: str | None = None

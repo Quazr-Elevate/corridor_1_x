@@ -27,9 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import crypto
 from app.core.errors import BadRequest, Conflict, NotFound, PayloadTooLarge, UnsupportedMediaType
 from app.integrations.storage import DOCUMENT_TYPES, StorageError, detect, get_storage
+from app.models.business import Business
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.kyb_document_type import KybDocumentType
 from app.models.user import User
+from app.modules.verification.rules import reopen_review
 from app.shared.files import safe_filename
 
 # Big enough for a scanned PDF/photo, small enough that a wrong upload
@@ -224,6 +226,8 @@ async def add_entry(db: AsyncSession, user: User, data: EntryInput) -> BusinessD
         _check_parts(doc, t)
         await _ensure_value_free(db, doc, t)
         db.add(doc)
+        if t is not None and t.is_mandatory:
+            reopen_review(business)
         await _commit(db, doc, t)
     except Exception:
         await _delete_file(doc.storage_key)
@@ -269,6 +273,8 @@ async def update_entry(db: AsyncSession, user: User, doc_id: uuid.UUID | None, d
         doc.rejection_reason = None
         doc.reviewed_at = None
         doc.reviewed_by = None
+        if t is not None and t.is_mandatory:
+            await _reopen(db, doc.business_id)
         await _commit(db, doc, t)
     except Exception:
         await db.rollback()
@@ -318,9 +324,17 @@ async def read_doc_bytes(doc: BusinessDocument) -> bytes:
         raise NotFound("Document file is missing") from None
 
 
+async def _reopen(db: AsyncSession, business_id: uuid.UUID) -> None:
+    business = await db.get(Business, business_id)
+    if business is not None:
+        reopen_review(business)
+
+
 async def delete_doc(db: AsyncSession, user: User, doc_id: uuid.UUID | None) -> None:
     doc = await get_doc(db, doc_id, business_id=user.business_id)
     key = doc.storage_key
+    if doc.document_type is not None and doc.document_type.is_mandatory:
+        await _reopen(db, doc.business_id)
     await db.delete(doc)
     await db.commit()
     await _delete_file(key)
