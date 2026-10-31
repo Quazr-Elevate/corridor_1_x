@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, type Me } from "@/lib/api";
+import { api, ApiError, type Me, type SecurityOverview } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useMe } from "@/lib/useMe";
 import { PASSPORT_PATH, formatDay, statusMeta } from "@/lib/verification";
@@ -21,7 +21,7 @@ import { initials, memberCode } from "@/components/trader/format";
 const MIN_PASSWORD = 8;
 
 /**
- * Settings & security — password, display currency, session, and account deletion, in the
+ * Settings & security — password, display currency, sign-in activity, and account deletion, in the
  * Passport's language: relief sections on the left, who you're signed in
  * as on the right. Each section has its own action; anchors
  * (#password, #currency, #session, #delete-account) are deep-link targets.
@@ -59,7 +59,7 @@ export default function SettingsPage() {
 const NAV: ReadonlyArray<{ id: string; label: string; icon: IconName }> = [
   { id: "password", label: "Password", icon: "key" },
   { id: "currency", label: "Display currency", icon: "globe" },
-  { id: "session", label: "Session", icon: "logout" },
+  { id: "session", label: "Sign-in & security", icon: "shield" },
   { id: "delete-account", label: "Delete account", icon: "trash" },
 ];
 
@@ -388,67 +388,120 @@ function CurrencySection() {
 
 /* ───────────────────────────── Session ──────────────────────────── */
 
+const EVENT_LABEL: Record<string, string> = {
+  login_succeeded: "Signed in",
+  login_failed: "Wrong password",
+  locked: "Locked after failed attempts",
+  locked_support: "Locked — support must unlock",
+  unlocked: "Unlocked by support",
+  session_replaced: "Signed out by a sign-in elsewhere",
+  sessions_revoked: "Signed out everywhere",
+  password_changed: "Password changed",
+  password_reset: "Password reset",
+};
+
+/** "Chrome on macOS" from a user-agent string — enough to recognise a device. */
+function deviceName(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox"
+    : /Safari\//.test(ua) ? "Safari" : "Browser";
+  const os = /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X/.test(ua) ? "macOS"
+    : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "";
+  return os ? `${browser} on ${os}` : browser;
+}
+
+function when(iso: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
+}
+
 function SessionSection() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [busyAll, setBusyAll] = useState(false);
+  const [overview, setOverview] = useState<SecurityOverview | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .security()
+      .then((o) => alive && setOverview(o))
+      .catch(() => alive && setLoadError(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function signOut() {
     setBusy(true);
     try {
       await api.logout();
     } catch {
-      // The cookie may already be gone — leave either way.
+      // The session may already be gone — leave either way.
     } finally {
       router.replace("/login");
     }
   }
 
-  // S3 — "Sign out everywhere" revokes every active session (every browser,
-  // every phone), so it matches Delete-account's destructive weight. The
-  // HoldButton gives it the same intentional friction the rest of the
-  // destructive actions carry; plain Sign-out stays one-click because it
-  // only affects this device.
-  async function signOutAll() {
-    setBusyAll(true);
-    try {
-      await api.logoutAll();
-    } catch {
-      // Even on failure, the current cookie may be cleared — go to login.
-    } finally {
-      router.replace("/login");
-    }
-  }
-
+  const device = overview?.device;
   return (
     <SectionCard
       id="session"
       index="03"
-      icon="logout"
-      title="Session"
-      description="Sign out of this device, or every device you're signed in on."
+      icon="shield"
+      title="Sign-in & security"
+      description={
+        <>
+          One device at a time: signing in somewhere else signs this device out. Sessions end after{" "}
+          {overview ? Math.round(overview.idleTimeoutMinutes / 60) : 12} hours without activity, and after{" "}
+          {overview?.maxSessionDays ?? 7} days in any case.
+        </>
+      }
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button
-          variant="secondary"
-          icon="logout"
-          loading={busy}
-          onClick={signOut}
-          disabled={busyAll}
-          className="w-full sm:w-auto"
-        >
+      <div className="space-y-6">
+        {device ? (
+          <div className="well flex items-start gap-4 rounded-[22px] p-4">
+            <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-lime-soft text-accent">
+              <Icon name="globe" size={18} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="t-body font-medium text-fg">
+                {deviceName(device.userAgent)} <Chip tone="verified" size="sm" noIcon>This device</Chip>
+              </p>
+              <p className="t-sub mt-1 text-fg-3">
+                Signed in {when(device.createdAt)} · last active {when(device.lastSeenAt)}
+                {device.ipPrefix ? <> · network {device.ipPrefix}</> : null}
+              </p>
+            </div>
+          </div>
+        ) : loadError ? (
+          <Notice tone="frozen">Couldn’t load your sign-in activity.</Notice>
+        ) : (
+          <Skeleton className="h-[76px] rounded-[22px]" />
+        )}
+
+        {overview && overview.recent.length ? (
+          <div>
+            <p className="t-label text-fg-3">Recent activity</p>
+            <ul className="mt-3 divide-y divide-line">
+              {overview.recent.slice(0, 8).map((e, i) => (
+                <li key={`${e.createdAt}-${i}`} className="flex items-center justify-between gap-3 py-2.5">
+                  <span className={cn("t-sub", e.event.startsWith("lock") || e.event === "login_failed" ? "text-danger" : "text-fg")}>
+                    {EVENT_LABEL[e.event] ?? e.event}
+                    {e.userAgent ? <span className="text-fg-3"> · {deviceName(e.userAgent)}</span> : null}
+                  </span>
+                  <span className="t-code shrink-0 text-fg-3">{when(e.createdAt)}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="t-sub mt-3 text-fg-3">
+              Don’t recognise something? Change your password above, then contact support.
+            </p>
+          </div>
+        ) : null}
+
+        <Button variant="secondary" icon="logout" loading={busy} onClick={signOut} className="w-full sm:w-auto">
           Sign out
         </Button>
-        <HoldButton
-          tone="danger"
-          icon="logout"
-          loading={busyAll}
-          onCommit={signOutAll}
-          disabled={busy}
-          className="w-full sm:w-auto"
-        >
-          Sign out everywhere
-        </HoldButton>
       </div>
     </SectionCard>
   );

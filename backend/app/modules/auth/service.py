@@ -1,5 +1,6 @@
 """Auth business rules: signup with an emailed 6-digit code (send → verify →
-complete), login, password change, session revocation. No FastAPI imports.
+complete), login (with lockout), password change and reset, session
+revocation. No FastAPI imports.
 
 Signup proves inbox ownership in place: no account row exists until the
 code was verified, and the account (business + owner user) is created in
@@ -15,7 +16,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,8 @@ from app.models.business import Business, BusinessStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.user import AccountStatus, User, UserRole
 from app.modules.accounts.uniqueness import LEGAL_NAME_TAKEN, ensure_company_available
+from app.modules.auth import lockout, sessions
+from app.modules.auth.sessions import ClientInfo, record_event
 
 log = logging.getLogger("app.auth")
 
@@ -230,34 +233,134 @@ async def complete_signup(
 # ── Login / password ─────────────────────────────────────────────────
 
 
-async def authenticate(db: AsyncSession, *, email: str, password: str) -> User:
+async def authenticate(db: AsyncSession, *, email: str, password: str, client: ClientInfo) -> User:
+    """Check the password (with lockout), then start the one active session
+    (any other device is signed out). Returns the user; the caller sets the
+    cookie from ``user.session_token``."""
     user = await db.scalar(select(User).where(User.email == normalize_email(email)))
     if user is None or user.deleted_at is not None:
         verify_password(password, _dummy_hash())  # equalise timing
+        record_event(db, subject_type="user", subject_id=None, event="login_failed", client=client,
+                     details={"reason": "unknown_email"})
+        await db.commit()
         raise Unauthorized("Invalid email or password.")
+    now = utcnow()
+    lockout.ensure_not_locked(user, now)
     if not verify_password(password, user.password_hash):
+        locked = lockout.record_failure(user, now)
+        record_event(db, subject_type="user", subject_id=user.id, event="login_failed", client=client)
+        if locked:
+            record_event(db, subject_type="user", subject_id=user.id, event=locked, client=client)
+            if locked == "locked_support":
+                log.warning("account_locked_support user_id=%s", user.id)
+        await db.commit()
+        if locked:
+            lockout.ensure_not_locked(user, now)
         raise Unauthorized("Invalid email or password.")
     if user.account_status != AccountStatus.active:
         raise Forbidden("This account is disabled. Contact support.")
-    user.last_login_at = utcnow()
-    await db.commit()
+    lockout.record_success(user)
+    user.last_login_at = now
+    record_event(db, subject_type="user", subject_id=user.id, event="login_succeeded", client=client)
     return user
 
 
-async def change_password(db: AsyncSession, user: User, *, current_password: str, new_password: str) -> User:
-    """Rotation: requires the current password; revokes every other session
-    (``session_version`` bump)."""
+async def change_password(
+    db: AsyncSession, user: User, *, current_password: str, new_password: str, keep_session: uuid.UUID, client: ClientInfo
+) -> User:
+    """Rotation: requires the current password; signs out every other
+    session (this browser stays signed in)."""
     if not verify_password(current_password, user.password_hash):
         raise Unauthorized("Current password is incorrect.")
     if new_password == current_password:
         raise BadRequest("New password must be different from the current one.")
     user.password_hash = hash_password(new_password)
     user.session_version = (user.session_version or 0) + 1
+    await sessions.revoke_all(db, sessions.user_policy(), user.id, "password_changed", keep=keep_session)
+    record_event(db, subject_type="user", subject_id=user.id, event="password_changed", client=client)
     await db.commit()
     return user
 
 
-async def revoke_all_sessions(db: AsyncSession, user: User) -> None:
-    user.session_version = (user.session_version or 0) + 1
+async def revoke_all_sessions(db: AsyncSession, user: User, client: ClientInfo) -> None:
+    await sessions.revoke_all(db, sessions.user_policy(), user.id, "logout_all")
+    record_event(db, subject_type="user", subject_id=user.id, event="sessions_revoked", client=client)
     await db.commit()
 
+
+# ── Password reset ───────────────────────────────────────────────────
+
+
+async def request_password_reset(db: AsyncSession, *, email: str, client: ClientInfo) -> str | None:
+    """Email a reset code if the account exists. Always looks the same to
+    the caller (no account enumeration). Returns the code (DEBUG devCode)."""
+    email = normalize_email(email)
+    user = await db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
+    purpose = EmailCodePurpose.reset_password
+    now = utcnow()
+    if user is None or user.account_status != AccountStatus.active:
+        return None
+    latest = await _latest_code(db, email, purpose)
+    if latest is not None and ensure_aware(latest.created_at) + RESEND_COOLDOWN > now:
+        return None  # silently throttled
+    hour_ago = now - timedelta(hours=1)
+    recent = await db.scalar(
+        select(func.count()).select_from(EmailCode).where(
+            EmailCode.email == email, EmailCode.purpose == purpose, EmailCode.created_at >= hour_ago
+        )
+    )
+    if (recent or 0) >= _hourly_cap():
+        return None
+    await db.execute(
+        update(EmailCode)
+        .where(EmailCode.email == email, EmailCode.purpose == purpose, EmailCode.consumed_at.is_(None),
+               EmailCode.expires_at > now)
+        .values(expires_at=now)
+    )
+    code = f"{secrets.randbelow(10**CODE_DIGITS):0{CODE_DIGITS}d}"
+    db.add(EmailCode(email=email, purpose=purpose, code_hash=hash_code(email, purpose, code), attempts=0,
+                     expires_at=now + CODE_TTL, created_at=now))
+    record_event(db, subject_type="user", subject_id=user.id, event="password_reset_requested", client=client)
+    await db.flush()
+    try:
+        await notifications.send_password_reset_code(
+            to=email, code=code, first_name=notifications.first_name_of(user.full_name),
+            valid_minutes=int(CODE_TTL.total_seconds() // 60),
+        )
+    except Exception:
+        await db.rollback()
+        log.exception("password_reset_email_failed")
+        return None
+    await db.commit()
+    return code
+
+
+async def reset_password(db: AsyncSession, *, email: str, code: str, new_password: str, client: ClientInfo) -> None:
+    """Code + new password → password replaced, every session signed out,
+    temporary lockout cleared. A support lock stays (support must unlock)."""
+    email = normalize_email(email)
+    code = "".join(ch for ch in code if ch.isdigit())
+    purpose = EmailCodePurpose.reset_password
+    invalid = "That code is invalid or has expired. Request a new one."
+    row = await _latest_code(db, email, purpose)
+    now = utcnow()
+    if row is None or row.consumed_at is not None or ensure_aware(row.expires_at) <= now:
+        raise BadRequest(invalid)
+    if row.attempts >= MAX_CODE_ATTEMPTS:
+        raise BadRequest("Too many wrong attempts. Request a new code.")
+    if not hmac.compare_digest(row.code_hash, hash_code(email, purpose, code)):
+        row.attempts += 1
+        await db.commit()
+        raise BadRequest(invalid)
+    user = await db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
+    if user is None or user.account_status != AccountStatus.active:
+        raise BadRequest(invalid)
+    row.verified_at = now
+    row.consumed_at = now
+    user.password_hash = hash_password(new_password)
+    user.session_version = (user.session_version or 0) + 1
+    if not lockout.needs_support(user):
+        lockout.record_success(user)
+    await sessions.revoke_all(db, sessions.user_policy(), user.id, "password_reset")
+    record_event(db, subject_type="user", subject_id=user.id, event="password_reset", client=client)
+    await db.commit()

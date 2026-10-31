@@ -45,6 +45,12 @@ class Conflict(DomainError):
     status_code = 409
 
 
+class Locked(DomainError):
+    """Account locked after repeated failed sign-ins."""
+
+    status_code = 423
+
+
 class PayloadTooLarge(DomainError):
     status_code = 413
 

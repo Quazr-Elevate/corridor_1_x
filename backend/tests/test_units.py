@@ -224,7 +224,9 @@ def test_email_templates_escape_html():
     assert "<script>alert(1)</script>" in text  # plain-text part is literal
 
 
-async def test_legacy_cookie_without_version_is_version_zero(client):
+async def test_legacy_signed_cookie_is_rejected(client):
+    """Pre-0024 signed cookies (``{"uid", "sv"}``) no longer sign anyone in —
+    sessions are server-side now."""
     from itsdangerous import URLSafeTimedSerializer
 
     from app.core.config import settings
@@ -232,7 +234,7 @@ async def test_legacy_cookie_without_version_is_version_zero(client):
     from conftest import signup_and_login
 
     body = await signup_and_login(client, "legacy@kaverifoods.in")
-    legacy = URLSafeTimedSerializer(settings.session_secret, salt="cor1x-user-session").dumps({"uid": body["userId"]})
+    legacy = URLSafeTimedSerializer(settings.session_secret, salt="cor1x-user-session").dumps({"uid": body["userId"], "sv": 0})
     client.cookies.clear()
     client.cookies.set(SESSION_COOKIE, legacy)
-    assert (await client.get("/me")).status_code == 200
+    assert (await client.get("/me")).status_code == 401

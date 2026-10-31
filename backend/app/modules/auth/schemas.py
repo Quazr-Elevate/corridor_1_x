@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import EmailStr, Field, field_validator
 
 from app.shared.schemas import CamelModel, text
@@ -108,3 +110,58 @@ class OkResponse(CamelModel):
 
 class SessionInfo(CamelModel):
     user_id: str | None = None
+
+
+# ── Password reset ───────────────────────────────────────────────────
+
+
+class ForgotPasswordRequest(CamelModel):
+    """POST /auth/password/forgot — always answers the same way."""
+
+    email: EmailStr
+
+
+class ForgotPasswordResponse(CamelModel):
+    message: str = "If an account exists for this email, we sent a 6-digit code."
+    expires_in_sec: int
+    # Only with DEBUG=true (local dev) and only when a code was sent.
+    dev_code: str | None = None
+
+
+class ResetPasswordRequest(CamelModel):
+    email: EmailStr
+    code: str = Field(min_length=1, max_length=12)
+    new_password: str = Field(min_length=8, max_length=200)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_len(cls, v: str) -> str:
+        return _bcrypt_limit(v)
+
+
+# ── Security overview (/auth/security) ───────────────────────────────
+
+
+class DeviceOut(CamelModel):
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    ip_prefix: str | None = None
+    user_agent: str | None = None
+    current: bool = True
+
+
+class AuthEventOut(CamelModel):
+    event: str
+    created_at: datetime
+    ip_prefix: str | None = None
+    user_agent: str | None = None
+
+
+class SecurityOverview(CamelModel):
+    """The one signed-in device + recent sign-in activity."""
+
+    device: DeviceOut | None = None
+    recent: list[AuthEventOut]
+    idle_timeout_minutes: int
+    max_session_days: int

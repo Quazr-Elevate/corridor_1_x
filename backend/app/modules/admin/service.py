@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,8 @@ from app.modules.accounts.uniqueness import (
     ensure_phone_available,
 )
 from app.modules.admin.schemas import (
+    AccountSecurityOut,
+    SessionOut,
     DashboardStats,
     PendingDocRow,
     StuckUser,
@@ -41,6 +43,8 @@ from app.modules.verification.rules import (
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
 from app.modules.accounts.service import get_owner
+from app.modules.auth.lockout import lock_state
+from app.modules.auth.sessions import active_session, user_policy
 
 MAX_REASON = 500
 STUCK_AFTER = timedelta(hours=24)
@@ -49,10 +53,17 @@ STUCK_AFTER = timedelta(hours=24)
 # ── Audit ────────────────────────────────────────────────────────────
 
 
+class Actor(Protocol):
+    """Who acted — an ``AdminPrincipal`` (``deps.py``)."""
+
+    id: uuid.UUID
+    email: str
+
+
 def record_action(
     db: AsyncSession,
     *,
-    admin_email: str,
+    admin: Actor,
     action: str,
     target_type: str,
     target_id: uuid.UUID | str,
@@ -63,7 +74,8 @@ def record_action(
     change it describes)."""
     db.add(
         AdminAction(
-            admin_email=admin_email,
+            admin_email=admin.email,
+            admin_user_id=admin.id,
             action=action,
             target_type=target_type,
             target_id=str(target_id),
@@ -337,6 +349,19 @@ async def _owner_for(db: AsyncSession, user: User) -> User | None:
     return user if user.role.value == "owner" else await get_owner(db, user.business_id)
 
 
+async def _account_security(db: AsyncSession, u: User) -> AccountSecurityOut:
+    now = utcnow()
+    active = await active_session(db, user_policy(), u.id)
+    state = lock_state(u, now)
+    return AccountSecurityOut(
+        lock_state=state,
+        locked_until=u.locked_until if state == "temporary" else None,
+        failed_login_count=u.failed_login_count,
+        active_session=SessionOut.model_validate(active, from_attributes=True) if active else None,
+        last_login_at=u.last_login_at,
+    )
+
+
 async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
     u = await load_user(db, uid)
     b = u.business
@@ -370,6 +395,7 @@ async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
         verification_rejected_reason=b.verification_rejected_reason,
         verification_rejected_items=list(b.verification_rejected_items or []),
         missing_mandatory_fields=await missing_keys(db, b),
+        security=await _account_security(db, u),
     )
 
 
@@ -377,7 +403,7 @@ def _blank_to_none(value: Any) -> Any:
     return None if value == "" else value
 
 
-async def update_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None, payload: UserPatchIn) -> None:
+async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, payload: UserPatchIn) -> None:
     """Apply only the keys present in the request; same uniqueness rules
     as the self-service Passport saves. Audited as ``business.update``."""
     user = await load_user(db, uid)
@@ -412,7 +438,7 @@ async def update_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None,
     if changed:
         record_action(
             db,
-            admin_email=admin_email,
+            admin=admin,
             action="business.update",
             target_type="business",
             target_id=business.id,
@@ -441,7 +467,7 @@ async def _decision(db: AsyncSession, user: User, business: Business) -> Decisio
     )
 
 
-async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None) -> Decision:
+async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> Decision:
     """Approve the user's business."""
     user = await load_user(db, uid)
     b = user.business
@@ -463,9 +489,9 @@ async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None)
     # One review: approving the business approves the documents verification
     # rests on — its pending *required* entries. Optional and "Other" uploads
     # keep their own per-document decision (nothing unseen gets approved).
-    approved = await _set_doc_status(db, b.id, admin_email, DocStatus.approved, now=now, required_only=True)
+    approved = await _set_doc_status(db, b.id, admin, DocStatus.approved, now=now, required_only=True)
     record_action(
-        db, admin_email=admin_email, action="business.verify", target_type="business", target_id=b.id,
+        db, admin=admin, action="business.verify", target_type="business", target_id=b.id,
         details={"documents_approved": len(approved)} if approved else None,
     )
     decision = await _decision(db, user, b)
@@ -475,7 +501,7 @@ async def verify_user(db: AsyncSession, admin_email: str, uid: uuid.UUID | None)
 
 async def reject_user(
     db: AsyncSession,
-    admin_email: str,
+    admin: Actor,
     uid: uuid.UUID | None,
     reason: str,
     failed_items: list[str] | None = None,
@@ -502,9 +528,9 @@ async def reject_user(
             e.status = DocStatus.rejected
             e.rejection_reason = reason
             e.reviewed_at = now
-            e.reviewed_by = admin_email
+            e.reviewed_by = admin.email
     record_action(
-        db, admin_email=admin_email, action="business.reject", target_type="business", target_id=b.id, reason=reason,
+        db, admin=admin, action="business.reject", target_type="business", target_id=b.id, reason=reason,
         details={"failed_items": items} if items else None,
     )
     decision = await _decision(db, user, b)
@@ -532,7 +558,7 @@ def _valid_failed_items(items: list[str], entries: list[BusinessDocument]) -> li
 
 
 async def _set_doc_status(
-    db: AsyncSession, business_id: uuid.UUID, admin_email: str, status: DocStatus, *, now, required_only: bool = False
+    db: AsyncSession, business_id: uuid.UUID, admin: Actor, status: DocStatus, *, now, required_only: bool = False
 ) -> list[BusinessDocument]:
     stmt = select(BusinessDocument).where(
         BusinessDocument.business_id == business_id, BusinessDocument.status == DocStatus.pending
@@ -546,7 +572,7 @@ async def _set_doc_status(
         d.status = status
         d.rejection_reason = None
         d.reviewed_at = now
-        d.reviewed_by = admin_email
+        d.reviewed_by = admin.email
     return rows
 
 
@@ -590,7 +616,7 @@ class DocDecision:
 
 async def review_doc(
     db: AsyncSession,
-    admin_email: str,
+    admin: Actor,
     doc_id: uuid.UUID | None,
     target: DocStatus,
     *,
@@ -603,11 +629,11 @@ async def review_doc(
         raise NotFound("Document not found")
     doc.status = target
     doc.reviewed_at = utcnow()
-    doc.reviewed_by = admin_email
+    doc.reviewed_by = admin.email
     doc.rejection_reason = reason if target == DocStatus.rejected else None
     record_action(
         db,
-        admin_email=admin_email,
+        admin=admin,
         action=f"doc.{'reject' if target == DocStatus.rejected else 'approve'}",
         target_type="document",
         target_id=doc.id,

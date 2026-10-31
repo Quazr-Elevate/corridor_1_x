@@ -6,17 +6,18 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Query
 
 from app import notifications
-from app.core.security import AdminEmail, parse_uuid
+from app.core.security import parse_uuid
 from app.modules.admin import service
 from app.modules.admin.schemas import StatusChanged, UserDetail, UserList, UserPatchIn, UserRejectIn
 from app.modules.auth.deps import DbSession
+from app.modules.admin.deps import CanEditUsers, CanReviewKyb, CanViewUsers
 
 router = APIRouter()
 
 
 @router.get("/users", response_model=UserList, response_model_by_alias=True)
 async def list_users(
-    _: AdminEmail,
+    _: CanViewUsers,
     db: DbSession,
     q: str | None = Query(None, max_length=200),
     status: str | None = Query(None),
@@ -27,19 +28,19 @@ async def list_users(
 
 
 @router.get("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
-async def user_detail(user_id: str, _: AdminEmail, db: DbSession) -> UserDetail:
+async def user_detail(user_id: str, _: CanViewUsers, db: DbSession) -> UserDetail:
     return await service.user_detail(db, parse_uuid(user_id))
 
 
 @router.patch("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
-async def update_user(user_id: str, payload: UserPatchIn, admin: AdminEmail, db: DbSession) -> UserDetail:
+async def update_user(user_id: str, payload: UserPatchIn, admin: CanEditUsers, db: DbSession) -> UserDetail:
     uid = parse_uuid(user_id)
     await service.update_user(db, admin, uid, payload)
     return await service.user_detail(db, uid)
 
 
 @router.post("/users/{user_id}/verify", response_model=StatusChanged, response_model_by_alias=True)
-async def verify_user(user_id: str, admin: AdminEmail, db: DbSession, background: BackgroundTasks) -> StatusChanged:
+async def verify_user(user_id: str, admin: CanReviewKyb, db: DbSession, background: BackgroundTasks) -> StatusChanged:
     d = await service.verify_user(db, admin, parse_uuid(user_id))
     if d.email:
         background.add_task(
@@ -53,7 +54,7 @@ async def verify_user(user_id: str, admin: AdminEmail, db: DbSession, background
 
 @router.post("/users/{user_id}/reject", response_model=StatusChanged, response_model_by_alias=True)
 async def reject_user(
-    user_id: str, payload: UserRejectIn, admin: AdminEmail, db: DbSession, background: BackgroundTasks
+    user_id: str, payload: UserRejectIn, admin: CanReviewKyb, db: DbSession, background: BackgroundTasks
 ) -> StatusChanged:
     d = await service.reject_user(db, admin, parse_uuid(user_id), payload.reason, payload.failed_items)
     if d.email:

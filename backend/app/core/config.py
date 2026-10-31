@@ -41,14 +41,19 @@ class Settings(BaseSettings):
     # redirects). Defaults to the first CORS origin.
     frontend_base_url: str = ""
 
-    # When true: relaxed rate limits and the dev-only ``devCode`` in the
-    # signup-code response. Must be false in real production.
-    debug: bool = True
+    # When true: relaxed rate limits, the dev-only ``devCode`` in the
+    # signup-code response, insecure cookies and the development KYB key.
+    # Off by default so a deployment that forgets it is safe; local
+    # backend/.env sets DEBUG=true.
+    debug: bool = False
 
     # Set true on ANY HTTPS deployment where the frontend and backend are on
     # different sites (e.g. two *.up.railway.app subdomains) so cookies are
     # issued as `SameSite=None; Secure`. Leave false for http://localhost.
     cross_site_cookies: bool = False
+    # Mark session cookies ``Secure`` (HTTPS only). Unset → on whenever
+    # DEBUG is off. Always on with CROSS_SITE_COOKIES.
+    cookie_secure: bool | None = None
 
     # ─── Logging ─────────────────────────────────────────────────
     log_level: str = "INFO"
@@ -56,16 +61,26 @@ class Settings(BaseSettings):
     log_format: str = "kv"
 
     # ─── Admin console ───────────────────────────────────────────
-    # Single-operator MVP. Generate the hash with:
+    # Bootstrap only: while ``admin_users`` is empty, signing in with these
+    # creates the first super admin. Generate the hash with:
     #   python -c "import bcrypt; print(bcrypt.hashpw(b'yourpass', bcrypt.gensalt()).decode())"
     admin_email: str = "admin@cor1x.local"
     admin_password_hash: str = ""
-    admin_session_secret: str = "dev-only-admin-secret-change-me"
-    admin_session_max_age_hours: int = 12
+    admin_session_idle_minutes: int = 30
+    admin_session_max_hours: int = 8
+    # Comma-separated IPs / CIDRs allowed to use the admin console, e.g.
+    # "203.0.113.7,198.51.100.0/24". Empty = no restriction.
+    admin_ip_allowlist: str = ""
 
     # ─── User sessions ───────────────────────────────────────────
-    # Signs the cor1x_session cookie and keys email-code hashes. ROTATE in prod.
+    # Keys email-code hashes. ROTATE in prod; the app refuses to start with
+    # the dev default when DEBUG is off.
     session_secret: str = "dev-only-session-secret-change-me"
+    user_session_idle_hours: int = 12
+    user_session_max_days: int = 7
+
+    # Shown in lockout messages ("contact support").
+    support_email: str = "enquiry@corridor1x.com"
 
     # ─── KYB field encryption (app/core/crypto.py) ───────────────
     # Comma-separated ``version:base64key`` list of 32-byte AES keys. The
@@ -145,6 +160,25 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def secure_cookies(self) -> bool:
+        if self.cross_site_cookies:
+            return True
+        return (not self.debug) if self.cookie_secure is None else self.cookie_secure
+
+    @property
+    def admin_ip_allowlist_entries(self) -> list[str]:
+        return [e.strip() for e in self.admin_ip_allowlist.split(",") if e.strip()]
+
+    def insecure_defaults(self) -> list[str]:
+        """Settings still at a development default (refused when DEBUG is off)."""
+        problems = []
+        if self.session_secret.startswith("dev-only") or len(self.session_secret) < 32:
+            problems.append("SESSION_SECRET (set 32+ random characters)")
+        if self.lookups_stub:
+            problems.append("LOOKUPS_STUB must be false")
+        return problems
 
     @property
     def frontend_base(self) -> str:

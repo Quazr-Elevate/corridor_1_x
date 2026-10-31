@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.errors import BadRequest, Conflict, NotFound
-from app.core.security import AdminEmail, parse_uuid
+from app.core.security import parse_uuid
 from app.models.country import Country
 from app.models.exchange_rate import SUPPORTED_CURRENCIES
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
@@ -30,6 +30,7 @@ from app.modules.auth.deps import DbSession
 from app.modules.verification.schemas import CountryOut, DocTypeOut, country_to_out, doc_type_to_out
 from app.modules.verification.seed import COUNTRY_REFERENCE
 from app.shared.schemas import CamelModel, CountryCode, text
+from app.modules.admin.deps import CanManageCatalog, CanViewCatalog
 
 router = APIRouter(prefix="/kyb/document-types")
 countries_router = APIRouter(prefix="/kyb/countries")
@@ -191,7 +192,7 @@ def _snapshot(t: KybDocumentType) -> dict:
 
 
 @router.get("", response_model=list[DocTypeAdminOut], response_model_by_alias=True)
-async def list_types(_: AdminEmail, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> list[DocTypeAdminOut]:
+async def list_types(_: CanViewCatalog, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> list[DocTypeAdminOut]:
     """All types (active and hidden), optionally for one country."""
     q = select(KybDocumentType).order_by(KybDocumentType.country, KybDocumentType.sort_order, KybDocumentType.name)
     if country:
@@ -220,13 +221,13 @@ async def _country_out(db, c: Country) -> CountryAdminOut:
 
 
 @countries_router.get("", response_model=list[CountryAdminOut], response_model_by_alias=True)
-async def list_countries(_: AdminEmail, db: DbSession) -> list[CountryAdminOut]:
+async def list_countries(_: CanViewCatalog, db: DbSession) -> list[CountryAdminOut]:
     """Every country (open and paused) with document and business counts."""
     return [await _country_out(db, c) for c in await db.scalars(select(Country).order_by(Country.name))]
 
 
 @countries_router.patch("/{code}", response_model=CountryAdminOut, response_model_by_alias=True)
-async def update_country(code: str, payload: CountryUpdate, admin: AdminEmail, db: DbSession) -> CountryAdminOut:
+async def update_country(code: str, payload: CountryUpdate, admin: CanManageCatalog, db: DbSession) -> CountryAdminOut:
     """Edit details, or pause / resume onboarding (``active``)."""
     c = await db.get(Country, code.upper()[:2])
     if c is None:
@@ -240,11 +241,11 @@ async def update_country(code: str, payload: CountryUpdate, admin: AdminEmail, d
         if value is None and field in {"name", "default_currency", "region_label", "postal_label", "active"}:
             raise BadRequest(f"{field} can't be empty.")
         setattr(c, field, value)
-    c.updated_by = admin
+    c.updated_by = admin.email
     after = _country_snapshot(c)
     changes = {k: {"from": before[k], "to": after[k]} for k in after if before[k] != after[k]}
     if changes:
-        record_action(db, admin_email=admin, action="kyb_country.update", target_type="country", target_id=c.code,
+        record_action(db, admin=admin, action="kyb_country.update", target_type="country", target_id=c.code,
                       details={"changes": changes})
     try:
         await db.commit()
@@ -274,7 +275,7 @@ async def _other_required_count(db, t: KybDocumentType) -> int:
 
 
 @countries_router.post("", response_model=list[DocTypeAdminOut], response_model_by_alias=True, status_code=201)
-async def create_country(payload: CountryCreate, admin: AdminEmail, db: DbSession) -> list[DocTypeAdminOut]:
+async def create_country(payload: CountryCreate, admin: CanManageCatalog, db: DbSession) -> list[DocTypeAdminOut]:
     """Add a country **with** its documents in one go (≥ 1 required).
 
     A country row left over from old data (no documents yet) is reused and
@@ -293,13 +294,13 @@ async def create_country(payload: CountryCreate, admin: AdminEmail, db: DbSessio
         raise BadRequest("Unsupported currency.")
     country = await db.get(Country, payload.country)
     if country is None:
-        country = Country(code=payload.country, created_by=admin, updated_by=admin, active=True, **fields)
+        country = Country(code=payload.country, created_by=admin.email, updated_by=admin.email, active=True, **fields)
         db.add(country)
     else:
         for f, v in fields.items():
             setattr(country, f, v)
         country.active = True
-        country.updated_by = admin
+        country.updated_by = admin.email
     try:
         await db.flush()
     except IntegrityError:
@@ -321,7 +322,7 @@ async def create_country(payload: CountryCreate, admin: AdminEmail, db: DbSessio
         await db.rollback()
         raise Conflict(f"{payload.country} is already set up.") from None
     record_action(
-        db, admin_email=admin, action="kyb_country.create", target_type="country", target_id=payload.country,
+        db, admin=admin, action="kyb_country.create", target_type="country", target_id=payload.country,
         details={
             "country": {k: v for k, v in fields.items() if v is not None},
             "documents": [{"code": r.code, "name": r.name, "is_mandatory": r.is_mandatory} for r in rows],
@@ -334,7 +335,7 @@ async def create_country(payload: CountryCreate, admin: AdminEmail, db: DbSessio
 
 
 @router.post("", response_model=DocTypeAdminOut, response_model_by_alias=True, status_code=201)
-async def create_type(payload: DocTypeCreate, admin: AdminEmail, db: DbSession) -> DocTypeAdminOut:
+async def create_type(payload: DocTypeCreate, admin: CanManageCatalog, db: DbSession) -> DocTypeAdminOut:
     """Add a document to a country that is already set up (new countries go
     through ``POST /admin/kyb/countries``)."""
     if not await _country_exists(db, payload.country):
@@ -346,7 +347,7 @@ async def create_type(payload: DocTypeCreate, admin: AdminEmail, db: DbSession) 
     except IntegrityError:
         await db.rollback()
         raise Conflict(f"{payload.country} already has a document type with code '{payload.code}'.") from None
-    record_action(db, admin_email=admin, action="kyb_type.create", target_type="kyb_document_type",
+    record_action(db, admin=admin, action="kyb_type.create", target_type="kyb_document_type",
                   target_id=t.id, details=_snapshot(t) | {"country": t.country, "code": t.code})
     await db.commit()
     await db.refresh(t)
@@ -354,7 +355,7 @@ async def create_type(payload: DocTypeCreate, admin: AdminEmail, db: DbSession) 
 
 
 @router.patch("/{type_id}", response_model=DocTypeAdminOut, response_model_by_alias=True)
-async def update_type(type_id: str, payload: DocTypeUpdate, admin: AdminEmail, db: DbSession) -> DocTypeAdminOut:
+async def update_type(type_id: str, payload: DocTypeUpdate, admin: CanManageCatalog, db: DbSession) -> DocTypeAdminOut:
     t = await db.get(KybDocumentType, parse_uuid(type_id)) if parse_uuid(type_id) else None
     if t is None:
         raise NotFound("Document type not found")
@@ -380,7 +381,7 @@ async def update_type(type_id: str, payload: DocTypeUpdate, admin: AdminEmail, d
         )
     changes = {k: {"from": before[k], "to": after[k]} for k in _EDITABLE if before[k] != after[k]}
     if changes:
-        record_action(db, admin_email=admin, action="kyb_type.update", target_type="kyb_document_type",
+        record_action(db, admin=admin, action="kyb_type.update", target_type="kyb_document_type",
                       target_id=t.id, details={"country": t.country, "code": t.code, "changes": changes})
     await db.commit()
     await db.refresh(t)

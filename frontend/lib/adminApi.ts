@@ -1,7 +1,59 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
+export type AdminRole = "super_admin" | "reviewer";
+
+export type AdminPermission =
+  | "dashboard.view"
+  | "users.view"
+  | "users.edit"
+  | "kyb.review"
+  | "kyb.sensitive_view"
+  | "catalog.view"
+  | "catalog.manage"
+  | "accounts.security"
+  | "admins.manage";
+
 export interface AdminMe {
+  id: string;
   email: string;
+  fullName: string;
+  role: AdminRole;
+  permissions: AdminPermission[];
+  mustChangePassword: boolean;
+}
+
+export const ADMIN_ROLE_LABEL: Record<AdminRole, string> = {
+  super_admin: "Super admin",
+  reviewer: "Reviewer",
+};
+
+export type LockState = "none" | "temporary" | "support";
+
+export interface AdminAccount {
+  id: string;
+  email: string;
+  fullName: string;
+  role: AdminRole;
+  status: "active" | "disabled";
+  mustChangePassword: boolean;
+  lockState: LockState;
+  lastLoginAt: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface AdminWithPassword {
+  admin: AdminAccount;
+  /** Shown once; never stored in plain form. */
+  temporaryPassword: string;
+}
+
+export interface AccountSecurity {
+  lockState: LockState;
+  lockedUntil: string | null;
+  failedLoginCount: number;
+  activeSession: { createdAt: string; lastSeenAt: string; ipPrefix: string | null; userAgent: string | null } | null;
+  lastLoginAt: string | null;
 }
 
 export interface DashboardStats {
@@ -165,6 +217,7 @@ export interface UserDetail {
   verificationRejectedReason: string | null;
   verificationRejectedItems: string[];
   missingMandatoryFields: string[];
+  security?: AccountSecurity | null;
 }
 
 /* ── Patch keys — mirror the backend's editable whitelists exactly. ── */
@@ -316,6 +369,22 @@ export const adminApi = {
     }),
   logout: () => req<{ ok: true }>("/admin/logout", { method: "POST" }),
   me: () => req<AdminMe>("/admin/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    req<AdminMe>("/admin/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  admins: () => req<AdminAccount[]>("/admin/admins"),
+  createAdmin: (payload: { email: string; fullName: string; role: AdminRole }) =>
+    req<AdminWithPassword>("/admin/admins", { method: "POST", body: JSON.stringify(payload) }),
+  updateAdmin: (id: string, patch: { fullName?: string; role?: AdminRole; status?: "active" | "disabled" }) =>
+    req<AdminAccount>(`/admin/admins/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  resetAdminPassword: (id: string) =>
+    req<AdminWithPassword>(`/admin/admins/${id}/reset-password`, { method: "POST" }),
+  unlockAdmin: (id: string) => req<AdminAccount>(`/admin/admins/${id}/unlock`, { method: "POST" }),
+  signOutAdmin: (id: string) => req<{ ok: true }>(`/admin/admins/${id}/sign-out`, { method: "POST" }),
+  unlockUser: (id: string) => req<{ ok: true }>(`/admin/users/${id}/unlock`, { method: "POST" }),
+  signOutUser: (id: string) => req<{ ok: true }>(`/admin/users/${id}/sign-out`, { method: "POST" }),
   stats: () => req<DashboardStats>("/admin/dashboard/stats"),
   timeline: (days = 30) =>
     req<TimelinePoint[]>(`/admin/dashboard/timeline?days=${days}`),

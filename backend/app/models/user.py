@@ -55,6 +55,8 @@ class User(Base):
         Index("ix_users_business_id", "business_id"),
         CheckConstraint("email = lower(email)", name="ck_users_email_lowercase"),
         CheckConstraint("session_version >= 0", name="ck_users_session_version"),
+        CheckConstraint("failed_login_count >= 0", name="ck_users_failed_login_count"),
+        CheckConstraint("lockout_count >= 0", name="ck_users_lockout_count"),
         CheckConstraint(
             "display_currency IN (" + ", ".join(f"'{c}'" for c in SUPPORTED_CURRENCIES) + ")",
             name="ck_users_display_currency",
@@ -91,6 +93,14 @@ class User(Base):
     # Bumped to revoke every outstanding session cookie (password change,
     # logout-everywhere, account deletion). Embedded in the cookie as "sv".
     session_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    # ─── Lockout (app/modules/auth/lockout.py) ────────────────
+    # Wrong passwords since the last success or lockout; 5 → locked.
+    failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Lockouts since the last successful sign-in: 15 min, 30 min, then
+    # support-only (locked_until stays null, lockout_count >= 3).
+    lockout_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     # ─── Consent (DPDP / PDPL trail) ──────────────────────────
     consent_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

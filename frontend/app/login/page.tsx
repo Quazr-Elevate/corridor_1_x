@@ -27,6 +27,8 @@ function loginError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "That email and password don’t match.";
     if (err.status === 429) return "Too many attempts. Wait a minute, then try again.";
+    // 423 — locked after repeated failures; the server says for how long
+    // (or that support has to unlock it).
     return err.message;
   }
   return "We couldn’t reach the corridor. Check your connection and try again.";
@@ -37,6 +39,7 @@ function LoginForm() {
   const params = useSearchParams();
   const next = safeNext(params.get("next"));
   const verified = params.get("verified") === "1";
+  const wasReset = params.get("reset") === "1";
   const prefill = params.get("email") ?? "";
 
   const [email, setEmail] = useState(prefill);
@@ -61,9 +64,11 @@ function LoginForm() {
 
   return (
     <>
-      {verified ? (
+      {verified || wasReset ? (
         <div className="mt-6">
-          <Notice tone="verified">Email verified. Sign in to continue.</Notice>
+          <Notice tone="verified">
+            {wasReset ? "Password reset. Sign in with your new password." : "Email verified. Sign in to continue."}
+          </Notice>
         </div>
       ) : null}
 
@@ -103,6 +108,12 @@ function LoginForm() {
         <Button type="submit" variant="night" size="lg" block loading={submitting} iconRight="arrow-right">
           Sign in
         </Button>
+        <p className="t-sub text-center text-fg-3">
+          <Link href="/forgot-password" className={nightLinkClass}>
+            Forgot your password?
+          </Link>
+          <span className="mt-1 block">Signing in here signs you out on any other device.</span>
+        </p>
       </form>
 
       <NightDivider />

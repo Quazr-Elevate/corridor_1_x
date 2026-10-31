@@ -311,6 +311,30 @@ export interface BusinessProfileIn {
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 
+export interface SecurityDevice {
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  ipPrefix: string | null;
+  userAgent: string | null;
+  current: boolean;
+}
+
+export interface AuthEventRow {
+  event: string;
+  createdAt: string;
+  ipPrefix: string | null;
+  userAgent: string | null;
+}
+
+/** GET /auth/security — the one signed-in device + recent sign-in activity. */
+export interface SecurityOverview {
+  device: SecurityDevice | null;
+  recent: AuthEventRow[];
+  idleTimeoutMinutes: number;
+  maxSessionDays: number;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -392,6 +416,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  forgotPassword: (email: string) =>
+    jsonFetch<{ message: string; expiresInSec: number; devCode?: string | null }>("/auth/password/forgot", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (payload: { email: string; code: string; newPassword: string }) =>
+    jsonFetch<{ ok: true }>("/auth/password/reset", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  security: () => jsonFetch<SecurityOverview>("/auth/security"),
 
   session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
   logout: () => jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),

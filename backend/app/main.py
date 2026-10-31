@@ -11,6 +11,7 @@ from app.core import crypto
 from app.core.config import Settings, settings
 from app.core.db import engine
 from app.core.csrf import CSRFOriginMiddleware
+from app.core.headers import SecurityHeadersMiddleware
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.integrations import email as email_integration
@@ -112,6 +113,9 @@ def _lifespan_for(s: Settings):
 
 def create_app(s: Settings = settings) -> FastAPI:
     configure_logging(s.log_level, s.log_format)
+    # Refuse to run a non-debug deployment on development defaults.
+    if not s.debug and (problems := s.insecure_defaults()):
+        raise RuntimeError("Insecure configuration with DEBUG=false: " + "; ".join(problems))
     # KYB field encryption: refuse to start without real keys in production.
     if crypto.check_keys(s):
         log.warning("KYB encryption is using the DEVELOPMENT key — set KYB_ENC_KEYS and KYB_HASH_KEY in production.")
@@ -130,12 +134,17 @@ def create_app(s: Settings = settings) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=s.cors_origin_list,
-        # Any localhost/127.0.0.1 port, for dev ergonomics.
-        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+        # Any localhost/127.0.0.1 port — local development only.
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?" if s.debug else None,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "Retry-After"],
+    )
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        frame_ancestors=[*s.cors_origin_list, s.frontend_base],
+        hsts=s.secure_cookies,
     )
     app.add_middleware(RequestContextMiddleware)
 

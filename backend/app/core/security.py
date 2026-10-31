@@ -1,32 +1,28 @@
-"""Passwords, signed tokens, cookies and admin auth.
+"""Passwords, session tokens, cookies and IP truncation.
 
-Token kinds (all HMAC-signed with itsdangerous):
+Sessions are server-side (``user_sessions`` / ``admin_sessions``, see
+``app/modules/auth/sessions.py``). The cookie holds a random opaque token;
+the database stores only its SHA-256, so revoking a row ends the session
+immediately and a database leak can't be replayed as live cookies.
 
-* ``cor1x_session`` cookie — ``{"uid": <uuid>, "sv": <session_version>}``,
-  24h TTL. ``sv`` must equal ``users.session_version`` at request time, so
-  bumping that column (password change, logout-everywhere, account delete)
-  revokes every outstanding cookie. Cookies minted before ``sv`` existed are
-  read as version 0.
-* ``cor1x_admin`` cookie — ``{"email", "iat"}``, signed with the admin secret.
+* ``cor1x_session`` — trader session cookie.
+* ``cor1x_admin``   — admin console session cookie.
 """
 from __future__ import annotations
 
-import time
+import hashlib
+import ipaddress
+import secrets
 import uuid
-from dataclasses import dataclass
-from typing import Annotated, Any
+from typing import Any
 
 import bcrypt
-from fastapi import Cookie, Depends, Response
-from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from fastapi import Response
 
 from app.core.config import settings
-from app.core.errors import Unauthorized
 
 SESSION_COOKIE = "cor1x_session"
 ADMIN_COOKIE = "cor1x_admin"
-
-SESSION_MAX_AGE_SEC = 24 * 3600
 
 
 # ── Passwords ────────────────────────────────────────────────────────
@@ -45,11 +41,16 @@ def verify_password(raw: str, hashed: str | None) -> bool:
         return False
 
 
+def temporary_password() -> str:
+    """Readable one-time password for admin-created accounts (~95 bits)."""
+    return "-".join(secrets.token_urlsafe(6) for _ in range(3))
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
 def parse_uuid(raw: Any) -> uuid.UUID | None:
-    """Token/cookie payloads carry ids as strings; the Uuid column needs a
+    """Path params / payloads carry ids as strings; the Uuid column needs a
     UUID object (SQLite's non-native Uuid binding rejects plain str)."""
     if not isinstance(raw, str):
         return None
@@ -59,139 +60,74 @@ def parse_uuid(raw: Any) -> uuid.UUID | None:
         return None
 
 
-def cookie_policy() -> tuple[str, bool]:
-    """(samesite, secure) — driven by CROSS_SITE_COOKIES, not DEBUG.
-
-    Cross-site HTTPS deployments need ``SameSite=None; Secure``; local
-    http://localhost dev uses ``lax`` + insecure (Secure cookies are dropped
-    over plain http).
-    """
-    if settings.cross_site_cookies:
-        return "none", True
-    return "lax", False
-
-
-def _serializer(secret: str, salt: str) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(secret, salt=salt)
-
-
-# ── User session ─────────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class SessionClaims:
-    user_id: uuid.UUID
-    session_version: int
-
-
-def issue_session_token(user_id: uuid.UUID | str, session_version: int) -> str:
-    return _serializer(settings.session_secret, "cor1x-user-session").dumps(
-        {"uid": str(user_id), "sv": int(session_version)}
-    )
-
-
-def decode_session_token(token: str | None) -> SessionClaims | None:
-    if not token:
-        return None
-    try:
-        payload: Any = _serializer(settings.session_secret, "cor1x-user-session").loads(
-            token, max_age=SESSION_MAX_AGE_SEC
-        )
-    except (BadSignature, SignatureExpired):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    uid = parse_uuid(payload.get("uid"))
-    sv = payload.get("sv", 0)
-    if uid is None or not isinstance(sv, int):
-        return None
-    return SessionClaims(user_id=uid, session_version=sv)
-
-
-def set_session_cookie(response: Response, user_id: uuid.UUID | str, session_version: int) -> None:
-    samesite, secure = cookie_policy()
-    response.set_cookie(
-        key=SESSION_COOKIE,
-        value=issue_session_token(user_id, session_version),
-        max_age=SESSION_MAX_AGE_SEC,
-        httponly=True,
-        samesite=samesite,
-        secure=secure,
-        path="/",
-    )
-
-
-def clear_session_cookie(response: Response) -> None:
-    samesite, secure = cookie_policy()
-    response.delete_cookie(SESSION_COOKIE, path="/", samesite=samesite, secure=secure, httponly=True)
-
-
 def frontend_url(path: str) -> str:
     return f"{settings.frontend_base}/{path.lstrip('/')}"
 
 
-# ── Admin auth ───────────────────────────────────────────────────────
+def ip_prefix(ip: str | None) -> str | None:
+    """Truncate an address before storing it: IPv4 → /24, IPv6 → /48.
 
-
-def verify_admin_credentials(email: str, password: str) -> bool:
-    if email.strip().lower() != settings.admin_email.strip().lower():
-        # Still burn a bcrypt round so timing doesn't reveal the email.
-        verify_password(password, settings.admin_password_hash or None)
-        return False
-    return verify_password(password, settings.admin_password_hash or None)
-
-
-def issue_admin_token(email: str) -> str:
-    return _serializer(settings.admin_session_secret, "cor1x-admin-session").dumps(
-        {"email": email, "iat": int(time.time())}
-    )
-
-
-def decode_admin_token(token: str | None) -> str | None:
-    if not token:
+    Enough to recognise a network in an investigation, not enough to
+    identify a household."""
+    if not ip:
         return None
     try:
-        payload: Any = _serializer(settings.admin_session_secret, "cor1x-admin-session").loads(
-            token, max_age=settings.admin_session_max_age_hours * 3600
-        )
-    except (BadSignature, SignatureExpired):
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
         return None
-    email = payload.get("email") if isinstance(payload, dict) else None
-    # Cookie issued for a different admin identity (env changed) → stale.
-    return email if email == settings.admin_email else None
+    prefix = 24 if addr.version == 4 else 48
+    return str(ipaddress.ip_network(f"{addr}/{prefix}", strict=False))
 
 
-def set_admin_cookie(response: Response, email: str) -> None:
+def ip_allowed(ip: str | None, allowlist: list[str]) -> bool:
+    """Empty allowlist = no restriction."""
+    if not allowlist:
+        return True
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for entry in allowlist:
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+# ── Session tokens + cookies ─────────────────────────────────────────
+
+
+def new_session_token() -> tuple[str, str]:
+    """``(token, sha256 hex)`` — the token goes in the cookie, the hash in the DB."""
+    token = secrets.token_urlsafe(32)
+    return token, hash_token(token)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def cookie_policy() -> tuple[str, bool]:
+    """(samesite, secure).
+
+    Cross-site HTTPS deployments need ``SameSite=None; Secure``. Otherwise
+    ``lax``, and ``Secure`` unless DEBUG is on (plain http://localhost drops
+    Secure cookies) — see ``Settings.secure_cookies``.
+    """
+    return ("none" if settings.cross_site_cookies else "lax"), settings.secure_cookies
+
+
+def set_cookie(response: Response, name: str, token: str, max_age_sec: int) -> None:
     samesite, secure = cookie_policy()
     response.set_cookie(
-        key=ADMIN_COOKIE,
-        value=issue_admin_token(email),
-        max_age=settings.admin_session_max_age_hours * 3600,
-        httponly=True,
-        samesite=samesite,
-        secure=secure,
-        path="/",
+        key=name, value=token, max_age=max_age_sec, httponly=True, samesite=samesite, secure=secure, path="/"
     )
 
 
-def clear_admin_cookie(response: Response) -> None:
+def clear_cookie(response: Response, name: str) -> None:
     samesite, secure = cookie_policy()
-    response.delete_cookie(ADMIN_COOKIE, path="/", samesite=samesite, secure=secure, httponly=True)
-
-
-def require_admin(
-    cor1x_admin: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
-) -> str:
-    email = decode_admin_token(cor1x_admin)
-    if email is None:
-        raise Unauthorized("Not signed in")
-    return email
-
-
-def optional_admin(
-    cor1x_admin: Annotated[str | None, Cookie(alias=ADMIN_COOKIE)] = None,
-) -> str | None:
-    return decode_admin_token(cor1x_admin)
-
-
-AdminEmail = Annotated[str, Depends(require_admin)]
+    response.delete_cookie(name, path="/", samesite=samesite, secure=secure, httponly=True)

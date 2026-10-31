@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/cn";
 import { COUNTRIES, countryName } from "@/components/account/countries";
 import { LaneHeader } from "@/components/admin/tower";
+import { useTower } from "@/components/shell/TowerShell";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Checkbox, Segmented } from "@/components/ui/Controls";
@@ -39,6 +40,8 @@ const KIND_OPTIONS = (Object.keys(KIND_LABEL) as KybInputKind[]).map((k) => ({ v
  */
 export default function KybTypesPage() {
   const toast = useToast();
+  // Reviewers see the list; only super admins add or change it.
+  const manage = useTower().can("catalog.manage");
   const [rows, setRows] = useState<AdminKybDocType[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [country, setCountry] = useState("IN");
@@ -99,6 +102,7 @@ export default function KybTypesPage() {
         title="Document types"
         subtitle="Businesses can only choose a country set up here. Each country has at least one required document — they must be present before a business can send its profile for review."
         actions={
+          manage ? (
           <>
             <Button variant="secondary" icon="plus" onClick={() => setEditing("new")} disabled={!countries.length}>
               Add document
@@ -107,6 +111,7 @@ export default function KybTypesPage() {
               Add country
             </Button>
           </>
+          ) : null
         }
       />
 
@@ -142,6 +147,7 @@ export default function KybTypesPage() {
               {current.businesses} business{current.businesses === 1 ? "" : "es"}
             </p>
           </div>
+          {manage ? (
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="quiet" onClick={() => void setCountryActive(current, !current.active)}>
               {current.active ? "Pause onboarding" : "Reopen onboarding"}
@@ -150,6 +156,7 @@ export default function KybTypesPage() {
               Edit country
             </Button>
           </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -192,6 +199,7 @@ export default function KybTypesPage() {
                   {r.helpText ? ` · ${r.helpText}` : ""}
                 </p>
               </div>
+              {manage ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="quiet" onClick={() => void toggle(r, { isMandatory: !r.isMandatory })}>
                   {r.isMandatory ? "Make optional" : "Make required"}
@@ -203,6 +211,7 @@ export default function KybTypesPage() {
                   Edit
                 </Button>
               </div>
+              ) : null}
             </div>
           ))
         )}

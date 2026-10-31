@@ -32,11 +32,12 @@ os.environ.update(
         "DATABASE_URL": f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
         "DEBUG": "false",
         "CROSS_SITE_COOKIES": "false",
-        "SESSION_SECRET": "test-session-secret",
+        "SESSION_SECRET": "test-session-secret-0123456789abcdef",
+        # Tests talk plain http to http://testserver, so no Secure cookies.
+        "COOKIE_SECURE": "false",
         # Two encryption key versions (2 = current) to exercise rotation.
         "KYB_ENC_KEYS": "1:" + base64.b64encode(b"k" * 32).decode() + ",2:" + base64.b64encode(b"K" * 32).decode(),
         "KYB_HASH_KEY": base64.b64encode(b"h" * 32).decode(),
-        "ADMIN_SESSION_SECRET": "test-admin-secret",
         "ADMIN_EMAIL": ADMIN_EMAIL,
         "ADMIN_PASSWORD_HASH": bcrypt.hashpw(ADMIN_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode(),
         "EMAIL_PROVIDER": "console",

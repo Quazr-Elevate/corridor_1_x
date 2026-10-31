@@ -12,12 +12,80 @@ from app.shared.schemas import CamelModel, CountryCode, CountryList, TagList, te
 
 
 class LoginIn(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=200)
+    password: str = Field(max_length=200)
 
 
 class LoginOut(CamelModel):
+    """The signed-in admin (/admin/login, /admin/me)."""
+
+    id: str
     email: str
+    full_name: str
+    role: str
+    permissions: list[str]
+    must_change_password: bool
+
+
+class AdminChangePasswordIn(CamelModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=12, max_length=72)
+
+
+# ── Admin accounts (super admin) ─────────────────────────────────────
+
+AdminRoleName = Literal["super_admin", "reviewer"]
+
+
+class AdminAccountOut(CamelModel):
+    id: str
+    email: str
+    full_name: str
+    role: AdminRoleName
+    status: Literal["active", "disabled"]
+    must_change_password: bool
+    lock_state: Literal["none", "temporary", "support"]
+    last_login_at: datetime | None
+    created_by: str
+    created_at: datetime
+
+
+class AdminCreateIn(CamelModel):
+    email: Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=200,
+                                            pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
+    full_name: text(100, 2)  # type: ignore[valid-type]
+    role: AdminRoleName
+
+
+class AdminPatchIn(CamelModel):
+    full_name: text(100, 2) | None = None  # type: ignore[valid-type]
+    role: AdminRoleName | None = None
+    status: Literal["active", "disabled"] | None = None
+
+
+class AdminWithPassword(CamelModel):
+    """Create / reset-password response — the temporary password is shown
+    once and never stored in plain form."""
+
+    admin: AdminAccountOut
+    temporary_password: str
+
+
+class SessionOut(CamelModel):
+    created_at: datetime
+    last_seen_at: datetime
+    ip_prefix: str | None = None
+    user_agent: str | None = None
+
+
+class AccountSecurityOut(CamelModel):
+    """Trader sign-in state shown on the admin user page."""
+
+    lock_state: Literal["none", "temporary", "support"]
+    locked_until: datetime | None = None
+    failed_login_count: int
+    active_session: SessionOut | None = None
+    last_login_at: datetime | None = None
 
 
 # ── Dashboard ────────────────────────────────────────────────────────
@@ -132,6 +200,7 @@ class UserDetail(CamelModel):
     verification_rejected_reason: str | None
     verification_rejected_items: list[str] = []
     missing_mandatory_fields: list[str]
+    security: AccountSecurityOut | None = None
 
 
 Pincode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^(|[1-9][0-9]{5})$")]

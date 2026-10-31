@@ -18,6 +18,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
+from app.core.config import settings
 from app.core.security import frontend_url
 from app.integrations.email import send_email
 
@@ -59,6 +60,18 @@ async def send_signup_code(*, to: str, code: str, valid_minutes: int) -> None:
         code=code,
         email=to,
         valid_minutes=valid_minutes,
+    )
+
+
+async def send_password_reset_code(*, to: str, code: str, first_name: str, valid_minutes: int) -> None:
+    await _send(
+        to,
+        f"{code} is your Cor1x password reset code",
+        "password_reset_code",
+        code=code,
+        first_name=first_name,
+        valid_minutes=valid_minutes,
+        support_email=settings.support_email,
     )
 
 

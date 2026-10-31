@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, Response, UploadFile
 
-from app.core.security import clear_session_cookie
+from app.core.security import SESSION_COOKIE, clear_cookie
 from app.modules.accounts import service
 from app.modules.accounts.schemas import (
     BusinessProfileIn,
@@ -76,7 +76,7 @@ async def submit_verification(user: CurrentUser, db: DbSession) -> VerificationS
 async def delete_me(user: CurrentUser, db: DbSession) -> Response:
     await service.delete_account(db, user)
     response = Response(status_code=204)
-    clear_session_cookie(response)
+    clear_cookie(response, SESSION_COOKIE)
     return response
 
 

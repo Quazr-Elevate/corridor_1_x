@@ -20,7 +20,7 @@ backend/
 │   ├── core/                   # app-wide plumbing (no business rules)
 │   │   ├── config.py           # Settings (env / .env), BACKEND_DIR anchoring
 │   │   ├── db.py               # async engine, SessionLocal, get_db, ping_db
-│   │   ├── security.py         # bcrypt, signed session/admin tokens, cookie policy, AdminEmail dep
+│   │   ├── security.py         # bcrypt, opaque session tokens, cookie policy, IP truncation
 │   │   ├── errors.py           # DomainError hierarchy + central exception handlers ({"detail": ...})
 │   │   ├── logging.py          # key=value / JSON logging, X-Request-ID middleware + access log
 │   │   └── time.py             # utcnow(), ensure_aware()
@@ -97,13 +97,29 @@ transaction creates the business (`draft`) + owner user (consent stamped) and
 consumes the code; it sets the session cookie and returns the login shape. An
 existing email → 409 "account exists, please log in".
 
-**Login / sessions** — `POST /auth/login` (email + password) sets the
-`cor1x_session` cookie (HttpOnly, signed, 24h) — the *only* way to
-authenticate a user. It carries `users.session_version`; `POST
-/auth/change-password` (current password required), `POST /auth/logout-all`
-and account deletion bump the version and revoke every outstanding cookie
-(the password-change response re-issues one for this browser). `POST
-/auth/logout` clears this browser's cookie. Disabled accounts can't log in.
+**Login / sessions** — server-side (`user_sessions` / `admin_sessions`,
+`app/modules/auth/sessions.py`). `POST /auth/login` sets the `cor1x_session`
+cookie: an opaque random token (HttpOnly, Secure unless DEBUG); only its
+SHA-256 is stored. **One device per account** — a new sign-in revokes the
+previous session (`replaced`). Traders: 12 h idle / 7 days max; admins
+(`cor1x_admin`): 30 min idle / 8 h max. Logout, logout-all, password
+change (keeps this browser), password reset (`POST /auth/password/forgot` →
+emailed code → `POST /auth/password/reset`), account deletion and admin
+"sign out" revoke sessions immediately. Every sign-in, failure, lockout and
+logout is written to `auth_events` with a truncated IP (/24, /48).
+`GET /auth/security` shows the device + recent activity.
+
+**Lockout** (`app/modules/auth/lockout.py`, users and admins) — 5 wrong
+passwords → 15 min; the next lockout 30 min; the 3rd locks the account until
+support unlocks it (`POST /admin/users/{id}/unlock`, `…/admins/{id}/unlock`).
+
+**Admin accounts** — named `admin_users` with roles `super_admin` |
+`reviewer` (`app/modules/admin/permissions.py`). Every `/admin` route
+declares one permission (`deps.require`, checked by
+`tests/test_admin_accounts.py`). The first super admin is created by signing
+in with `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH` while the table is empty; super
+admins create others with a one-time temporary password (must be changed on
+first sign-in). `ADMIN_IP_ALLOWLIST` (empty = off) restricts the console.
 
 **Verification** — Passport saves never change status. `POST
 /me/submit-verification` moves the user's business from `draft`/`rejected` to
@@ -204,7 +220,8 @@ cp .env.example .env                       # defaults work as-is for dev
 
 Emails land in `backend/outbox/*.eml` (console provider). With `DEBUG=true`
 the signup-code response also includes `devCode`. API docs:
-http://localhost:8000/docs. Set `ADMIN_PASSWORD_HASH` to use the admin console.
+http://localhost:8000/docs. Set `ADMIN_EMAIL` + `ADMIN_PASSWORD_HASH`, then sign in once to create the
+first super admin.
 
 ## Postgres (production / Railway)
 
@@ -214,8 +231,10 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/cor1x alembic upgrade head
 
 Railway builds with Railpack (`railpack.json`: `alembic upgrade head && uvicorn
 ...`) and health-checks `GET /health` (`{"status":"ok"}`, 503 when the DB is
-unreachable). Production checklist: `DEBUG=false`, `SESSION_SECRET`,
-`ADMIN_SESSION_SECRET`, `ADMIN_PASSWORD_HASH`, `CROSS_SITE_COOKIES=true` when
+unreachable). Production checklist: `DEBUG=false` (the default; the API
+refuses to start with a dev `SESSION_SECRET`), `SESSION_SECRET` (32+ random
+chars), `KYB_ENC_KEYS` + `KYB_HASH_KEY`, `ADMIN_EMAIL` + `ADMIN_PASSWORD_HASH`
+(bootstrap), `RATE_LIMIT_TRUSTED_PROXIES`, `CROSS_SITE_COOKIES=true` when
 frontend and API are on different sites, `EMAIL_PROVIDER=resend|brevo` +
 `EMAIL_API_KEY`, `STORAGE_DIR` on a mounted volume, `LOOKUPS_STUB=false`,
 `FX_ENABLED=true` (single process) or a cron running `scripts/refresh_rates.py`.

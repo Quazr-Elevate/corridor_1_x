@@ -156,7 +156,7 @@ const REJECTABLE = new Set(["pending_verification", "verified"]);
 export default function AccountDetailPage() {
   const params = useParams();
   const id = params?.id as string;
-  const { refreshStats } = useTower();
+  const { refreshStats, can } = useTower();
   const toast = useToast();
   const { setDirty } = useUnsavedGuard();
 
@@ -590,6 +590,15 @@ export default function AccountDetailPage() {
               <KeyValue label="Updated" value={fmtDateTime(user.updatedAt)} />
             </dl>
           </Card>
+
+          {user.security ? (
+            <SecurityCard
+              userId={user.userId}
+              security={user.security}
+              canAct={can("accounts.security")}
+              onChanged={load}
+            />
+          ) : null}
         </aside>
       </div>
 
@@ -637,6 +646,81 @@ export default function AccountDetailPage() {
 }
 
 /* ───────────────────────────── Pieces ─────────────────────────────── */
+
+/** Sign-in state: lockout, the one active device; support can unlock / sign out. */
+function SecurityCard({
+  userId,
+  security,
+  canAct,
+  onChanged,
+}: {
+  userId: string;
+  security: NonNullable<UserDetail["security"]>;
+  canAct: boolean;
+  onChanged: () => Promise<unknown> | void;
+}) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<"unlock" | "signout" | null>(null);
+  const run = async (kind: "unlock" | "signout") => {
+    setBusy(kind);
+    try {
+      if (kind === "unlock") await adminApi.unlockUser(userId);
+      else await adminApi.signOutUser(userId);
+      toast(kind === "unlock" ? "Account unlocked" : "Signed out of their device", "verified");
+      await onChanged();
+    } catch (e) {
+      toast(errorMessage(e, "That didn't work."), "frozen");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const lock =
+    security.lockState === "support"
+      ? "Locked — waiting for support"
+      : security.lockState === "temporary"
+        ? `Locked until ${security.lockedUntil ? fmtDateTime(security.lockedUntil) : "soon"}`
+        : "Not locked";
+  const s = security.activeSession;
+  return (
+    <Card as="section" aria-labelledby="sec-h" className="p-6">
+      <h2 id="sec-h" className="t-label text-fg-3">
+        Sign-in &amp; security
+      </h2>
+      {security.lockState !== "none" ? (
+        <div className="mt-4">
+          <Notice tone="frozen">
+            {security.lockState === "support"
+              ? "Locked after three rounds of failed sign-ins. Confirm who you’re talking to before unlocking."
+              : "Temporarily locked after five wrong passwords."}
+          </Notice>
+        </div>
+      ) : null}
+      <dl className="mt-5 grid gap-4">
+        <KeyValue label="Lock" value={lock} />
+        <KeyValue label="Wrong passwords" value={String(security.failedLoginCount)} />
+        <KeyValue label="Last sign-in" value={security.lastLoginAt ? fmtDateTime(security.lastLoginAt) : "Never"} />
+        <KeyValue
+          label="Signed-in device"
+          value={s ? `${s.ipPrefix ?? "unknown network"} · active ${fmtDateTime(s.lastSeenAt)}` : "None"}
+        />
+      </dl>
+      {canAct ? (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {security.lockState !== "none" ? (
+            <Button size="sm" variant="secondary" icon="unlock" loading={busy === "unlock"} onClick={() => void run("unlock")}>
+              Unlock
+            </Button>
+          ) : null}
+          {s ? (
+            <Button size="sm" variant="secondary" icon="logout" loading={busy === "signout"} onClick={() => void run("signout")}>
+              Sign out device
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
 
 function BackLink() {
   return (

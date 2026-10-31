@@ -19,7 +19,8 @@ async def test_admin_login_and_auth(make_client):
     assert r.status_code == 401
     r = await c.post("/admin/login", json={"email": ADMIN_EMAIL.upper(), "password": "admin-pass-123"})
     assert r.status_code == 200
-    assert (await c.get("/admin/me")).json() == {"email": ADMIN_EMAIL}
+    me = (await c.get("/admin/me")).json()
+    assert me["email"] == ADMIN_EMAIL and me["role"] == "super_admin" and me["mustChangePassword"] is False
     await c.post("/admin/logout")
     assert (await c.get("/admin/me")).status_code == 401
 

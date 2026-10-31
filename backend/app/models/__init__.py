@@ -1,4 +1,6 @@
 from app.models.admin_action import AdminAction
+from app.models.admin_user import AdminRole, AdminStatus, AdminUser
+from app.models.auth_session import AdminSession, AuthEvent, UserSession
 from app.models.base import Base
 from app.models.business import ENTITY_TYPES, Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
@@ -14,6 +16,11 @@ __all__ = [
     "ENTITY_TYPES",
     "AccountStatus",
     "AdminAction",
+    "AdminRole",
+    "AdminSession",
+    "AdminStatus",
+    "AdminUser",
+    "AuthEvent",
     "Base",
     "Business",
     "BusinessDocument",
@@ -29,5 +36,6 @@ __all__ = [
     "Product",
     "SUPPORTED_CURRENCIES",
     "User",
+    "UserSession",
     "UserRole",
 ]

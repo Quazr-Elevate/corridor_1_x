@@ -5,7 +5,9 @@
 * :class:`RequestContextMiddleware` (pure ASGI) assigns every request an id
   (reusing an inbound ``X-Request-ID`` when sane), exposes it through a
   contextvar so every log line carries it, echoes it in the response
-  header, and emits one access line per request.
+  header, and emits one access line per request — including the signed-in
+  actor (``user:<id>`` / ``admin:<id>``, set via :func:`set_actor`), never
+  the IP or body.
 """
 from __future__ import annotations
 
@@ -20,6 +22,16 @@ from contextvars import ContextVar
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
+# A mutable holder (not the value) so auth dependencies running in a copied
+# context can still fill it in for the access line.
+_actor_var: ContextVar[dict[str, str] | None] = ContextVar("actor", default=None)
+
+
+def set_actor(kind: str, actor_id: object) -> None:
+    """Record who made the current request (``user`` / ``admin`` + id)."""
+    holder = _actor_var.get()
+    if holder is not None:
+        holder["actor"] = f"{kind}:{actor_id}"
 
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _STD_ATTRS = set(vars(logging.makeLogRecord({})).keys()) | {"message", "asctime"}
@@ -110,6 +122,8 @@ class RequestContextMiddleware:
                 break
         rid = inbound if inbound and _REQUEST_ID_RE.match(inbound) else uuid.uuid4().hex[:16]
         request_id_var.set(rid)
+        actor = {"actor": "-"}
+        _actor_var.set(actor)
 
         start = time.perf_counter()
         status_holder = {"status": 500}
@@ -135,5 +149,6 @@ class RequestContextMiddleware:
                         "path": path,
                         "status": status_holder["status"],
                         "duration_ms": ms,
+                        "actor": actor["actor"],
                     },
                 )

@@ -194,10 +194,7 @@ async def test_removed_auth_routes(client):
 async def test_change_password_and_revocation(client, make_client):
     email = "rot@kaverifoods.in"
     await signup_and_login(client, email)
-    old_cookie = client.cookies.get(SESSION_COOKIE)
-    other = make_client()
-    other.cookies.set(SESSION_COOKIE, old_cookie)
-    assert (await other.get("/me")).status_code == 200
+    cookie = client.cookies.get(SESSION_COOKIE)
 
     # Rotation needs the current password.
     r = await client.post("/auth/change-password", json={"currentPassword": "", "newPassword": "N3w-password!"})
@@ -212,14 +209,16 @@ async def test_change_password_and_revocation(client, make_client):
         "/auth/change-password", json={"currentPassword": "Sup3r-secret!", "newPassword": "N3w-password!"}
     )
     assert r.status_code == 200, r.text
-    assert client.cookies.get(SESSION_COOKIE) != old_cookie
+    # This browser stays signed in on the same session.
+    assert client.cookies.get(SESSION_COOKIE) == cookie
     assert (await client.get("/me")).status_code == 200
-    assert (await other.get("/me")).status_code == 401
-    assert (await other.get("/auth/session")).json() == {"userId": None}
 
     fresh = make_client()
     assert (await fresh.post("/auth/login", json={"email": email, "password": "Sup3r-secret!"})).status_code == 401
     assert (await fresh.post("/auth/login", json={"email": email, "password": "N3w-password!"})).status_code == 200
+    # One device: the new sign-in ended the first browser's session.
+    assert (await client.get("/me")).status_code == 401
+    client.cookies.set(SESSION_COOKIE, fresh.cookies.get(SESSION_COOKIE))
 
     assert (await client.post("/auth/logout")).status_code == 200
     assert (await client.get("/me")).status_code == 401

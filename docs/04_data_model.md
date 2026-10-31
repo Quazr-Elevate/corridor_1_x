@@ -592,3 +592,78 @@ active required document. `POST /admin/kyb/countries` creates (or completes a
 seeded) country together with its documents; `PATCH /admin/kyb/countries/{code}`
 edits details or pauses / resumes. Postcodes are checked against
 `postal_pattern`. Changes are audited (`kyb_country.create` / `kyb_country.update`).
+
+## Identity & access (`0024_identity_access`)
+
+Phase A of the security plan (`docs/05_security_review.md`). Signed cookies
+are replaced by server-side sessions; every cookie issued before 0024 stops
+working (users sign in again).
+
+### 11. `admin_users` — named admin accounts
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `email` | varchar(200) | no | unique (`uq_admin_users_email`), lower-case (`ck_admin_users_email_lowercase`) |
+| `full_name` | varchar(100) | no | |
+| `role` | enum `admin_role` | no | `super_admin` \| `reviewer` (permissions in `app/modules/admin/permissions.py`) |
+| `status` | enum `admin_status` | no | `active` \| `disabled` (disabling ends the session) |
+| `password_hash` | varchar(255) | no | bcrypt |
+| `must_change_password` | bool | no | temporary password — only `/admin/me` + `/admin/change-password` until changed |
+| `password_changed_at` | timestamptz | yes | |
+| `failed_login_count` / `lockout_count` / `locked_until` | int / int / timestamptz | no / no / yes | lockout (below) |
+| `last_login_at` | timestamptz | yes | |
+| `created_by` | varchar(200) | no | creator's email or `bootstrap` |
+| `created_at` / `updated_at` | timestamptz | no | |
+
+Empty after the migration: signing in with `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH`
+while it is empty creates the first super admin.
+
+| Permission | super_admin | reviewer |
+|---|---|---|
+| `dashboard.view`, `users.view`, `users.edit` | ✓ | ✓ |
+| `kyb.review` (verify / reject businesses and documents) | ✓ | ✓ |
+| `kyb.sensitive_view` (reveal numbers, open files — audited) | ✓ | ✓ |
+| `catalog.view` (countries, document types) | ✓ | ✓ |
+| `catalog.manage` (create / edit countries, document types) | ✓ | |
+| `accounts.security` (unlock traders, sign them out) | ✓ | |
+| `admins.manage` (create / edit / reset / unlock / sign out admins) | ✓ | |
+
+### 12. `user_sessions` / `admin_sessions` — server-side sessions
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | uuid | PK | |
+| `user_id` / `admin_user_id` | uuid | no | FK → `users` / `admin_users`, ON DELETE CASCADE |
+| `token_hash` | char(64) | no | SHA-256 of the cookie token; unique |
+| `created_at` | timestamptz | no | |
+| `last_seen_at` | timestamptz | no | refreshed ≤ once a minute; idle expiry = this + idle TTL |
+| `expires_at` | timestamptz | no | absolute cap |
+| `revoked_at` / `revoked_reason` | timestamptz / varchar(30) | yes | `logout`, `replaced`, `logout_all`, `password_changed`, `password_reset`, `account_deleted`, `account_disabled`, `admin_revoked` |
+| `ip_prefix` | varchar(64) | yes | truncated IP — IPv4 /24, IPv6 /48 (never the full address) |
+| `user_agent` | varchar(200) | yes | |
+
+Partial unique index `uq_*_one_active` on the owner where `revoked_at IS NULL`
+→ **one active session per account**; a new sign-in revokes the old one
+(`replaced`). Timeouts: traders 12 h idle / 7 days absolute; admins 30 min /
+8 h (`USER_SESSION_*`, `ADMIN_SESSION_*`).
+
+### 13. `auth_events` — security log
+
+`subject_type` (`user` | `admin`), `subject_id` (null for an unknown email —
+the email isn't stored), `event` (`login_succeeded`, `login_failed`,
+`locked`, `locked_support`, `unlocked`, `logout`, `session_replaced`,
+`sessions_revoked`, `password_changed`, `password_reset_requested`,
+`password_reset`), `ip_prefix`, `user_agent`, `details` (JSON), `created_at`.
+Indexes `ix_auth_events_subject`, `ix_auth_events_created_at`.
+
+### Changes to `users` and `admin_actions`
+
+* `users.failed_login_count`, `users.lockout_count` (≥ 0 checks), `users.locked_until`.
+  Lockout: 5 wrong passwords → 15 min; the next → 30 min; the 3rd lockout →
+  locked until support unlocks (`lockout_count ≥ 3`, `locked_until` null).
+  A successful sign-in resets both counters; a password reset clears a
+  temporary lock but not a support lock.
+* `admin_actions.admin_user_id` → `admin_users.id` (ON DELETE SET NULL; null
+  for rows before 0024). `admin_email` is kept for readability.
+* `users.session_version` is no longer read (kept for history; still bumped).

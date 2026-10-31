@@ -21,6 +21,25 @@ Status: ✅ meets policy · ⚠️ partial · ❌ gap · ⏳ planned (agreed pha
 
 ---
 
+## Update — Phase A implemented (31 Oct 2026, migration `0024_identity_access`)
+
+| Finding / control | Now |
+|---|---|
+| F1 / A12 / B8 / B9 / B12 — shared admin password, no roles | ✅ Named `admin_users` (super_admin, reviewer); every `/admin` route declares one permission, enforced by a route-matrix test; countries, document types, admins and trader unlocks are super-admin only; temporary passwords must be changed at first sign-in |
+| F7 / A7 / A8 — sessions | ✅ Server-side sessions (opaque token, SHA-256 stored), **one device per account** (a new sign-in signs the old device out), traders 12 h idle / 7 days, admins 30 min / 8 h; logout, password change/reset, deletion, disabling and admin "sign out" revoke immediately |
+| F7 / A9 — lockout | ✅ 5 wrong passwords → 15 min, then 30 min, then locked until support unlocks (users and admins); every step logged in `auth_events` |
+| F7 / A10 — password reset | ✅ Emailed 6-digit code, same answer for unknown emails, signs out every device, does not lift a support lock |
+| F4 / D6 — insecure defaults | ✅ `DEBUG` now defaults to off; the API refuses to start with a dev/short `SESSION_SECRET` or `LOOKUPS_STUB` when DEBUG is off |
+| F5 / A6 — Secure cookie | ✅ Secure whenever DEBUG is off (overridable with `COOKIE_SECURE`) |
+| F6 / D4 / D5 — headers, caching | ✅ nosniff, Referrer-Policy, Permissions-Policy, CSP `frame-ancestors` (frontend origins), COOP, HSTS on HTTPS, `Cache-Control: no-store` by default |
+| F11 / C8 — actor in logs | ✅ Access log carries `actor=user:<id>` / `admin:<id>`; sign-in events store a truncated IP (/24, /48) only |
+| F13 / D2 — CORS localhost | ✅ Only in DEBUG |
+| Admin IP allowlist | ✅ `ADMIN_IP_ALLOWLIST` built, empty = off (testing phase) |
+| `admin_actions` attribution | ✅ `admin_user_id` FK on every new audit row |
+| Still open from Phase A | ⏳ Reason prompt before an admin reveals a number / opens a file (B10); hash-chained audit log (F12, with Phase B's insert-only role) |
+
+Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted storage + malware scan, Redis limits, Vault/KMS, Cloudflare, central logs, DB hardening) and the dependency upgrades (F2, F3) are unchanged.
+
 ## 1. Executive summary
 
 **Strong today:** access control between businesses, encryption and masking of KYB numbers, no secrets or personal data in logs or git, cross-site request protection, audited admin views, KYB data removed on account deletion, Aadhaar blocked.

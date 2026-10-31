@@ -38,6 +38,7 @@ from app.modules.accounts.uniqueness import (
     ensure_company_available,
     ensure_phone_available,
 )
+from app.modules.auth.sessions import revoke_all, user_policy
 from app.modules.fx.service import ensure_supported
 from app.modules.verification.rules import (
     PROFILE_FIELDS,
@@ -223,6 +224,7 @@ async def delete_account(db: AsyncSession, user: User) -> None:
     u.phone = None
     u.position = None
     u.session_version = (u.session_version or 0) + 1
+    await revoke_all(db, user_policy(), u.id, "account_deleted")
     others = await db.scalar(
         select(func.count(User.id)).where(
             User.business_id == u.business_id, User.id != u.id, User.deleted_at.is_(None)

@@ -12,7 +12,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { adminApi, type DashboardStats } from "@/lib/adminApi";
+import { ADMIN_ROLE_LABEL, adminApi, type AdminMe, type AdminPermission, type DashboardStats } from "@/lib/adminApi";
 import { cn } from "@/lib/cn";
 import { UnsavedGuardProvider, useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -32,12 +32,17 @@ import { TowerBackdrop } from "@/components/admin/TowerBackdrop";
 
 interface TowerCtx {
   email: string | null;
+  me: AdminMe | null;
+  /** Whether the signed-in admin's role grants ``perm`` (hide what it doesn't). */
+  can: (perm: AdminPermission) => boolean;
   stats: DashboardStats | null;
   refreshStats: () => Promise<void>;
 }
 
 const TowerContext = createContext<TowerCtx>({
   email: null,
+  me: null,
+  can: () => false,
   stats: null,
   refreshStats: async () => {},
 });
@@ -48,6 +53,8 @@ const NAV: ReadonlyArray<{
   href: string;
   label: string;
   icon: IconName;
+  /** Hidden unless the admin's role has it. */
+  perm?: AdminPermission;
   count?: (s: DashboardStats) => number;
   match: (p: string) => boolean;
 }> = [
@@ -61,7 +68,8 @@ const NAV: ReadonlyArray<{
     match: (p) => p.startsWith("/admin/verify") || p.startsWith("/admin/docs"),
   },
   { href: "/admin/users", label: "Directory", icon: "users", match: (p) => p.startsWith("/admin/users") },
-  { href: "/admin/kyb-types", label: "Doc types", icon: "settings", match: (p) => p.startsWith("/admin/kyb-types") },
+  { href: "/admin/kyb-types", label: "Doc types", icon: "settings", perm: "catalog.view", match: (p) => p.startsWith("/admin/kyb-types") },
+  { href: "/admin/admins", label: "Admins", icon: "key", perm: "admins.manage", match: (p) => p.startsWith("/admin/admins") },
 ];
 
 export function TowerShell({ children }: { children: ReactNode }) {
@@ -91,7 +99,9 @@ function TowerShellInner({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { confirmIfDirty } = useUnsavedGuard();
-  const [email, setEmail] = useState<string | null>(null);
+  const [me, setMe] = useState<AdminMe | null>(null);
+  const email = me?.email ?? null;
+  const can = useCallback((perm: AdminPermission) => !!me?.permissions.includes(perm), [me]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [ready, setReady] = useState(false);
   useTowerSurface();
@@ -110,7 +120,12 @@ function TowerShellInner({ children }: { children: ReactNode }) {
       .me()
       .then((m) => {
         if (cancelled) return;
-        setEmail(m.email);
+        // A temporary password has to be replaced before anything else.
+        if (m.mustChangePassword) {
+          router.replace("/admin/login");
+          return;
+        }
+        setMe(m);
         setReady(true);
         void refreshStats();
       })
@@ -135,12 +150,12 @@ function TowerShellInner({ children }: { children: ReactNode }) {
     });
 
   return (
-    <TowerContext.Provider value={{ email, stats, refreshStats }}>
+    <TowerContext.Provider value={{ email, me, can, stats, refreshStats }}>
       <div data-surface="tower" className="relative isolate min-h-dvh bg-ground text-fg">
         <TowerBackdrop />
-        <Rail pathname={pathname} stats={stats} onSignOut={signOut} />
+        <Rail pathname={pathname} stats={stats} can={can} onSignOut={signOut} />
         <div className="md:pl-[108px]">
-          <StatusLine email={email} />
+          <StatusLine email={email} role={me ? ADMIN_ROLE_LABEL[me.role] : null} />
           <main className="mx-auto w-full max-w-[1500px] px-4 pb-32 sm:px-8 md:pb-16">
             {ready ? children : <TowerLoading />}
           </main>
@@ -155,16 +170,18 @@ function TowerShellInner({ children }: { children: ReactNode }) {
 function Rail({
   pathname,
   stats,
+  can,
   onSignOut,
 }: {
   pathname: string;
   stats: DashboardStats | null;
+  can: (perm: AdminPermission) => boolean;
   onSignOut: () => void;
 }) {
   const router = useRouter();
   const reduce = useReducedMotion();
   const { confirmIfDirty } = useUnsavedGuard();
-  const items = NAV.map((n) => {
+  const items = NAV.filter((n) => !n.perm || can(n.perm)).map((n) => {
     const active = n.match(pathname);
     const count = stats && n.count ? n.count(stats) : 0;
     return { ...n, active, count };
@@ -293,7 +310,7 @@ function useClock(tz: string) {
   return t;
 }
 
-function StatusLine({ email }: { email: string | null }) {
+function StatusLine({ email, role }: { email: string | null; role: string | null }) {
   const ist = useClock("Asia/Kolkata");
   const gst = useClock("Asia/Dubai");
   return (
@@ -309,6 +326,7 @@ function StatusLine({ email }: { email: string | null }) {
           </span>
           <span className="t-label hidden truncate text-fg-3 sm:inline" title={email ?? undefined}>
             Ops · {email ?? "—"}
+            {role ? <> · {role}</> : null}
           </span>
         </div>
         <div className="glass flex shrink-0 items-center gap-3 rounded-full px-3.5 py-2 sm:gap-4 sm:px-4">
