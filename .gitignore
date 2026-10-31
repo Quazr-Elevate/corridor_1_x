@@ -66,3 +66,6 @@ backend/cookies.txt
 /me.json
 /patch.json
 /pend.json
+
+# Confidential client deliverables (shared outside git)
+docs/client/
