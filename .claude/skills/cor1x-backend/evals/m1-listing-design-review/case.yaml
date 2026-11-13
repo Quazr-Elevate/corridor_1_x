@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: m1-listing-design-review
+expected_outcome: |
+  A design review document for CX-071 saved under docs/milestones/, following the
+  skill's design-review template: a products.status column with draft,
+  under_review, published and rejected backed by a check constraint and a
+  backfill that keeps today's verified listings published; state changes as POST
+  action sub-resources rather than PATCH; every endpoint with auth, request,
+  response and errors (404 for another business's listing, 409 for a wrong
+  state); a security section; a test plan; and decisions for the user to
+  approve. No application code is written. Run from the corridor_1_x repository root.

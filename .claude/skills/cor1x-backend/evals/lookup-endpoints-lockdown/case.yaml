@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: lookup-endpoints-lockdown
+expected_outcome: |
+  /pincode/{pincode} and /ifsc/{code} require a signed-in trader or admin (401
+  when anonymous), are rate-limited with a RateLimitRule named in the
+  area.action:scope style, and cache results for 24 hours. Tests use the existing
+  conftest fixtures and cover the anonymous refusal and the signed-in success.
+  Because the user asked for it directly, decision D-005 is recorded as adopted
+  in the skill's decisions log. The code matches the house style (no narrating
+  comments, no Args/Returns docstrings, no broad except), and the commit message
+  follows the "Area: what changed" or "CX-### Area: …" form. Run from the
+  corridor_1_x repository root.

@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: free-mail-design-gate
+expected_outcome: |
+  The response notices that CX-069 belongs to milestone M1, whose design review
+  has not been approved, and raises that before writing code. It presents the
+  design for the change instead: an email_domain_class column on users with an
+  allowed set of values, how existing users are backfilled, disposable domains
+  still refused, and how the reviewer sees the flag. It then asks for approval
+  rather than creating a migration or editing backend code. Run from the
+  corridor_1_x repository root.
