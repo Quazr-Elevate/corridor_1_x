@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Cor1x Tracker</title>
-<!-- Reads cor1x-tracker.xlsx (sheet "Tracker") with SheetJS. Served over HTTP it
+<title>Cor1x Roadmap &amp; Tracker</title>
+<!-- Reads cor1x-tracker.xlsx (sheets "Tracker" and "Roadmap") with SheetJS. Served over HTTP it
      loads the file next to it automatically; opened as a local file, drop the
      .xlsx onto the page or use "Open file". -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -22,6 +22,7 @@
     --relief-sm: -4px -4px 10px var(--hi), 4px 6px 12px var(--lo), inset 0 0 0 1px var(--edge);
     --well: inset 3px 3px 8px var(--lo), inset -3px -3px 8px var(--hi), inset 0 0 0 1px var(--edge);
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --slate: #5f6b78; --slate-soft: #dde2e8;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
@@ -42,7 +43,7 @@
 
   .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 28px 0; }
   @media (min-width: 560px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
-  @media (min-width: 1040px) { .kpis { grid-template-columns: repeat(6, 1fr); } }
+  @media (min-width: 1040px) { .kpis { grid-template-columns: repeat(7, 1fr); } }
   .card { background: var(--surface); box-shadow: var(--relief); border-radius: 24px; padding: 18px 20px; }
   .kpi .n { font-size: 34px; font-weight: 500; letter-spacing: -.04em; line-height: 1; margin-top: 10px; font-variant-numeric: tabular-nums; }
   .kpi .h { color: var(--fg-3); font-size: 12px; margin-top: 6px; }
@@ -55,6 +56,7 @@
   .track { height: 12px; border-radius: 99px; background: var(--surface-2); box-shadow: var(--well); overflow: hidden; display: flex; }
   .seg-p { background: var(--ink); } .seg-d { background: var(--lime); }
   .seg-h { background: var(--danger); } .seg-m { background: #c99a3c; } .seg-l { background: #b8ad95; }
+  .seg-b { background: var(--slate); }
   .bar .c { text-align: right; font: 12px var(--mono); color: var(--fg-2); }
   .keys { display: flex; gap: 14px; margin-top: 14px; font-size: 12px; color: var(--fg-2); flex-wrap: wrap; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 99px; margin-right: 6px; vertical-align: 0; }
@@ -83,6 +85,8 @@
   .c-Low { background: rgb(10 10 10 / .05); color: var(--fg-2); }
   .c-type-p { background: var(--ink); color: #f4f1ec; }
   .c-type-d { background: var(--lime-soft); color: var(--olive); }
+  .c-type-b { background: var(--slate-soft); color: var(--slate); }
+  .c-sp { font-family: var(--mono); font-size: 11px; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--fg-3); }
   .c-st { box-shadow: inset 0 0 0 1px var(--line-2); color: var(--fg-2); }
   .c-st.done { background: var(--lime-soft); color: var(--olive); box-shadow: none; }
   .c-st.progress { background: var(--amber-soft); color: var(--amber); box-shadow: none; }
@@ -93,6 +97,48 @@
     details.item summary { grid-template-columns: 1fr; gap: 8px; }
     .chips { justify-content: flex-start; }
     .body { padding: 0 18px 18px; }
+  }
+
+  /* Roadmap */
+  .roadmap { margin: 0 0 16px; }
+  .rm-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .rm-head h2 { margin: 0; }
+  .rm-now { font: 12px var(--mono); color: var(--fg-2); }
+  .rm-now b { color: var(--ink); font-weight: 600; }
+  .ms { display: grid; grid-template-columns: 42px minmax(0, 1fr) 132px minmax(90px, 200px) 54px; gap: 14px; align-items: center;
+    padding: 12px 10px; border-top: 1px solid var(--line); cursor: pointer; border-radius: 12px; }
+  .ms:first-of-type { border-top: 0; }
+  .ms:hover { background: var(--paper); }
+  .ms.sel { background: var(--paper); box-shadow: inset 3px 0 0 var(--ink); }
+  .ms .mid { font: 600 13px var(--mono); }
+  .ms .mname { font-weight: 600; letter-spacing: -.005em; }
+  .ms .mgoal { font-size: 12.5px; color: var(--fg-3); margin-top: 2px; }
+  .ms .mdates { font: 11.5px var(--mono); color: var(--fg-3); }
+  .ms .pc { text-align: right; font: 12px var(--mono); color: var(--fg-2); }
+  .ph { display: inline-block; font: 10.5px var(--mono); padding: 1px 6px; border-radius: 6px; margin-right: 6px; vertical-align: 1px; }
+  .ph-Now { background: var(--danger-soft); color: var(--danger); }
+  .ph-A { background: var(--lime-soft); color: var(--olive); }
+  .ph-B { background: var(--amber-soft); color: var(--amber); }
+  .ph-C { background: rgb(10 10 10 / .05); color: var(--fg-2); }
+  details.sprints { margin-top: 10px; }
+  details.sprints > summary { cursor: pointer; font-size: 13px; color: var(--fg-2); padding: 6px 10px; list-style: none; }
+  details.sprints > summary::-webkit-details-marker { display: none; }
+  details.sprints > summary::before { content: "\25B8  "; }
+  details.sprints[open] > summary::before { content: "\25BE  "; }
+  .sp { display: grid; grid-template-columns: 42px minmax(0, 1fr) 190px minmax(90px, 200px) 54px; gap: 14px; align-items: center;
+    padding: 9px 10px; font-size: 13px; cursor: pointer; border-radius: 12px; }
+  .sp:hover { background: var(--paper); }
+  .sp.cur { background: var(--lime-soft); }
+  .sp.sel { box-shadow: inset 3px 0 0 var(--ink); }
+  .sp .sid { font: 600 12px var(--mono); }
+  .sp .sname { font-weight: 500; }
+  .sp .sms { font: 11px var(--mono); color: var(--fg-3); margin-left: 6px; }
+  .sp .sgoal { font-size: 12px; color: var(--fg-3); margin-top: 1px; }
+  .sp .sdates { font: 11.5px var(--mono); color: var(--fg-3); }
+  .sp .pc { text-align: right; font: 12px var(--mono); color: var(--fg-2); }
+  @media (max-width: 760px) {
+    .ms, .sp { grid-template-columns: 42px 1fr 54px; }
+    .ms .mdates, .ms .track, .sp .sdates, .sp .track { display: none; }
   }
   .empty, .drop { text-align: center; padding: 48px 20px; color: var(--fg-2); }
   .drop { border-radius: 24px; background: var(--surface-2); box-shadow: var(--well); margin-top: 28px; }
@@ -108,9 +154,9 @@
   <header class="top">
     <div>
       <p class="label">Corridor One X · Engineering</p>
-      <h1>Issues &amp; decisions tracker</h1>
-      <p class="sub">Known issues we agreed to fix later, and product decisions to discuss. Source of truth:
-        <code>cor1x-tracker.xlsx</code> (sheet “Tracker”) — edit it there, then press Reload.</p>
+      <h1>Roadmap, issues &amp; decisions</h1>
+      <p class="sub">Planned build work by milestone and sprint, known issues we agreed to fix later, and product decisions to
+        discuss. Source of truth: <code>cor1x-tracker.xlsx</code> (sheets “Tracker” and “Roadmap”) — edit it there, then press Reload.</p>
     </div>
     <div class="actions">
       <span class="meta" id="src">No file loaded</span>
@@ -131,17 +177,24 @@
     <section class="kpis" aria-label="Summary">
       <div class="card kpi"><div class="label">Total</div><div class="n" id="k-total">0</div><div class="h">items tracked</div></div>
       <div class="card kpi"><div class="label">Open</div><div class="n" id="k-open">0</div><div class="h">not done</div></div>
+      <div class="card kpi"><div class="label">Build</div><div class="n" id="k-b">0</div><div class="h">planned work</div></div>
       <div class="card kpi"><div class="label">Postponed fixes</div><div class="n" id="k-p">0</div><div class="h">fix later</div></div>
       <div class="card kpi"><div class="label">Discuss later</div><div class="n" id="k-d">0</div><div class="h">decisions pending</div></div>
       <div class="card kpi alert"><div class="label">High · open</div><div class="n" id="k-high">0</div><div class="h">before go-live</div></div>
       <div class="card kpi"><div class="label">Done</div><div class="n" id="k-done">0</div><div class="h" id="k-pct">0% complete</div></div>
     </section>
 
+    <section class="card roadmap" id="rm" aria-label="Roadmap" hidden>
+      <div class="rm-head"><h2>Roadmap</h2><span class="rm-now" id="rm-now"></span></div>
+      <div id="ms"></div>
+      <details class="sprints"><summary>Sprints — two weeks each, Monday to Friday</summary><div id="sp"></div></details>
+    </section>
+
     <section class="grid2">
       <div class="card">
         <h2>By category</h2>
         <div class="bars" id="cat"></div>
-        <div class="keys"><span><i class="dot seg-p"></i>Postponed fix</span><span><i class="dot seg-d"></i>Discuss later</span></div>
+        <div class="keys"><span><i class="dot seg-b"></i>Build</span><span><i class="dot seg-p"></i>Postponed fix</span><span><i class="dot seg-d"></i>Discuss later</span></div>
       </div>
       <div class="card">
         <h2>Open by priority</h2>
@@ -153,11 +206,15 @@
     <section class="filters" aria-label="Filters">
       <div class="seg" role="group" aria-label="Type" id="f-type">
         <button type="button" aria-pressed="true" data-v="">All</button>
+        <button type="button" aria-pressed="false" data-v="Build">Build</button>
         <button type="button" aria-pressed="false" data-v="Postponed fix">Postponed fixes</button>
         <button type="button" aria-pressed="false" data-v="Discuss later">Discuss later</button>
       </div>
       <select id="f-pri" aria-label="Priority"><option value="">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select>
       <select id="f-cat" aria-label="Category"><option value="">All categories</option></select>
+      <select id="f-ph" aria-label="Phase"><option value="">All phases</option></select>
+      <select id="f-ms" aria-label="Milestone"><option value="">All milestones</option></select>
+      <select id="f-sp" aria-label="Sprint"><option value="">All sprints</option></select>
       <select id="f-st" aria-label="Status"><option value="open">Open only</option><option value="">All statuses</option></select>
       <input id="f-q" type="search" placeholder="Search title, description, file…" aria-label="Search" />
       <span class="meta" id="count"></span>
@@ -171,6 +228,12 @@
 const XLSX_FILE = "cor1x-tracker.xlsx";
 const PRI_ORDER = { High: 0, Medium: 1, Low: 2 };
 let rows = [];
+let roadmap = [];
+const PHASES = ["Now", "A", "B", "C"];
+const PHASE_LABEL = { Now: "Now", A: "Phase A", B: "Phase B", C: "Phase C" };
+const TYPE_CLS = { "Postponed fix": "c-type-p", "Discuss later": "c-type-d", Build: "c-type-b" };
+const iso = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? ""));
+const spNum = (v) => (/^S(\d+)$/.exec(v) ? +/^S(\d+)$/.exec(v)[1] : 999);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isOpen = (r) => r.Status !== "Done" && r.Status !== "Won't do";
@@ -180,10 +243,19 @@ function parse(buf, label) {
   const ws = wb.Sheets["Tracker"];
   if (!ws) throw new Error('No sheet named "Tracker" in this file.');
   rows = XLSX.utils.sheet_to_json(ws, { defval: "" }).filter((r) => r.ID);
+  const rws = wb.Sheets["Roadmap"];
+  roadmap = rws ? XLSX.utils.sheet_to_json(rws, { defval: "" }).filter((r) => r.ID) : [];
   $("src").textContent = `${label} · ${rows.length} items · loaded ${new Date().toLocaleTimeString()}`;
   $("drop").hidden = true; $("app").hidden = false;
   const cats = [...new Set(rows.map((r) => r.Category).filter(Boolean))].sort();
   $("f-cat").innerHTML = '<option value="">All categories</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join("");
+  const phs = PHASES.filter((p) => rows.some((r) => r.Phase === p));
+  $("f-ph").innerHTML = '<option value="">All phases</option>' + phs.map((p) => `<option value="${p}">${PHASE_LABEL[p]}</option>`).join("");
+  const mss = [...new Set(rows.map((r) => r.Milestone).filter(Boolean))].sort();
+  const msName = (m) => (roadmap.find((x) => x.ID === m) || {}).Name;
+  $("f-ms").innerHTML = '<option value="">All milestones</option>' + mss.map((m) => `<option value="${esc(m)}">${esc(m)}${msName(m) ? " · " + esc(msName(m)) : ""}</option>`).join("");
+  const sps = [...new Set(rows.map((r) => r.Sprint).filter(Boolean))].sort((a, b) => spNum(a) - spNum(b));
+  $("f-sp").innerHTML = '<option value="">All sprints</option>' + sps.map((x) => `<option>${esc(x)}</option>`).join("");
   render();
 }
 
@@ -208,11 +280,59 @@ function bar(label, parts, total, max) {
   return `<div class="bar"><span>${esc(label)}</span><span class="track" role="img" aria-label="${esc(label)}: ${total}">${segs}</span><span class="c">${total}</span></div>`;
 }
 
+
+function progress(pred) {
+  const rs = rows.filter(pred);
+  const d = rs.filter((r) => !isOpen(r)).length;
+  return { d, t: rs.length, pct: rs.length ? Math.round((d / rs.length) * 100) : 0 };
+}
+function track(p, label) {
+  const w = p.t ? (p.d / p.t) * 100 : 0;
+  return `<span class="track" role="img" aria-label="${esc(label)}: ${p.d} of ${p.t} done"><span class="seg-d" style="width:${w}%"></span></span>`;
+}
+function renderRoadmap() {
+  $("rm").hidden = !roadmap.length;
+  if (!roadmap.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const ms = roadmap.filter((r) => r.Kind === "Milestone");
+  const sp = roadmap.filter((r) => r.Kind === "Sprint").sort((a, b) => spNum(a.ID) - spNum(b.ID));
+  const cur = sp.find((s) => iso(s.Start) <= today && today <= iso(s.End));
+  const next = sp.find((s) => iso(s.Start) > today);
+  const all = progress((r) => r.Milestone);
+  $("rm-now").innerHTML = (cur
+    ? `Current sprint <b>${esc(cur.ID)} · ${esc(cur.Name)}</b> · ends ${esc(iso(cur.End))}`
+    : next ? `Next sprint <b>${esc(next.ID)} · ${esc(next.Name)}</b> · starts ${esc(iso(next.Start))}` : "Roadmap complete")
+    + ` · ${all.d}/${all.t} roadmap items done`;
+  const fms = $("f-ms").value, fsp = $("f-sp").value;
+  $("ms").innerHTML = ms.map((m) => {
+    const p = progress((r) => r.Milestone === m.ID);
+    return `<div class="ms${fms === m.ID ? " sel" : ""}" data-ms="${esc(m.ID)}" title="${esc(m["Exit gate / sprint demo"])}">
+      <span class="mid">${esc(m.ID)}</span>
+      <span><div class="mname"><span class="ph ph-${esc(m.Phase)}">${esc(PHASE_LABEL[m.Phase] || m.Phase)}</span>${esc(m.Name)}</div><div class="mgoal">${esc(m.Goal)}</div></span>
+      <span class="mdates">${esc(iso(m.Start))} → ${esc(iso(m.End)).slice(5)}</span>
+      ${track(p, m.ID)}
+      <span class="pc">${p.d}/${p.t}</span>
+    </div>`;
+  }).join("");
+  $("sp").innerHTML = sp.map((s) => {
+    const p = progress((r) => r.Sprint === s.ID);
+    const c = s === cur ? " cur" : "";
+    return `<div class="sp${c}${fsp === s.ID ? " sel" : ""}" data-sp="${esc(s.ID)}" title="${esc(s["Exit gate / sprint demo"])}">
+      <span class="sid">${esc(s.ID)}</span>
+      <span><div><span class="sname">${esc(s.Name)}</span><span class="sms">${esc(s.Milestone)}</span></div><div class="sgoal">${esc(s.Goal)}</div></span>
+      <span class="sdates">${esc(iso(s.Start))} → ${esc(iso(s.End))}</span>
+      ${track(p, s.ID)}
+      <span class="pc">${p.d}/${p.t}</span>
+    </div>`;
+  }).join("");
+}
+
 function render() {
   const open = rows.filter(isOpen);
   const done = rows.length - open.length;
   $("k-total").textContent = rows.length;
   $("k-open").textContent = open.length;
+  $("k-b").textContent = rows.filter((r) => r.Type === "Build").length;
   $("k-p").textContent = rows.filter((r) => r.Type === "Postponed fix").length;
   $("k-d").textContent = rows.filter((r) => r.Type === "Discuss later").length;
   $("k-high").textContent = open.filter((r) => r.Priority === "High").length;
@@ -221,9 +341,9 @@ function render() {
 
   const cats = [...new Set(rows.map((r) => r.Category))].sort();
   const catData = cats.map((c) => { const rs = rows.filter((r) => r.Category === c);
-    return { c, p: rs.filter((r) => r.Type === "Postponed fix").length, d: rs.filter((r) => r.Type === "Discuss later").length }; });
-  const cmax = Math.max(1, ...catData.map((x) => x.p + x.d));
-  $("cat").innerHTML = catData.map((x) => bar(x.c, [{ n: x.p, cls: "seg-p", title: "Postponed fix" }, { n: x.d, cls: "seg-d", title: "Discuss later" }], x.p + x.d, cmax)).join("");
+    return { c, b: rs.filter((r) => r.Type === "Build").length, p: rs.filter((r) => r.Type === "Postponed fix").length, d: rs.filter((r) => r.Type === "Discuss later").length }; });
+  const cmax = Math.max(1, ...catData.map((x) => x.b + x.p + x.d));
+  $("cat").innerHTML = catData.map((x) => bar(x.c, [{ n: x.b, cls: "seg-b", title: "Build" }, { n: x.p, cls: "seg-p", title: "Postponed fix" }, { n: x.d, cls: "seg-d", title: "Discuss later" }], x.b + x.p + x.d, cmax)).join("");
 
   const pri = ["High", "Medium", "Low"].map((p) => ({ p, n: open.filter((r) => r.Priority === p).length }));
   const pmax = Math.max(1, ...pri.map((x) => x.n));
@@ -232,11 +352,14 @@ function render() {
 
   const type = document.querySelector('#f-type [aria-pressed="true"]').dataset.v;
   const fp = $("f-pri").value, fc = $("f-cat").value, fs = $("f-st").value, q = $("f-q").value.trim().toLowerCase();
+  const fph = $("f-ph").value, fms = $("f-ms").value, fsp = $("f-sp").value;
+  renderRoadmap();
   const list = rows.filter((r) =>
     (!type || r.Type === type) && (!fp || r.Priority === fp) && (!fc || r.Category === fc) &&
+    (!fph || r.Phase === fph) && (!fms || r.Milestone === fms) && (!fsp || r.Sprint === fsp) &&
     (fs !== "open" || isOpen(r)) &&
     (!q || Object.values(r).join(" ").toLowerCase().includes(q)))
-    .sort((a, b) => (PRI_ORDER[a.Priority] ?? 9) - (PRI_ORDER[b.Priority] ?? 9) || String(a.ID).localeCompare(String(b.ID)));
+    .sort((a, b) => (fsp || fms ? 0 : spNum(a.Sprint) - spNum(b.Sprint)) || (PRI_ORDER[a.Priority] ?? 9) - (PRI_ORDER[b.Priority] ?? 9) || String(a.ID).localeCompare(String(b.ID)));
   $("count").textContent = `${list.length} shown`;
 
   $("list").innerHTML = list.length ? list.map((r) => {
@@ -247,16 +370,17 @@ function render() {
         <span class="id">${esc(r.ID)}</span>
         <span><div class="title">${esc(r.Title)}</div><div class="area">${esc(r.Category)} · ${esc(r["Area / File"])}</div></span>
         <span class="chips">
-          <span class="chip ${r.Type === "Postponed fix" ? "c-type-p" : "c-type-d"}">${esc(r.Type)}</span>
+          ${r.Sprint ? `<span class="chip c-sp">${esc(r.Sprint)}</span>` : ""}
+          <span class="chip ${TYPE_CLS[r.Type] || "c-type-d"}">${esc(r.Type)}</span>
           <span class="chip c-${esc(r.Priority)}">${esc(r.Priority)}</span>
           <span class="chip c-st ${st}">${esc(r.Status)}</span>
         </span>
       </summary>
       <div class="body">
         <div><div class="label">What</div><p>${esc(r.Description)}</p></div>
-        <div><div class="label">${r.Type === "Discuss later" ? "Decision needed" : "Why postponed"}</div><p>${esc(r["Why postponed / decision needed"])}</p></div>
+        <div><div class="label">${r.Type === "Discuss later" ? "Decision needed" : r.Type === "Build" ? "Done when" : "Why postponed"}</div><p>${esc(r["Why postponed / decision needed"])}</p></div>
         <div><div class="label">Suggested action</div><p>${esc(r["Suggested action"])}</p></div>
-        <div class="row"><span>Raised ${esc(date(r["Raised on"]))}</span><span>Owner: ${esc(r.Owner || "—")}</span><span>Target: ${esc(date(r["Target date"]) || "—")}</span>${r.Notes ? `<span>Notes: ${esc(r.Notes)}</span>` : ""}</div>
+        <div class="row"><span>${esc([PHASE_LABEL[r.Phase], r.Milestone, r.Sprint].filter(Boolean).join(" · ") || "Done before the roadmap")}</span><span>Raised ${esc(date(r["Raised on"]))}</span><span>Owner: ${esc(r.Owner || "—")}</span><span>Target: ${esc(date(r["Target date"]) || "—")}</span>${r.Notes ? `<span>Notes: ${esc(r.Notes)}</span>` : ""}</div>
       </div>
     </details>`;
   }).join("") : '<div class="card empty">Nothing matches these filters.</div>';
@@ -266,7 +390,16 @@ document.querySelectorAll("#f-type button").forEach((b) => b.addEventListener("c
   document.querySelectorAll("#f-type button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   render();
 }));
-["f-pri", "f-cat", "f-st"].forEach((id) => $(id).addEventListener("change", render));
+["f-pri", "f-cat", "f-st", "f-ph", "f-ms", "f-sp"].forEach((id) => $(id).addEventListener("change", render));
+// Click a milestone or sprint to filter the list to it; click again to clear.
+$("rm").addEventListener("click", (e) => {
+  const m = e.target.closest("[data-ms]"), sp = e.target.closest("[data-sp]");
+  if (!m && !sp) return;
+  if (m) { $("f-ms").value = $("f-ms").value === m.dataset.ms ? "" : m.dataset.ms; $("f-sp").value = ""; }
+  if (sp) { $("f-sp").value = $("f-sp").value === sp.dataset.sp ? "" : sp.dataset.sp; $("f-ms").value = ""; }
+  render();
+  $("list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
 $("f-q").addEventListener("input", render);
 $("reload").addEventListener("click", () => (location.protocol === "file:" ? $("file").click() : loadServed()));
 $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
