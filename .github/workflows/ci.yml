@@ -30,6 +30,15 @@ jobs:
       - run: pip install -r requirements-dev.txt
       # tests/conftest.py sets its own environment and a throwaway SQLite file.
       - run: python -m pytest -q
+      # Production does not serve /openapi.json, so the schema is kept here.
+      - name: Export the OpenAPI schema
+        run: python scripts/export_openapi.py openapi.json
+        env:
+          DEBUG: "true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: backend/openapi.json
 
   backend-postgres:
     name: Migrations on Postgres

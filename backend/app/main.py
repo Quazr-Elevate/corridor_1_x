@@ -111,6 +111,13 @@ def _lifespan_for(s: Settings):
     return _lifespan
 
 
+def docs_urls(s: Settings) -> dict[str, str | None]:
+    """The interactive docs and the schema are served only when DEBUG is on."""
+    if not s.debug:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
 def create_app(s: Settings = settings) -> FastAPI:
     configure_logging(s.log_level, s.log_format)
     # Refuse to run a non-debug deployment on development defaults.
@@ -121,7 +128,7 @@ def create_app(s: Settings = settings) -> FastAPI:
         log.warning("KYB encryption is using the DEVELOPMENT key — set KYB_ENC_KEYS and KYB_HASH_KEY in production.")
     configure_integrations(s)
 
-    app = FastAPI(title="Cor1x API", version="0.3.0", lifespan=_lifespan_for(s))
+    app = FastAPI(title="Cor1x API", version="0.3.0", lifespan=_lifespan_for(s), **docs_urls(s))
     register_exception_handlers(app)
 
     # Innermost: blocks cross-site state-changing requests (see core/csrf.py).
