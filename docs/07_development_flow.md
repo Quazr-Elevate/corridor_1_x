@@ -13,8 +13,10 @@ Read it with the two documents it connects:
 | **Tracker** | *Which* piece is next, who has it, when it is due, how we know it is done | `docs/tracker/` — sheets *Tracker* and *Roadmap* |
 | **This document** | *How* to build any piece the same way every time | `docs/07_development_flow.md` |
 
-A tracker row names its plan section (`plan 3.7`), its milestone (`M1`) and
-sprint (`S3`), and states **Done when** — the acceptance criteria. This
+A tracker row names its plan section (`plan 3.7`), its milestone (`M1`), its
+epic (`E05`) and sprint (`S3`), and states **Done when** — the acceptance
+criteria. An epic is the group of rows that together deliver one capability
+inside a milestone; the Roadmap sheet lists all 25 with their goals. This
 document is the route from there to merged.
 
 ---

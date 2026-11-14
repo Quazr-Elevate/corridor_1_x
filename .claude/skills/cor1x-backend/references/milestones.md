@@ -9,6 +9,7 @@ file. Read the row there (its **Done when** especially) before starting it.
 - [How a milestone runs](#how-a-milestone-runs)
 - [How a sprint runs](#how-a-sprint-runs)
 - [Phases](#phases)
+- [Epics](#epics)
 - [M0 Stabilise](#m0-stabilise)
 - [M1 Phase A close-out](#m1-phase-a-close-out)
 - [M2 Masking and credits foundation](#m2-masking-and-credits-foundation)
@@ -26,13 +27,12 @@ file. Read the row there (its **Done when** especially) before starting it.
    auth, state machines, migrations, the security section, the test plan, and
    the open questions. Present it to the user **in the conversation**, in plain
    language — they read it there, not by opening files. Tables first, then the
-   decisions needed, each with a recommendation. Save the file as well, but
-   never instead of showing it.
+   decisions needed, each with a recommendation. The review lives in the
+   session: don't write it to a file (decision A-017).
 2. **Approval.** The user approves, changes or defers each part. Don't start
    building on a part that's still open.
-3. **Record.** Save the approved version as `docs/milestones/Mx_design.md`,
-   update `references/decisions.md`, and add, split or move tracker rows to
-   match what was agreed.
+3. **Record.** Update `references/decisions.md`, and add, split or move
+   tracker rows to match what was agreed. No design file is written.
 4. **Build** sprint by sprint (below).
 5. **Exit gate.** Check every line of the milestone's exit gate against `main`,
    with evidence. A milestone with one open exit item is not done. Say which
@@ -63,6 +63,15 @@ file. Read the row there (its **Done when** especially) before starting it.
 
 Phase B items can be built early (the ops lane runs from S4). The phase says
 which gate a row belongs to; the sprint says when it's done.
+
+## Epics
+
+Between a milestone and its rows sit **epics**, E01–E25: each is the group of
+rows that together deliver one capability (E05 *Listing v2 & review*, E06
+*Masking service & identity vault*, E14 *Payments & ledger*). A decision row
+sits in the epic it gates. Every row with a milestone has an epic in the
+tracker's *Epic* column; the Roadmap sheet (Kind = Epic) holds each epic's
+goal and what it depends on. An epic is done when all its rows are Done.
 
 ---
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Cor1x Roadmap &amp; Tracker</title>
-<!-- Reads cor1x-tracker.xlsx (sheets "Tracker" and "Roadmap") with SheetJS. Served over HTTP it
+<!-- Reads cor1x-tracker.xlsx (sheets "Tracker" and "Roadmap": milestones, sprints, epics) with SheetJS. Served over HTTP it
      loads the file next to it automatically; opened as a local file, drop the
      .xlsx onto the page or use "Open file". -->
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -155,7 +155,7 @@
     <div>
       <p class="label">Corridor One X · Engineering</p>
       <h1>Roadmap, issues &amp; decisions</h1>
-      <p class="sub">Planned build work by milestone and sprint, known issues we agreed to fix later, and product decisions to
+      <p class="sub">Planned build work by milestone, epic and sprint, known issues we agreed to fix later, and product decisions to
         discuss. Source of truth: <code>cor1x-tracker.xlsx</code> (sheets “Tracker” and “Roadmap”) — edit it there, then press Reload.</p>
     </div>
     <div class="actions">
@@ -187,6 +187,7 @@
     <section class="card roadmap" id="rm" aria-label="Roadmap" hidden>
       <div class="rm-head"><h2>Roadmap</h2><span class="rm-now" id="rm-now"></span></div>
       <div id="ms"></div>
+      <details class="sprints" id="ep-wrap"><summary>Epics — one capability each, inside a milestone</summary><div id="ep"></div></details>
       <details class="sprints"><summary>Sprints — two weeks each, Monday to Friday</summary><div id="sp"></div></details>
     </section>
 
@@ -214,6 +215,7 @@
       <select id="f-cat" aria-label="Category"><option value="">All categories</option></select>
       <select id="f-ph" aria-label="Phase"><option value="">All phases</option></select>
       <select id="f-ms" aria-label="Milestone"><option value="">All milestones</option></select>
+      <select id="f-ep" aria-label="Epic"><option value="">All epics</option></select>
       <select id="f-sp" aria-label="Sprint"><option value="">All sprints</option></select>
       <select id="f-st" aria-label="Status"><option value="open">Open only</option><option value="">All statuses</option></select>
       <input id="f-q" type="search" placeholder="Search title, description, file…" aria-label="Search" />
@@ -254,6 +256,8 @@ function parse(buf, label) {
   const mss = [...new Set(rows.map((r) => r.Milestone).filter(Boolean))].sort();
   const msName = (m) => (roadmap.find((x) => x.ID === m) || {}).Name;
   $("f-ms").innerHTML = '<option value="">All milestones</option>' + mss.map((m) => `<option value="${esc(m)}">${esc(m)}${msName(m) ? " · " + esc(msName(m)) : ""}</option>`).join("");
+  const eps = [...new Set(rows.map((r) => r.Epic).filter(Boolean))].sort();
+  $("f-ep").innerHTML = '<option value="">All epics</option>' + eps.map((e) => `<option value="${esc(e)}">${esc(e)}${msName(e) ? " · " + esc(msName(e)) : ""}</option>`).join("");
   const sps = [...new Set(rows.map((r) => r.Sprint).filter(Boolean))].sort((a, b) => spNum(a) - spNum(b));
   $("f-sp").innerHTML = '<option value="">All sprints</option>' + sps.map((x) => `<option>${esc(x)}</option>`).join("");
   render();
@@ -303,7 +307,26 @@ function renderRoadmap() {
     ? `Current sprint <b>${esc(cur.ID)} · ${esc(cur.Name)}</b> · ends ${esc(iso(cur.End))}`
     : next ? `Next sprint <b>${esc(next.ID)} · ${esc(next.Name)}</b> · starts ${esc(iso(next.Start))}` : "Roadmap complete")
     + ` · ${all.d}/${all.t} roadmap items done`;
-  const fms = $("f-ms").value, fsp = $("f-sp").value;
+  const fms = $("f-ms").value, fsp = $("f-sp").value, fep = $("f-ep").value;
+  const ep = roadmap.filter((r) => r.Kind === "Epic").sort((a, b) => String(a.ID).localeCompare(String(b.ID)));
+  $("ep-wrap").hidden = !ep.length;
+  // An epic has no dates of its own; its span is the sprints its rows sit in.
+  const span = (id) => {
+    const ns = rows.filter((r) => r.Epic === id).map((r) => spNum(r.Sprint)).filter((n) => n < 999);
+    if (!ns.length) return "";
+    const a = Math.min(...ns), b = Math.max(...ns);
+    return a === b ? `S${a}` : `S${a} → S${b}`;
+  };
+  $("ep").innerHTML = ep.map((e) => {
+    const p = progress((r) => r.Epic === e.ID);
+    return `<div class="sp${fep === e.ID ? " sel" : ""}" data-ep="${esc(e.ID)}" title="${esc(e["Depends on"] ? "Depends on " + e["Depends on"] : "")}">
+      <span class="sid">${esc(e.ID)}</span>
+      <span><div><span class="sname">${esc(e.Name)}</span><span class="sms">${esc(e.Milestone)}</span></div><div class="sgoal">${esc(e.Goal)}</div></span>
+      <span class="sdates">${esc(span(e.ID))}</span>
+      ${track(p, e.ID)}
+      <span class="pc">${p.d}/${p.t}</span>
+    </div>`;
+  }).join("");
   $("ms").innerHTML = ms.map((m) => {
     const p = progress((r) => r.Milestone === m.ID);
     return `<div class="ms${fms === m.ID ? " sel" : ""}" data-ms="${esc(m.ID)}" title="${esc(m["Exit gate / sprint demo"])}">
@@ -352,11 +375,12 @@ function render() {
 
   const type = document.querySelector('#f-type [aria-pressed="true"]').dataset.v;
   const fp = $("f-pri").value, fc = $("f-cat").value, fs = $("f-st").value, q = $("f-q").value.trim().toLowerCase();
-  const fph = $("f-ph").value, fms = $("f-ms").value, fsp = $("f-sp").value;
+  const fph = $("f-ph").value, fms = $("f-ms").value, fsp = $("f-sp").value, fep = $("f-ep").value;
+  const epName = (id) => (roadmap.find((x) => x.ID === id) || {}).Name || "";
   renderRoadmap();
   const list = rows.filter((r) =>
     (!type || r.Type === type) && (!fp || r.Priority === fp) && (!fc || r.Category === fc) &&
-    (!fph || r.Phase === fph) && (!fms || r.Milestone === fms) && (!fsp || r.Sprint === fsp) &&
+    (!fph || r.Phase === fph) && (!fms || r.Milestone === fms) && (!fep || r.Epic === fep) && (!fsp || r.Sprint === fsp) &&
     (fs !== "open" || isOpen(r)) &&
     (!q || Object.values(r).join(" ").toLowerCase().includes(q)))
     .sort((a, b) => (fsp || fms ? 0 : spNum(a.Sprint) - spNum(b.Sprint)) || (PRI_ORDER[a.Priority] ?? 9) - (PRI_ORDER[b.Priority] ?? 9) || String(a.ID).localeCompare(String(b.ID)));
@@ -370,6 +394,7 @@ function render() {
         <span class="id">${esc(r.ID)}</span>
         <span><div class="title">${esc(r.Title)}</div><div class="area">${esc(r.Category)} · ${esc(r["Area / File"])}</div></span>
         <span class="chips">
+          ${r.Epic ? `<span class="chip c-sp" title="${esc(epName(r.Epic))}">${esc(r.Epic)}</span>` : ""}
           ${r.Sprint ? `<span class="chip c-sp">${esc(r.Sprint)}</span>` : ""}
           <span class="chip ${TYPE_CLS[r.Type] || "c-type-d"}">${esc(r.Type)}</span>
           <span class="chip c-${esc(r.Priority)}">${esc(r.Priority)}</span>
@@ -380,7 +405,7 @@ function render() {
         <div><div class="label">What</div><p>${esc(r.Description)}</p></div>
         <div><div class="label">${r.Type === "Discuss later" ? "Decision needed" : r.Type === "Build" ? "Done when" : "Why postponed"}</div><p>${esc(r["Why postponed / decision needed"])}</p></div>
         <div><div class="label">Suggested action</div><p>${esc(r["Suggested action"])}</p></div>
-        <div class="row"><span>${esc([PHASE_LABEL[r.Phase], r.Milestone, r.Sprint].filter(Boolean).join(" · ") || "Done before the roadmap")}</span><span>Raised ${esc(date(r["Raised on"]))}</span><span>Owner: ${esc(r.Owner || "—")}</span><span>Target: ${esc(date(r["Target date"]) || "—")}</span>${r.Notes ? `<span>Notes: ${esc(r.Notes)}</span>` : ""}</div>
+        <div class="row"><span>${esc([PHASE_LABEL[r.Phase], r.Milestone, r.Epic && [r.Epic, epName(r.Epic)].filter(Boolean).join(" "), r.Sprint].filter(Boolean).join(" · ") || "Done before the roadmap")}</span><span>Raised ${esc(date(r["Raised on"]))}</span><span>Owner: ${esc(r.Owner || "—")}</span><span>Target: ${esc(date(r["Target date"]) || "—")}</span>${r.Notes ? `<span>Notes: ${esc(r.Notes)}</span>` : ""}</div>
       </div>
     </details>`;
   }).join("") : '<div class="card empty">Nothing matches these filters.</div>';
@@ -390,13 +415,14 @@ document.querySelectorAll("#f-type button").forEach((b) => b.addEventListener("c
   document.querySelectorAll("#f-type button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
   render();
 }));
-["f-pri", "f-cat", "f-st", "f-ph", "f-ms", "f-sp"].forEach((id) => $(id).addEventListener("change", render));
-// Click a milestone or sprint to filter the list to it; click again to clear.
+["f-pri", "f-cat", "f-st", "f-ph", "f-ms", "f-ep", "f-sp"].forEach((id) => $(id).addEventListener("change", render));
+// Click a milestone, epic or sprint to filter the list to it; click again to clear.
 $("rm").addEventListener("click", (e) => {
-  const m = e.target.closest("[data-ms]"), sp = e.target.closest("[data-sp]");
-  if (!m && !sp) return;
-  if (m) { $("f-ms").value = $("f-ms").value === m.dataset.ms ? "" : m.dataset.ms; $("f-sp").value = ""; }
-  if (sp) { $("f-sp").value = $("f-sp").value === sp.dataset.sp ? "" : sp.dataset.sp; $("f-ms").value = ""; }
+  const m = e.target.closest("[data-ms]"), ep = e.target.closest("[data-ep]"), sp = e.target.closest("[data-sp]");
+  if (!m && !ep && !sp) return;
+  if (m) { $("f-ms").value = $("f-ms").value === m.dataset.ms ? "" : m.dataset.ms; $("f-ep").value = ""; $("f-sp").value = ""; }
+  if (ep) { $("f-ep").value = $("f-ep").value === ep.dataset.ep ? "" : ep.dataset.ep; $("f-ms").value = ""; $("f-sp").value = ""; }
+  if (sp) { $("f-sp").value = $("f-sp").value === sp.dataset.sp ? "" : sp.dataset.sp; $("f-ms").value = ""; $("f-ep").value = ""; }
   render();
   $("list").scrollIntoView({ behavior: "smooth", block: "start" });
 });

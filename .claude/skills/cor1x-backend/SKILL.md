@@ -45,16 +45,16 @@ explain every decision to the client.
 ## Before writing anything
 
 1. **Place the work.** Find its tracker row (`docs/tracker/cor1x-tracker.xlsx`,
-   sheet *Tracker*): the milestone, the sprint, the plan section, and the **Done
-   when**. If there's no row, the work isn't planned. Say so and propose one.
+   sheet *Tracker*): the milestone, the epic, the sprint, the plan section, and
+   the **Done when**. If there's no row, the work isn't planned. Say so and propose one.
    The full specification is the build plan (`build-plan-final.html`, sections
    01–22). It isn't in the repository yet, so rows carry the section number;
    ask for the plan when a section's detail matters.
 2. **Check the design gate.** The team agreed to discuss design before code:
    schemas, endpoints, what goes in and what comes back. So a milestone's code
-   starts only after its design is approved and recorded in
-   `docs/milestones/Mx_design.md`. Open `references/decisions.md` to see what's
-   approved.
+   starts only after its design is approved in the session and recorded in
+   `references/decisions.md` and the tracker (no design file is written). Open
+   `references/decisions.md` to see what's approved.
    - If the user **states the design themselves** ("drop the reveal limit to 10
      an hour and store the reviewer's reason on the audit row"), that is the
      approval for that change. Build it, and record it in `decisions.md`.
@@ -73,8 +73,8 @@ explain every decision to the client.
 
 ## The order of work
 
-**Milestone.** Design review → user approves → record it in
-`docs/milestones/Mx_design.md` and adjust tracker rows → build the sprints →
+**Milestone.** Design review in the session → user approves → record it in
+`references/decisions.md` and adjust tracker rows → build the sprints →
 check the exit gate → milestone done. See `references/milestones.md`.
 
 **Sprint.** Two weeks, Monday to Friday. Take rows in the sprint's order. One

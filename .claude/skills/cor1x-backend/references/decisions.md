@@ -28,18 +28,20 @@ If it changes the build plan's scope, say so to the user.
 | A-008 | Sessions: traders 12 h idle / 7 days; admins 30 min idle / 8 h; one active device; lockout 5 → 15 min → 30 min → support unlock | 31 Oct 2026 | Built |
 | A-009 | KYB values are encrypted in the app, masked to the last 4 in lists, revealed by a separate rate-limited audited call; Aadhaar is never accepted | before 31 Oct 2026 | Built |
 | A-010 | Listings keep the API resource name `products` | current code | Convention, to avoid churn |
+| A-011 | Every route under `/v1/...` except `/health` (was D-001). Built in M0 | 15 Nov 2026 | User, M0 design review |
+| A-012 | One error shape: `{detail, code, fields?}`, including validation errors (was D-002). Built in M0 | 15 Nov 2026 | User, M0 design review |
+| A-013 | Unknown request fields are rejected: a `RequestModel` base with `extra="forbid"` → 422 `request.unknown_field` (was D-003). Built in M0; first to move to S2 if the sprint runs short | 15 Nov 2026 | User, M0 design review |
+| A-014 | `/docs`, `/redoc`, `/openapi.json` are served only when `DEBUG=true`; the OpenAPI file is a CI artifact (was D-004). Built in M0 | 15 Nov 2026 | User, M0 design review |
+| A-015 | `/pincode/{pincode}` and `/ifsc/{code}` require a trader or admin session, are limited to 30/min per principal, and are cached for 24 h (was D-005). Built in M0 | 15 Nov 2026 | User, M0 design review |
+| A-016 | CX-062 moves Next.js to the **latest major** release, not the smallest patched one | 15 Nov 2026 | User, M0 design review |
+| A-017 | Design reviews happen in the working session; no `docs/milestones/Mx_design.md` file is written. Approved outcomes are recorded here and in the tracker | 15 Nov 2026 | User |
 
-## Proposed: awaiting approval (M0 design review, 13 Nov 2026)
+## Proposed: awaiting approval
 
-Presented together. The user hasn't answered yet. Ask before building any of them.
+D-001 … D-005 were approved on 15 Nov 2026 and are now A-011 … A-015.
 
 | ID | Proposal | Recommendation | Why |
 |---|---|---|---|
-| D-001 | Every route under `/v1/...` except `/health` | Yes, in M0 | Three one-line changes now (`create_app` prefix, frontend `API_BASE` default `/api/v1`, test client `base_url`); a breaking migration later |
-| D-002 | One error shape: `{detail, code, fields?}`, including validation errors | Yes, in M0 | Backward compatible: the frontend already reads a string `detail` |
-| D-003 | Reject unknown request fields: a `RequestModel` base with `extra="forbid"` → 422 `request.unknown_field` | Yes, in M0 | Hidden client bugs and a weaker API3 guarantee otherwise; costs one round of fixing frontend calls that send extra fields |
-| D-004 | Serve `/docs`, `/redoc`, `/openapi.json` only when `DEBUG=true`; publish the OpenAPI file per release instead | Yes, in M0 | Production currently hands out a full API map |
-| D-005 | `/pincode/{pincode}` and `/ifsc/{code}` require a trader or admin session, are limited to 30/min per principal, and are cached for 24 h | Yes, in M0 | They're unauthenticated free proxies to India Post and Razorpay today |
 | D-006 | The four bare lists move to `{items, total}` in **M1**, not M0 | M1 | `GET /products` changes shape in M1 anyway; touch the frontend once |
 
 ## Planned with a milestone: confirmed at that milestone's design review
