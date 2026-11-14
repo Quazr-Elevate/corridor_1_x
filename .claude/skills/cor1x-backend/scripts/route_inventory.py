@@ -92,6 +92,8 @@ def _auth(fn: ast.AsyncFunctionDef | ast.FunctionDef, perms: dict[str, str]) -> 
         return "admin:any"
     if re.search(r"\b(CurrentUser|CurrentSessionId)\b", text):
         return "trader"
+    if "LookupPrincipal" in text:
+        return "trader or admin"
     if "OptionalUser" in text:
         return "optional"
     return "PUBLIC"

@@ -71,6 +71,7 @@ from app.main import app as asgi_app  # noqa: E402
 from app.models.base import Base  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.modules.lookups.router import clear_cache as clear_lookup_cache  # noqa: E402
 from app.ratelimit import get_limiter  # noqa: E402
 
 
@@ -114,6 +115,7 @@ async def _clean():
         await _seed(conn)
     await get_limiter().reset()
     get_provider().sent.clear()
+    clear_lookup_cache()
 
 
 def _client() -> httpx.AsyncClient:
