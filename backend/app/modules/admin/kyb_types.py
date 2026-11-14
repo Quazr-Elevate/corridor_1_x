@@ -29,7 +29,7 @@ from app.modules.admin.service import record_action
 from app.modules.auth.deps import DbSession
 from app.modules.verification.schemas import CountryOut, DocTypeOut, country_to_out, doc_type_to_out
 from app.modules.verification.seed import COUNTRY_REFERENCE
-from app.shared.schemas import CamelModel, CountryCode, text
+from app.shared.schemas import RequestModel, CountryCode, text
 from app.modules.admin.deps import CanManageCatalog, CanViewCatalog
 
 router = APIRouter(prefix="/kyb/document-types")
@@ -72,7 +72,7 @@ class DocTypeAdminOut(DocTypeOut):
     active: bool
 
 
-class DocTypeCreate(CamelModel):
+class DocTypeCreate(RequestModel):
     country: CountryCode
     code: str = Field(min_length=2, max_length=40)
     name: text(150, 2)  # type: ignore[valid-type]
@@ -91,7 +91,7 @@ class DocTypeCreate(CamelModel):
     _name = field_validator("name")(classmethod(lambda cls, v: _no_aadhaar(v)))
 
 
-class CountryDocType(CamelModel):
+class CountryDocType(RequestModel):
     """A document entered while adding a country (country comes from the parent)."""
 
     code: str = Field(min_length=2, max_length=40)
@@ -122,7 +122,7 @@ def _check_dial(v: str | None) -> str | None:
     return v
 
 
-class CountryFields(CamelModel):
+class CountryFields(RequestModel):
     """Country details. Omitted fields fall back to the built-in reference
     for known countries; ``name`` is required for others."""
 
@@ -166,7 +166,7 @@ class CountryAdminOut(CountryOut):
     businesses: int
 
 
-class DocTypeUpdate(CamelModel):
+class DocTypeUpdate(RequestModel):
     """Only sent fields change. Country and code are fixed once created."""
 
     name: text(150, 2) | None = None  # type: ignore[valid-type]

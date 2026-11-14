@@ -102,6 +102,7 @@ class ServiceUnavailable(DomainError):
 
 
 VALIDATION_FAILED = "validation.failed"
+UNKNOWN_FIELD = "request.unknown_field"
 
 _HTTP_CODES = {404: "resource.not_found", 405: "request.method_not_allowed"}
 # Where a value came from is not part of the field's name.
@@ -115,13 +116,20 @@ def error_body(detail: str, code: str, fields: list[dict[str, str]] | None = Non
     return body
 
 
+def _is_unknown_field(err: dict) -> bool:
+    return err.get("type") == "extra_forbidden"
+
+
 def _validation_fields(exc: RequestValidationError) -> list[dict[str, str]]:
     fields = []
     for err in exc.errors():
         loc = [str(part) for part in err.get("loc", ())]
         if loc and loc[0] in _LOC_PREFIXES:
             loc = loc[1:]
-        message = str(err.get("msg", "Invalid value")).removeprefix("Value error, ")
+        if _is_unknown_field(err):
+            message = "This field is not accepted."
+        else:
+            message = str(err.get("msg", "Invalid value")).removeprefix("Value error, ")
         fields.append({"field": ".".join(loc), "message": message})
     return fields
 
@@ -148,7 +156,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         fields = _validation_fields(exc)
         first = fields[0] if fields else {"field": "", "message": "The request is not valid."}
         detail = f"{first['field']}: {first['message']}" if first["field"] else first["message"]
-        return JSONResponse(error_body(detail, VALIDATION_FAILED, fields), status_code=422)
+        # An unknown field is the caller's bug, not the user's input: its own code.
+        unknown_only = bool(exc.errors()) and all(_is_unknown_field(e) for e in exc.errors())
+        code = UNKNOWN_FIELD if unknown_only else VALIDATION_FAILED
+        return JSONResponse(error_body(detail, code, fields), status_code=422)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(_: Request, exc: StarletteHTTPException) -> JSONResponse:

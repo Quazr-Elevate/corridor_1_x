@@ -81,3 +81,39 @@ def test_every_route_except_health_is_versioned():
     paths = {c.path for c in iter_route_contexts(app.routes) if isinstance(c.original_route, APIRoute)}
     assert len(paths) > 50
     assert {p for p in paths if not p.startswith("/v1/")} == {"/health"}
+
+
+# ── Unknown request fields ───────────────────────────────────────────
+
+
+async def test_unknown_request_field_is_refused(client):
+    r = await client.post("/auth/login", json={"email": "a@kaverifoods.in", "password": "x" * 12, "role": "admin"})
+    assert r.status_code == 422
+    assert r.json() == {
+        "detail": "role: This field is not accepted.",
+        "code": "request.unknown_field",
+        "fields": [{"field": "role", "message": "This field is not accepted."}],
+    }
+
+
+async def test_unknown_field_next_to_a_bad_value_is_a_validation_failure(client):
+    r = await client.post("/auth/signup/code", json={"role": "admin"})
+    assert r.status_code == 422 and r.json()["code"] == "validation.failed"
+    assert {f["field"] for f in r.json()["fields"]} == {"email", "role"}
+
+
+def test_every_json_request_body_is_strict():
+    from fastapi.routing import APIRoute, iter_route_contexts
+    from pydantic import BaseModel
+
+    from app.main import app
+
+    loose = []
+    for ctx in iter_route_contexts(app.routes):
+        if not isinstance(ctx.original_route, APIRoute):
+            continue
+        for param in ctx.dependant.body_params:
+            model = param.field_info.annotation
+            if isinstance(model, type) and issubclass(model, BaseModel) and model.model_config.get("extra") != "forbid":
+                loose.append(f"{ctx.path}: {model.__name__}")
+    assert not loose, "Request bodies that accept unknown fields:\n" + "\n".join(loose)

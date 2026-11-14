@@ -14,7 +14,7 @@ from pydantic import Field, model_validator
 from app.models.product import Product
 from pydantic import StringConstraints
 
-from app.shared.schemas import CamelModel, text
+from app.shared.schemas import CamelModel, RequestModel, text
 
 Category = Literal[
     "Rice", "Sugar", "Wheat", "Pulses", "Spices", "Oilseeds",
@@ -39,7 +39,7 @@ Description = text(MAX_DESCRIPTION)
 # ── Seller products ──────────────────────────────────────────────────
 
 
-class ProductCreate(CamelModel):
+class ProductCreate(RequestModel):
     name: ProductName  # type: ignore[valid-type]
     category: Category
     variety: ShortField | None = None  # type: ignore[valid-type]

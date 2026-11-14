@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import EmailStr, Field, field_validator
 
-from app.shared.schemas import CamelModel, text
+from app.shared.schemas import CamelModel, RequestModel, text
 
 
 def _bcrypt_limit(v: str) -> str:
@@ -15,7 +15,7 @@ def _bcrypt_limit(v: str) -> str:
 # ── Signup (email code on one screen) ────────────────────────────────
 
 
-class SignupCodeRequest(CamelModel):
+class SignupCodeRequest(RequestModel):
     """POST /auth/signup/code — step 1: send a 6-digit code to a work email."""
 
     email: EmailStr
@@ -30,7 +30,7 @@ class SignupCodeResponse(CamelModel):
     dev_code: str | None = None
 
 
-class SignupVerifyRequest(CamelModel):
+class SignupVerifyRequest(RequestModel):
     """POST /auth/signup/verify — step 2: prove inbox ownership."""
 
     email: EmailStr
@@ -42,7 +42,7 @@ class SignupVerifyResponse(CamelModel):
     verified: bool = True
 
 
-class SignupCompleteRequest(CamelModel):
+class SignupCompleteRequest(RequestModel):
     """POST /auth/signup/complete — step 3: create business + owner.
 
     Sign-up asks only for the person, the company and a password; country,
@@ -79,7 +79,7 @@ class SignupCompleteRequest(CamelModel):
 # ── Login / sessions ─────────────────────────────────────────────────
 
 
-class LoginRequest(CamelModel):
+class LoginRequest(RequestModel):
     email: EmailStr
     password: str = Field(max_length=200)
 
@@ -92,7 +92,7 @@ class LoginResponse(CamelModel):
     business_name: str | None = None
 
 
-class ChangePasswordRequest(CamelModel):
+class ChangePasswordRequest(RequestModel):
     """POST /auth/change-password — rotation only (current password required)."""
 
     current_password: str = Field(min_length=1, max_length=200)
@@ -115,7 +115,7 @@ class SessionInfo(CamelModel):
 # ── Password reset ───────────────────────────────────────────────────
 
 
-class ForgotPasswordRequest(CamelModel):
+class ForgotPasswordRequest(RequestModel):
     """POST /auth/password/forgot — always answers the same way."""
 
     email: EmailStr
@@ -128,7 +128,7 @@ class ForgotPasswordResponse(CamelModel):
     dev_code: str | None = None
 
 
-class ResetPasswordRequest(CamelModel):
+class ResetPasswordRequest(RequestModel):
     email: EmailStr
     code: str = Field(min_length=1, max_length=12)
     new_password: str = Field(min_length=8, max_length=200)

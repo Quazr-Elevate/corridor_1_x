@@ -3,15 +3,15 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, BaseModel, StringConstraints
+from pydantic import Field, StringConstraints
 
 from app.modules.verification.schemas import DocOut
-from app.shared.schemas import CamelModel, CountryCode, CountryList, TagList, text
+from app.shared.schemas import CamelModel, RequestModel, CountryCode, CountryList, TagList, text
 
 # ── Auth ─────────────────────────────────────────────────────────────
 
 
-class LoginIn(BaseModel):
+class LoginIn(RequestModel):
     email: str = Field(max_length=200)
     password: str = Field(max_length=200)
 
@@ -27,7 +27,7 @@ class LoginOut(CamelModel):
     must_change_password: bool
 
 
-class AdminChangePasswordIn(CamelModel):
+class AdminChangePasswordIn(RequestModel):
     current_password: str = Field(min_length=1, max_length=200)
     new_password: str = Field(min_length=12, max_length=72)
 
@@ -50,14 +50,14 @@ class AdminAccountOut(CamelModel):
     created_at: datetime
 
 
-class AdminCreateIn(CamelModel):
+class AdminCreateIn(RequestModel):
     email: Annotated[str, StringConstraints(strip_whitespace=True, to_lower=True, max_length=200,
                                             pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")]
     full_name: text(100, 2)  # type: ignore[valid-type]
     role: AdminRoleName
 
 
-class AdminPatchIn(CamelModel):
+class AdminPatchIn(RequestModel):
     full_name: text(100, 2) | None = None  # type: ignore[valid-type]
     role: AdminRoleName | None = None
     status: Literal["active", "disabled"] | None = None
@@ -158,7 +158,7 @@ class DocStatusChanged(CamelModel):
     status: str
 
 
-class DocRejectIn(CamelModel):
+class DocRejectIn(RequestModel):
     reason: str
 
 
@@ -206,7 +206,7 @@ class UserDetail(CamelModel):
 Pincode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^(|[1-9][0-9]{5})$")]
 
 
-class AdminProfilePatch(CamelModel):
+class AdminProfilePatch(RequestModel):
     """Person fields (``users``). Only keys present are applied; "" clears."""
 
     full_name: text(100) | None = None
@@ -214,7 +214,7 @@ class AdminProfilePatch(CamelModel):
     position: text(120) | None = None
 
 
-class AdminBusinessPatch(CamelModel):
+class AdminBusinessPatch(RequestModel):
     """Business fields (``businesses``). Only keys present are applied; ""
     clears (except ``country``, which is required)."""
 
@@ -238,7 +238,7 @@ class AdminBusinessPatch(CamelModel):
     company_introduction: text(5000) | None = None
 
 
-class UserPatchIn(CamelModel):
+class UserPatchIn(RequestModel):
     """Admin edit of a user + their business. Unknown keys are ignored.
     Status changes use verify/reject."""
 
@@ -252,7 +252,7 @@ class StatusChanged(CamelModel):
     status: str
 
 
-class UserRejectIn(CamelModel):
+class UserRejectIn(RequestModel):
     reason: str
     #: What failed: profile field keys (``addressLine``) and KYB entries
     #: (``kyb:<code>`` / ``doc:<entry id>``). Flagged entries are rejected

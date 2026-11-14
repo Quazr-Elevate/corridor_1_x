@@ -86,13 +86,16 @@ async def test_duplicate_conflict(admin_client):
     assert (await admin_client.post("/admin/kyb/document-types", json=body)).status_code == 409
 
 
-# QA-200.7 — country / code immutable on PATCH (extra keys ignored)
+# QA-200.7 — country / code immutable on PATCH (not accepted as fields)
 async def test_country_and_code_immutable_on_patch(admin_client):
     body = _body(isMandatory=False)
     row = (await admin_client.post("/admin/kyb/document-types", json=body)).json()
     r = await admin_client.patch(
         f"/admin/kyb/document-types/{row['id']}", json={"country": "AE", "code": "renamed_code", "name": "post-patch"}
     )
+    assert r.status_code == 422 and r.json()["code"] == "request.unknown_field"
+    assert {f["field"] for f in r.json()["fields"]} == {"country", "code"}
+    r = await admin_client.patch(f"/admin/kyb/document-types/{row['id']}", json={"name": "post-patch"})
     assert r.status_code == 200
     patched = r.json()
     assert patched["country"] == "IN" and patched["code"] == body["code"] and patched["name"] == "post-patch"

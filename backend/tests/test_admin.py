@@ -118,18 +118,27 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     r = await admin_client.patch(f"/admin/users/{b['userId']}", json={"profile": {"phone": "+91 98765 00001"}})
     assert r.status_code == 409
 
+    # A field the API does not know is refused, and nothing is saved.
+    r = await admin_client.patch(
+        f"/admin/users/{b['userId']}",
+        json={"businessProfile": {"industry": "Spices", "bankAccountNumber": "XXXX1234"}},
+    )
+    assert r.status_code == 422 and r.json()["code"] == "request.unknown_field"
+    assert r.json()["fields"] == [
+        {"field": "businessProfile.bankAccountNumber", "message": "This field is not accepted."}
+    ]
+
     r = await admin_client.patch(
         f"/admin/users/{b['userId']}",
         json={
             "profile": {"position": "CEO"},
-            # Address / socials / country are business fields now; unknown keys are ignored.
+            # Address / socials / country are business fields now.
             "businessProfile": {
                 "industry": "Spices",
                 "city": "Pune",
                 "pincode": "411001",
                 "country": "ae",
                 "entityType": "llp",
-                "bankAccountNumber": "XXXX1234",
             },
         },
     )

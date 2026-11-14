@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from app.shared.schemas import CamelModel, CountryCode, CountryList, TagList, text
+from app.shared.schemas import CamelModel, RequestModel, CountryCode, CountryList, TagList, text
 
 EntityType = Literal["proprietorship", "partnership", "llp", "private_ltd", "public_ltd"]
 TradePosition = Literal["seller", "buyer", "both"]
@@ -97,7 +97,7 @@ class MeResponse(CamelModel):
     show_tour: bool = False
 
 
-class MeUpdate(CamelModel):
+class MeUpdate(RequestModel):
     """PATCH /me — the signed-in person's preferences. Fields are only
     changed when sent."""
 
@@ -106,7 +106,7 @@ class MeUpdate(CamelModel):
     tour_completed: bool | None = None
 
 
-class BusinessProfileSaveIn(CamelModel):
+class BusinessProfileSaveIn(RequestModel):
     """PUT /me/business-profile — company name, registered address and
     country (the KYB document list follows the country). Optional fields are
     only changed when sent."""
@@ -132,7 +132,7 @@ class ImageUploaded(CamelModel):
 # ── Passport section saves ──────────────────────────────────────────
 
 
-class CompanyInfoIn(CamelModel):
+class CompanyInfoIn(RequestModel):
     """Company info → ``businesses``. ``entityType`` is only changed when sent."""
 
     legal_name: text(200, 2)  # type: ignore[valid-type]
@@ -162,7 +162,7 @@ COMPANY_OPTIONAL_FIELDS = (
 )
 
 
-class PrimaryContactIn(CamelModel):
+class PrimaryContactIn(RequestModel):
     """Primary contact → the signed-in ``users`` row."""
 
     full_name: text(100, 2)  # type: ignore[valid-type]
@@ -178,7 +178,7 @@ class PrimaryContactIn(CamelModel):
         return v
 
 
-class BusinessProfileIn(CamelModel):
+class BusinessProfileIn(RequestModel):
     """How the business trades → ``businesses``."""
 
     trade_position: TradePosition

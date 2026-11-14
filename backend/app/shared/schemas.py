@@ -19,6 +19,17 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, from_attributes=True)
 
 
+class RequestModel(CamelModel):
+    """Base for request bodies: a field the API does not know is refused.
+
+    Silently dropping it hides client bugs and lets a caller believe it set
+    something (a status, an owner) that was never read. The API answers 422
+    ``request.unknown_field`` instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
 def _drop_blank_items(v: Any) -> Any:
     if isinstance(v, list):
         return [x for x in v if not (isinstance(x, str) and not x.strip())]
