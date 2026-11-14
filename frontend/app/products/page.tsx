@@ -40,9 +40,9 @@ const EMPTY_FACETS: CatalogFacets = { categories: [], originStates: [], priceMin
 export default async function MarketPage({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const filters: CatalogFilters = filtersFromRecord(searchParams ?? {});
+  const filters: CatalogFilters = filtersFromRecord((await searchParams) ?? {});
 
   const [listRes, facetsRes] = await Promise.allSettled([
     publicApi.listProducts({ ...filters, limit: MARKET_PAGE_SIZE }),

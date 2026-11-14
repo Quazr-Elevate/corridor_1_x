@@ -31,11 +31,15 @@ const ISO: Record<string, ComponentType<ArtProps>> = {
 
 const PHOTOS = ["rice", "pulses", "spices"] as const;
 
-export default function GalleryPage({ searchParams }: { searchParams: { focus?: string; s?: string } }) {
+export default async function GalleryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ focus?: string; s?: string }>;
+}) {
   if (process.env.NODE_ENV === "production") notFound();
 
-  const tower = searchParams.s === "tower";
-  const focus = searchParams.focus;
+  const { s, focus } = await searchParams;
+  const tower = s === "tower";
   if (focus) {
     const Iso = ISO[focus];
     const cat = ART_CATEGORIES.find((c) => c === focus);

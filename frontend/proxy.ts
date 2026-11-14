@@ -6,13 +6,13 @@ import { NextRequest, NextResponse } from "next/server";
  * successful OTP verify (for existing mobiles) or /auth/signup completion.
  *
  * We don't validate the cookie's signature here — that's the backend's job
- * on every API call. Middleware only checks *presence* so we can short-
+ * on every API call. The proxy only checks *presence* so we can short-
  * circuit the page render and redirect to /login?next=<original url>.
  *
  * Unauthenticated pages (/, /login, /signup, /products, /privacy, /terms)
  * are excluded by the matcher below.
  */
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const session = req.cookies.get("cor1x_session");
   if (session) return NextResponse.next();
 

@@ -16,11 +16,12 @@ import { publicApi, PublicApiError, type PublicProductDetail } from "@/lib/publi
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { id } = await params;
   try {
-    const p = await publicApi.getProduct(params.id);
+    const p = await publicApi.getProduct(id);
     return {
       title: `${p.name} — Corridor One X`,
       description:
@@ -38,9 +39,10 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * buyer reveals the contact.
  */
 export default async function ProductDetailPage({ params }: Params) {
+  const { id } = await params;
   let product: PublicProductDetail;
   try {
-    product = await publicApi.getProduct(params.id);
+    product = await publicApi.getProduct(id);
   } catch (err) {
     if (err instanceof PublicApiError && (err.status === 404 || err.status === 422)) notFound();
     return (
@@ -51,7 +53,7 @@ export default async function ProductDetailPage({ params }: Params) {
             icon="alert"
             title="We couldn’t load this lot"
             action={
-              <LinkButton href={`/products/${encodeURIComponent(params.id)}`} variant="secondary">
+              <LinkButton href={`/products/${encodeURIComponent(id)}`} variant="secondary">
                 Try again
               </LinkButton>
             }

@@ -45,7 +45,7 @@ import { cn } from "@/lib/cn";
 interface ComposerCtx {
   openKey: string | null;
   setOpenKey: (k: string | null) => void;
-  container: RefObject<HTMLDivElement>;
+  container: RefObject<HTMLDivElement | null>;
   layer: HTMLDivElement | null;
 }
 
@@ -211,8 +211,8 @@ function Popover({
 }: {
   id: string;
   label: string;
-  anchor: RefObject<HTMLButtonElement>;
-  container: RefObject<HTMLDivElement>;
+  anchor: RefObject<HTMLButtonElement | null>;
+  container: RefObject<HTMLDivElement | null>;
   width?: number;
   onClose: (focus?: "anchor" | "next" | "none") => void;
   children: ReactNode;

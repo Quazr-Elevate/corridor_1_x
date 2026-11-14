@@ -534,7 +534,7 @@ function FilePick({
 }: {
   file: File | null;
   onFile: (f: File | null) => void;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   label: string;
   optional?: boolean;
   onError: (msg: string | null) => void;
