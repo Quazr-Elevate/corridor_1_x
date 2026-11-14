@@ -68,7 +68,7 @@ class CSRFOriginMiddleware:
             return
 
         log.warning("csrf_blocked method=%s path=%s origin=%s", scope["method"], scope["path"], origin or headers.get("referer"))
-        body = json.dumps({"detail": "Cross-site request blocked."}).encode()
+        body = json.dumps({"detail": "Cross-site request blocked.", "code": "request.cross_site"}).encode()
         await send({
             "type": "http.response.start",
             "status": 403,
