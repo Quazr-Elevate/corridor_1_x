@@ -127,9 +127,9 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | D4 | Security headers (HSTS, CSP, X-Frame-Options, Referrer-Policy, Permissions-Policy) | Required | ❌ → A | None sent (checked on `/me`) |
 | D5 | `Cache-Control: no-store` on personal responses | Required | ❌ → A | Not sent on `/me` (KYB files do send `private, no-store`) |
 | D6 | Insecure defaults | Refuse to start | ❌ | `DEBUG=true` and dev session secrets by default (CX-001) |
-| D7 | Dependencies free of known vulnerabilities | — | ❌ | See §7 — **new item** |
+| D7 | Dependencies free of known vulnerabilities | — | ✅ | Upgraded 15 Nov 2026 (CX-061, CX-062): `pip-audit` and `npm audit --omit=dev` report none. §7 lists what was found |
 | D8 | WAF / bot protection / DDoS | Cloudflare | ⏳ B | Not present |
-| D9 | Security scanning in CI | Dependabot, CodeQL, pip-audit | ⏳ B | Not present (this review ran it manually) |
+| D9 | Security scanning in CI | Dependabot, CodeQL, pip-audit | ⏳ B | Dependency audit is in `.github/workflows/ci.yml` (CX-063, not yet run on GitHub); code scanning stays with CX-134 |
 | D10 | Central logging + alerts, 180-day retention | CERT-In | 🔧 B | Not present |
 
 ## 6. Privacy & compliance (DPDP / PDPL / CERT-In)

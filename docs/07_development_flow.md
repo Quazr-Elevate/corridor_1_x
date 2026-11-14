@@ -391,7 +391,9 @@ stays up."*
 | Paths | Plural nouns; `/me/...` for the signed-in trader's own data; `/public/...` for anonymous; `/admin/...` for the console |
 | Bodies | camelCase in JSON via Pydantic aliases; snake_case in Python |
 | IDs | UUIDs in paths, parsed with `parse_uuid`, which returns `None` for a malformed value; the service lookup then finds nothing and raises `NotFound`. A bad ID is a 404, never a 500 — so never call `uuid.UUID()` on a path value yourself |
-| Errors | `{"detail": "message"}` from `core/errors.py` exceptions; status code carries the class |
+| Version | Every route is under `/v1` except `/health`; the frontend adds it in `lib/apiBase.ts` |
+| Errors | `{"detail": "message", "code": "stable.code", "fields"?: [...]}` from `core/errors.py` exceptions; `detail` is always a string, clients branch on `code` |
+| Unknown fields | A request body field the API does not know returns 422 `request.unknown_field` (`RequestModel`) |
 | Not yours | Return **404**, not 403, when a resource belongs to another business — no existence leak (control B2) |
 | Auth | HttpOnly cookies only; no token ever reaches JavaScript |
 | State changes | POST / PATCH / PUT / DELETE pass the CSRF Origin check; GET never changes state |

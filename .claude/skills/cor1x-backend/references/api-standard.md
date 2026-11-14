@@ -75,9 +75,10 @@ function. A wrong-state request is **409** with a message that names both states
   the shared types (`text()`, `Amount`, `Currency`, `Literal` enums).
 - **Current.** Query parameters are validated with `Query(..., max_length=, ge=, le=)`.
 - **Current.** Path IDs are strings parsed with `parse_uuid`.
-- **Proposed.** Unknown body fields are **rejected** (422 `request.unknown_field`)
-  through a `RequestModel` base with `extra="forbid"`. Today they are silently
-  dropped, which is safe against mass assignment but hides client bugs.
+- **Current (A-013).** Unknown body fields are **rejected** (422
+  `request.unknown_field`). Every request schema, nested ones included,
+  inherits `RequestModel` (`app/shared/schemas.py`, `extra="forbid"`);
+  `tests/test_api_contract.py` walks the routes and fails on a loose one.
 - **Always.** The client never sends anything the server owns: `id`,
   `businessId`, `status`, `createdAt`, internal prices or margins, approval
   fields. If a schema declares such a field for input, that's a bug.
@@ -120,13 +121,14 @@ query language. Free-text search is `q`.
 
 ## Errors
 
-**Current:** services raise `BadRequest`, `Unauthorized`, `Forbidden`,
-`NotFound`, `Conflict` from `core/errors.py`, and the client receives
-`{"detail": "A human sentence."}`. Validation errors currently come back in
-FastAPI's default shape, where `detail` is a list.
+**Current (A-012):** services raise `BadRequest`, `Unauthorized`, `Forbidden`,
+`NotFound`, `Conflict` from `core/errors.py`. Each class carries a stable
+`code` (`auth.required`, `resource.not_found`, …) and a service can pass its
+own with `code=`. Validation errors, framework errors (unknown path, wrong
+method), the rate limiter and the CSRF check all return the same shape.
 
-**Proposed: one shape for every error, backward compatible** (the frontend's
-`messageFrom()` already reads a string `detail`):
+**One shape for every error** (`detail` is always a string; clients branch on
+`code`):
 
 ```json
 {
@@ -165,11 +167,16 @@ email is registered into an error.
 
 ## Versioning
 
-**Proposed.** Every route under `/v1/...` except `/health`. That's one prefix in
-`create_app()`, the frontend's `API_BASE` default becoming `/api/v1`, and the
-test client's `base_url` gaining `/v1`. Once adopted, a breaking change means
-`/v2` for that resource, and an additive change (a new optional field, a new
-endpoint) never needs a version.
+**Current (A-011).** Every route is under `/v1/...` except `/health`: one prefix
+in `create_app()`. The frontend adds the version in `lib/apiBase.ts`, so the
+configured base names the host only. Test paths are relative to `/v1`
+(`conftest.ROOT_URL` reaches outside it). A breaking change means `/v2` for
+that resource, and an additive change (a new optional field, a new endpoint)
+never needs a version.
+
+**API docs (A-014).** `/docs`, `/redoc` and `/openapi.json` exist only when
+`DEBUG=true`. `scripts/export_openapi.py` writes the schema; CI keeps it as an
+artifact.
 
 **Additive by default, always:** add fields, never rename or remove them without
 a version; new request fields are optional or have defaults.
