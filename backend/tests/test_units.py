@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from conftest import signup_and_login
 
 from app.integrations._retry import TransientError, retry_async
 from app.integrations.email import EmailConfig, EmailDeliveryError, EmailMessage
@@ -183,6 +184,7 @@ async def test_pincode_lookup_outage_raises():
 async def test_pincode_endpoint_outage_is_502(client):
     from app.main import app
 
+    await signup_and_login(client, "pin1@kaverifoods.in")
     app.dependency_overrides[get_pincode_lookup] = lambda: PincodeLookup(transport=httpx.MockTransport(_down))
     try:
         r = await client.get("/pincode/560001")
@@ -202,6 +204,7 @@ async def test_pincode_endpoint_success(client):
             json=[{"Status": "Success", "PostOffice": [{"Name": "Bangalore GPO", "District": "Bangalore", "State": "Karnataka"}]}],
         )
 
+    await signup_and_login(client, "pin2@kaverifoods.in")
     app.dependency_overrides[get_pincode_lookup] = lambda: PincodeLookup(transport=httpx.MockTransport(ok))
     try:
         r = await client.get("/pincode/560001")
