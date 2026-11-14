@@ -1,7 +1,9 @@
-"""The API contract every route shares: where the docs are served."""
+"""The API contract every route shares: the version prefix, the error
+shape, and where the docs are served."""
 from __future__ import annotations
 
 import pytest
+from conftest import ROOT_URL
 
 from app.core.config import settings
 from app.main import docs_urls
@@ -10,7 +12,7 @@ from app.main import docs_urls
 @pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
 async def test_api_docs_are_not_served_outside_debug(client, path):
     assert settings.debug is False
-    r = await client.get(path)
+    r = await client.get(ROOT_URL + path)
     assert r.status_code == 404
 
 
@@ -41,7 +43,7 @@ async def test_validation_error_has_a_string_detail_a_code_and_fields(client):
 async def test_unknown_path_and_wrong_method_use_the_same_shape(client):
     r = await client.get("/no-such-route")
     assert r.status_code == 404 and r.json() == {"detail": "Not Found", "code": "resource.not_found"}
-    r = await client.delete("/health")
+    r = await client.delete(ROOT_URL + "/health")
     assert r.status_code == 405 and r.json()["code"] == "request.method_not_allowed"
 
 
@@ -53,3 +55,29 @@ async def test_rate_limit_error_has_a_code(client):
     r = await client.post("/auth/password/forgot", json={"email": "nobody@kaverifoods.in"})
     assert r.status_code == 429
     assert r.json()["code"] == "rate_limit.exceeded" and isinstance(r.json()["detail"], str)
+
+
+# ── Version prefix ───────────────────────────────────────────────────
+
+
+async def test_routes_answer_under_v1_only(client):
+    assert (await client.get(ROOT_URL + "/v1/public/products")).status_code == 200
+    r = await client.get(ROOT_URL + "/public/products")
+    assert r.status_code == 404 and r.json()["code"] == "resource.not_found"
+    # An unversioned path must not reach a handler even with a session-free POST.
+    assert (await client.post(ROOT_URL + "/auth/login", json={})).status_code == 404
+
+
+async def test_health_stays_outside_the_prefix(client):
+    assert (await client.get(ROOT_URL + "/health")).status_code == 200
+    assert (await client.get(ROOT_URL + "/v1/health")).status_code == 404
+
+
+def test_every_route_except_health_is_versioned():
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.main import app
+
+    paths = {c.path for c in iter_route_contexts(app.routes) if isinstance(c.original_route, APIRoute)}
+    assert len(paths) > 50
+    assert {p for p in paths if not p.startswith("/v1/")} == {"/health"}

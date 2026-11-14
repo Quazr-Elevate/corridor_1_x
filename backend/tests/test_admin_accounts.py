@@ -25,9 +25,9 @@ def _admin_routes():
     # Included routers are resolved lazily, so app.routes is not a flat list;
     # the route context carries the effective path and dependencies.
     for ctx in iter_route_contexts(app.routes):
-        if isinstance(ctx.original_route, APIRoute) and ctx.path.startswith("/admin"):
+        if isinstance(ctx.original_route, APIRoute) and ctx.path.startswith("/v1/admin"):
             for m in ctx.methods:
-                yield m, ctx.path, ctx
+                yield m, ctx.path.removeprefix("/v1"), ctx
 
 
 def _route_permission(route):

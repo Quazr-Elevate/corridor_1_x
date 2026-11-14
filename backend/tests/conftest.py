@@ -118,8 +118,13 @@ async def _clean():
     clear_lookup_cache()
 
 
+#: Every API route lives under /v1; paths in tests are relative to it. Use
+#: ``ROOT_URL + "/health"`` for the few routes outside the version prefix.
+ROOT_URL = "http://testserver"
+
+
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=asgi_app), base_url="http://testserver")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=asgi_app), base_url=ROOT_URL + "/v1")
 
 
 @pytest_asyncio.fixture(loop_scope="session")

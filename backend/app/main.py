@@ -155,8 +155,9 @@ def create_app(s: Settings = settings) -> FastAPI:
     )
     app.add_middleware(RequestContextMiddleware)
 
+    # The health check stays unversioned: the platform probes it by a fixed path.
+    app.include_router(health_router)
     for router in (
-        health_router,
         auth_router,
         onboarding_router,
         me_router,
@@ -170,7 +171,7 @@ def create_app(s: Settings = settings) -> FastAPI:
         lookups_router,
         admin_router,
     ):
-        app.include_router(router)
+        app.include_router(router, prefix="/v1")
     return app
 
 

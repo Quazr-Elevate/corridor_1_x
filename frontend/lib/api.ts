@@ -1,3 +1,5 @@
+import { versioned } from "./apiBase";
+
 // ── Shared response shapes ─────────────────────────────────────────────
 
 export type EntityType = "proprietorship" | "partnership" | "llp" | "private_ltd" | "public_ltd";
@@ -309,7 +311,7 @@ export interface BusinessProfileIn {
 // the same-origin /api proxy (next.config.mjs), so the cookie is
 // first-party and sent automatically.
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+export const API_BASE = versioned(process.env.NEXT_PUBLIC_API_BASE_URL || "/api");
 
 export interface SecurityDevice {
   createdAt: string;

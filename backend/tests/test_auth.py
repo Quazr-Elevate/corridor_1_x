@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from conftest import code_from_email, sent_emails, signup_and_login
+from conftest import ROOT_URL, code_from_email, sent_emails, signup_and_login
 from sqlalchemy import select, update
 
 from app.core.db import SessionLocal
@@ -262,7 +262,7 @@ async def test_login_rate_limited(client):
 
 
 async def test_health_and_request_id(client, monkeypatch):
-    r = await client.get("/health")
+    r = await client.get(ROOT_URL + "/health")
     assert r.status_code == 200 and r.json() == {"status": "ok"}
     assert r.headers.get("x-request-id")
 
@@ -272,7 +272,7 @@ async def test_health_and_request_id(client, monkeypatch):
         return False
 
     monkeypatch.setattr(health, "ping_db", down)
-    r = await client.get("/health")
+    r = await client.get(ROOT_URL + "/health")
     assert r.status_code == 503
 
 

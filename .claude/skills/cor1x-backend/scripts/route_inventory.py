@@ -136,7 +136,9 @@ def collect(root: Path) -> list[Route]:
                     continue
                 var = dec.func.value.id
                 parent = package_mounts.get((py.stem, var), "") if py.name != "router.py" else ""
-                path = version + parent + prefixes.get(var, "") + dec.args[0].value
+                # create_app() mounts the health router outside the version prefix.
+                mount = "" if py.parent.name == "health" else version
+                path = mount + parent + prefixes.get(var, "") + dec.args[0].value
                 routes.append(Route(dec.func.attr.upper(), path or "/", _auth(fn, perms),
                                     _limit(fn, dec), f"{py.parent.name}/{py.name}:{fn.lineno}"))
     return sorted(routes, key=lambda r: (r.path, r.method))

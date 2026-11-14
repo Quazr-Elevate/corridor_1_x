@@ -1,4 +1,6 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+import { versioned } from "./apiBase";
+
+export const API_BASE = versioned(process.env.NEXT_PUBLIC_API_BASE_URL || "/api");
 
 export type AdminRole = "super_admin" | "reviewer";
 

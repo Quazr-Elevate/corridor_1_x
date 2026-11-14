@@ -10,10 +10,13 @@
  *   • server  — a relative base can't be fetched from Node, so when the public
  *     base is relative we talk to the backend directly via `API_PROXY_TARGET`
  *     (the same target the /api rewrite points at), defaulting to the local
- *     uvicorn port.
+ *     uvicorn port. Either way the version prefix is added (lib/apiBase.ts).
  */
 
-const PUBLIC_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+import { versioned } from "./apiBase";
+
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+const PUBLIC_BASE = versioned(RAW_BASE);
 
 function isAbsolute(url: string): boolean {
   return /^https?:\/\//i.test(url);
@@ -21,8 +24,8 @@ function isAbsolute(url: string): boolean {
 
 /** Base URL for fetches — server-safe. */
 export function resolveApiBase(): string {
-  if (typeof window === "undefined" && !isAbsolute(PUBLIC_BASE)) {
-    return (process.env.API_PROXY_TARGET || "http://localhost:8000").replace(/\/+$/, "");
+  if (typeof window === "undefined" && !isAbsolute(RAW_BASE)) {
+    return versioned(process.env.API_PROXY_TARGET || "http://localhost:8000");
   }
   return PUBLIC_BASE;
 }
