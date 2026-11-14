@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 from conftest import ADMIN_EMAIL, ADMIN_PASSWORD
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 from sqlalchemy import select, update
 
 from app.core.db import SessionLocal
@@ -22,13 +22,15 @@ NEW_PW = "Reviewer-pass-2026!"
 
 
 def _admin_routes():
-    for r in app.routes:
-        if isinstance(r, APIRoute) and r.path.startswith("/admin"):
-            for m in r.methods:
-                yield m, r.path, r
+    # Included routers are resolved lazily, so app.routes is not a flat list;
+    # the route context carries the effective path and dependencies.
+    for ctx in iter_route_contexts(app.routes):
+        if isinstance(ctx.original_route, APIRoute) and ctx.path.startswith("/admin"):
+            for m in ctx.methods:
+                yield m, ctx.path, ctx
 
 
-def _route_permission(route: APIRoute):
+def _route_permission(route):
     found = []
     for dep in route.dependant.dependencies:
         if hasattr(dep.call, "permission"):
@@ -55,7 +57,9 @@ async def _new_admin(admin_client, make_client, role="reviewer", email="rev@cor1
 
 def test_every_admin_route_declares_exactly_one_permission():
     missing = []
-    for method, path, route in _admin_routes():
+    routes = list(_admin_routes())
+    assert len(routes) > len(PUBLIC_ADMIN_ROUTES), "No admin routes found; the matrix would pass on nothing."
+    for method, path, route in routes:
         if (method, path) in PUBLIC_ADMIN_ROUTES:
             continue
         perms = _route_permission(route)

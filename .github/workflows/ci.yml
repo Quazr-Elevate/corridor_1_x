@@ -99,7 +99,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: pip install pip-audit
+      - run: pip install -r backend/requirements-dev.txt
       # pip-audit has no severity filter: any known advisory fails the job.
       - name: Backend packages
         run: pip-audit -r backend/requirements.txt
