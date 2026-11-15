@@ -35,6 +35,7 @@ If it changes the build plan's scope, say so to the user.
 | A-015 | `/pincode/{pincode}` and `/ifsc/{code}` require a trader or admin session, are limited to 30/min per principal, and are cached for 24 h (was D-005). Built in M0 | 15 Nov 2026 | User, M0 design review |
 | A-016 | CX-062 moves Next.js to the **latest major** release, not the smallest patched one | 15 Nov 2026 | User, M0 design review |
 | A-017 | Design reviews happen in the working session; no `docs/milestones/Mx_design.md` file is written. Approved outcomes are recorded here and in the tracker | 15 Nov 2026 | User |
+| A-018 | All milestones are built on **one development branch**; no branch per row or per milestone. A milestone goes to `main` only when it is finished and tested | 15 Nov 2026 | User |
 
 ## Proposed: awaiting approval
 

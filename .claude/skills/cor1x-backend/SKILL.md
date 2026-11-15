@@ -77,10 +77,11 @@ explain every decision to the client.
 `references/decisions.md` and adjust tracker rows → build the sprints →
 check the exit gate → milestone done. See `references/milestones.md`.
 
-**Sprint.** Two weeks, Monday to Friday. Take rows in the sprint's order. One
-branch and one PR per row (`feat/cx-071-listing-review`). At sprint review,
-reconcile every row in the sprint against `main` and move unfinished rows to the
-next sprint openly, never silently.
+**Sprint.** Two weeks, Monday to Friday. Take rows in the sprint's order. All
+rows are committed to the one development branch, one commit per row where it
+fits (A-018). `main` receives a milestone only when it is finished and tested.
+At sprint review, reconcile every row in the sprint against the development
+branch and move unfinished rows to the next sprint openly, never silently.
 
 **Row.** Always in this order, backend before UI:
 
@@ -91,10 +92,10 @@ next sprint openly, never silently.
 5. **Tests**: rule, happy path, refusal, cross-business access, and the migration if data moves
 6. **UI**: the typed client call, then the page (frontend work follows its own conventions)
 7. **Docs**: `06_feature_catalogue.md` if customers see it, `05_security_review.md` if a control changed
-8. **PR**: CI green, every **Done when** line ticked with its evidence
+8. **Commit**: on the development branch, tests green, every **Done when** line met with its evidence
 
-The row is **Done** only when it's merged and its evidence (the commit hash, the
-test name) is in the tracker's Notes.
+The row is **Done** only when its milestone is merged to `main` and its evidence
+(the commit hash, the test name) is in the tracker's Notes.
 
 ## Non-negotiables
 

@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # The development branch carries every milestone until it is merged (A-018).
+    branches: [main, feat/m0-stabilise]
 
 # A newer push to the same branch makes the older run pointless.
 concurrency:

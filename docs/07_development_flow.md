@@ -263,13 +263,15 @@ for anything a business owns — the cross-business test that a stranger gets
 
 ### ⑧ Pull request
 
-- Branch from `main`: `feat/cx-071-listing-review`, `fix/cx-067-exif`.
-- Title starts with the row ID: `CX-071 Listing review workflow`.
-- CI must be green (CX-063 puts it in place in S1).
-- The description pastes the row's **Done when** and ticks each line with
+- All milestones are built on one development branch. There is no branch per
+  row or per milestone.
+- Each row is a commit whose subject starts with the area and names the row ID.
+- When a milestone is finished and tested, the development branch goes to
+  `main` through one pull request. CI must be green (CX-063).
+- The description lists the milestone's rows, each with its **Done when** and
   evidence.
 
-After merge, the row goes to **Done** with the commit hash in Notes.
+After the merge, the milestone's rows go to **Done** with the commit hash in Notes.
 
 ---
 

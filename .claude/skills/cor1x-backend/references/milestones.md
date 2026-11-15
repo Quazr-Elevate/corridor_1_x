@@ -42,10 +42,13 @@ file. Read the row there (its **Done when** especially) before starting it.
 
 - Two weeks, Monday to Friday. Rows are worked in the order the sprint lists
   them, unless one blocks another.
-- **Start a row:** Status → *In progress*, Owner set. One branch per row:
-  `feat/cx-071-listing-review`, `fix/cx-067-exif`, `chore/cx-061-deps`.
-- **Finish a row:** PR merged, CI green, every **Done when** line evidenced,
-  Status → *Done*, commit hash in Notes.
+- **Start a row:** Status → *In progress*, Owner set. Work on the one
+  development branch; no branch per row or per milestone (A-018).
+- **Finish a row:** committed with tests green and every **Done when** line
+  evidenced, commit hash in Notes. Status → *Done* when the milestone is merged
+  to `main`.
+- **Finish a milestone:** exit gate checked and tested, then the development
+  branch goes to `main` through one pull request so CI runs.
 - **Sprint review:** reconcile every row in the sprint against `main`. Unfinished
   rows move to the next sprint in the tracker, with a note saying why. The
   demo is the sprint's *Exit gate / sprint demo* on the Roadmap sheet.
