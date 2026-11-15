@@ -520,7 +520,7 @@ Existing rows keep their file and name and appear as "Other".
 | Logo, banner, company name, verified badge | ✓ | ✓ | ✓ |
 | KYB value, masked | ✓ | ✗ | ✓ |
 | KYB value, full (dedicated reveal call) | ✓ own | ✗ | ✓ — logged `kyb.value_viewed` |
-| KYB file | ✓ own | ✗ | ✓ — logged `kyb.file_viewed` |
+| KYB file | ✓ own | ✗ | ✓ — reason required, logged `kyb.file_viewed` |
 
 ### KYB submission rule
 
@@ -667,3 +667,18 @@ Indexes `ix_auth_events_subject`, `ix_auth_events_created_at`.
 * `admin_actions.admin_user_id` → `admin_users.id` (ON DELETE SET NULL; null
   for rows before 0024). `admin_email` is kept for readability.
 * `users.session_version` is no longer read (kept for history; still bumped).
+
+## Two-factor columns (`0025_totp_columns`)
+
+Columns only; nothing reads or writes them until 2FA ships in Phase B
+(build plan 1.2, CX-070). Added now so that change is a screen, not a
+migration on a full table.
+
+| Table | Column | Type | Notes |
+|---|---|---|---|
+| `users`, `admin_users` | `totp_secret_encrypted` | text, null | AES-256-GCM ciphertext (`core/crypto.py`) |
+| `users`, `admin_users` | `totp_secret_key_version` | smallint, null | Key version the secret was written under |
+| `users`, `admin_users` | `backup_codes` | JSON, null | Hashes of one-time backup codes, never the codes |
+
+`ck_users_totp_secret_pair` / `ck_admin_users_totp_secret_pair`: the secret
+and its key version are both set or both null.

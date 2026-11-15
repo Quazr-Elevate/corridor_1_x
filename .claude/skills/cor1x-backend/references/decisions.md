@@ -35,15 +35,21 @@ If it changes the build plan's scope, say so to the user.
 | A-015 | `/pincode/{pincode}` and `/ifsc/{code}` require a trader or admin session, are limited to 30/min per principal, and are cached for 24 h (was D-005). Built in M0 | 15 Nov 2026 | User, M0 design review |
 | A-016 | CX-062 moves Next.js to the **latest major** release, not the smallest patched one | 15 Nov 2026 | User, M0 design review |
 | A-017 | Design reviews happen in the working session; no `docs/milestones/Mx_design.md` file is written. Approved outcomes are recorded here and in the tracker | 15 Nov 2026 | User |
+| A-019 | **Sign-up accepts work email only.** Free-mail (Gmail, Yahoo and similar) and disposable domains stay refused; CX-069 is closed without a code change and build plan 1.1 is the part to update | 15 Nov 2026 | User, M1 design review |
+| A-020 | CX-066: the console asks for an access reason **once per business** and reuses it; the API requires and stores a reason on every reveal and file open | 15 Nov 2026 | User, M1 design review |
+| A-021 | Listings: on a published listing, **price range, price validity, quantity and MOQ change immediately**; any other edit goes back to admin review while the published version stays live | 15 Nov 2026 | User, M1 design review |
+| A-022 | The listing **price range is shown to signed-in verified businesses only**; guests and unverified accounts see "Price on request" | 15 Nov 2026 | User, M1 design review |
+| A-023 | **Minimum to submit a listing** = the plan's candidate set: name, category, description, grade, origin country and state; MOQ, monthly capacity, lead time; price range, currency, price validity, one incoterm; one photo; the category's required specs and certificates | 15 Nov 2026 | User, M1 design review |
+| A-024 | Every list endpoint returns `{items, total}` (was D-006), converted in M1 | 15 Nov 2026 | User, M1 design review |
+| A-025 | CX-007 (photography redesign) is done as the last M1 step, after the listing features | 15 Nov 2026 | User, M1 design review |
 | A-018 | All milestones are built on **one development branch**; no branch per row or per milestone. A milestone goes to `main` only when it is finished and tested | 15 Nov 2026 | User |
 
 ## Proposed: awaiting approval
 
-D-001 … D-005 were approved on 15 Nov 2026 and are now A-011 … A-015.
+D-001 … D-005 were approved on 15 Nov 2026 and are now A-011 … A-015; D-006 is A-024. Nothing is waiting.
 
 | ID | Proposal | Recommendation | Why |
 |---|---|---|---|
-| D-006 | The four bare lists move to `{items, total}` in **M1**, not M0 | M1 | `GET /products` changes shape in M1 anyway; touch the frontend once |
 
 ## Planned with a milestone: confirmed at that milestone's design review
 
@@ -52,7 +58,6 @@ They're scheduled, but the milestone's design review is where they're confirmed.
 
 | Row | Change | Note |
 |---|---|---|
-| CX-069 | Accept free-mail sign-ups, flag them for KYB review (code currently refuses them) | If the client prefers the current rule, update plan 1.1 instead |
 | CX-068 | Public market shows region, never city | Masking promise |
 | CX-071 | Listings go through review before the market (code currently publishes on verification) | — |
 | CX-083 | Retire contact reveal | **Only if CX-077 confirms the masked trading desk** |

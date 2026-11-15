@@ -1,0 +1,15 @@
+Hi {{ first_name }},
+
+Your Cor1x account was signed in to from a browser we haven't seen before.
+
+    When:    {{ when }}
+    Browser: {{ device }}
+
+Signing in on a new device signs out the previous one.
+
+If this was you, you don't need to do anything.
+
+If it wasn't, reset your password now: {{ reset_url }}
+Then contact {{ support_email }}.
+
+-- Cor1x

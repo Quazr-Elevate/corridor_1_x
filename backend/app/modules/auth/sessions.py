@@ -12,6 +12,7 @@ index enforces it in the database. A session ends at the first of:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -53,6 +54,49 @@ def client_info(request: Request) -> ClientInfo:
 
 
 Client = Annotated[ClientInfo, Depends(client_info)]
+
+
+# ── Devices ──────────────────────────────────────────────────────────
+
+_VERSION = re.compile(r"[\d._]+")
+_BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"), ("Chrome/", "Chrome"), ("Safari/", "Safari"))
+_SYSTEMS = (
+    ("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Windows", "Windows"),
+    ("Mac OS X", "Mac"), ("Linux", "Linux"),
+)
+
+
+def device_key(user_agent: str | None) -> str:
+    """The user agent without version numbers, so a browser update is not a
+    "new device". Empty when the client sent none."""
+    return _VERSION.sub("", user_agent or "").strip()
+
+
+def device_label(user_agent: str | None) -> str:
+    """Short description for an email, e.g. ``Chrome on Windows``."""
+    ua = user_agent or ""
+    browser = next((name for token, name in _BROWSERS if token in ua), None)
+    system = next((name for token, name in _SYSTEMS if token in ua), None)
+    if browser and system:
+        return f"{browser} on {system}"
+    return browser or system or "An unrecognised browser"
+
+
+async def is_new_device(db: AsyncSession, subject_type: str, subject_id: uuid.UUID, client: ClientInfo) -> bool:
+    """True when the account has signed in before, but never from this kind
+    of browser. Call it before recording the current sign-in."""
+    seen = set(
+        await db.scalars(
+            select(AuthEvent.user_agent)
+            .where(
+                AuthEvent.subject_type == subject_type,
+                AuthEvent.subject_id == subject_id,
+                AuthEvent.event == "login_succeeded",
+            )
+            .distinct()
+        )
+    )
+    return bool(seen) and device_key(client.user_agent) not in {device_key(ua) for ua in seen}
 
 
 # ── Policy ───────────────────────────────────────────────────────────

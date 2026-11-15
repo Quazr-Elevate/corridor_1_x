@@ -14,6 +14,7 @@ import hmac
 import logging
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 
 from sqlalchemy import func, select, update
@@ -233,10 +234,16 @@ async def complete_signup(
 # ── Login / password ─────────────────────────────────────────────────
 
 
-async def authenticate(db: AsyncSession, *, email: str, password: str, client: ClientInfo) -> User:
-    """Check the password (with lockout), then start the one active session
-    (any other device is signed out). Returns the user; the caller sets the
-    cookie from ``user.session_token``."""
+@dataclass(frozen=True)
+class SignIn:
+    user: User
+    #: First sign-in from this kind of browser; the caller emails the user.
+    new_device: bool
+
+
+async def authenticate(db: AsyncSession, *, email: str, password: str, client: ClientInfo) -> SignIn:
+    """Check the password (with lockout) and stage the sign-in event. The
+    caller starts the session, which commits."""
     user = await db.scalar(select(User).where(User.email == normalize_email(email)))
     if user is None or user.deleted_at is not None:
         verify_password(password, _dummy_hash())  # equalise timing
@@ -261,8 +268,12 @@ async def authenticate(db: AsyncSession, *, email: str, password: str, client: C
         raise Forbidden("This account is disabled. Contact support.")
     lockout.record_success(user)
     user.last_login_at = now
-    record_event(db, subject_type="user", subject_id=user.id, event="login_succeeded", client=client)
-    return user
+    new_device = await sessions.is_new_device(db, "user", user.id, client)
+    record_event(
+        db, subject_type="user", subject_id=user.id, event="login_succeeded", client=client,
+        details={"new_device": True} if new_device else None,
+    )
+    return SignIn(user=user, new_device=new_device)
 
 
 async def change_password(
@@ -335,7 +346,7 @@ async def request_password_reset(db: AsyncSession, *, email: str, client: Client
     return code
 
 
-async def reset_password(db: AsyncSession, *, email: str, code: str, new_password: str, client: ClientInfo) -> None:
+async def reset_password(db: AsyncSession, *, email: str, code: str, new_password: str, client: ClientInfo) -> User:
     """Code + new password → password replaced, every session signed out,
     temporary lockout cleared. A support lock stays (support must unlock)."""
     email = normalize_email(email)
@@ -364,3 +375,4 @@ async def reset_password(db: AsyncSession, *, email: str, code: str, new_passwor
     await sessions.revoke_all(db, sessions.user_policy(), user.id, "password_reset")
     record_event(db, subject_type="user", subject_id=user.id, event="password_reset", client=client)
     await db.commit()
+    return user

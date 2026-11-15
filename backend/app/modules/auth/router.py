@@ -5,8 +5,10 @@
     POST /auth/signup/complete  name, position, password, terms → business +
                                 owner created, session cookie issued
     POST /auth/login            email + password → session cookie (signs
-                                out any other device; lockout after 5 fails)
-    POST /auth/change-password  rotate password (revokes other sessions)
+                                out any other device; lockout after 5 fails;
+                                emails the user on a browser not seen before)
+    POST /auth/change-password  rotate password (revokes other sessions;
+                                emails the user)
     POST /auth/password/forgot  email → reset code (same answer either way)
     POST /auth/password/reset   email + code + new password → all sessions out
     POST /auth/logout           end this browser's session
@@ -18,11 +20,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Response
 from sqlalchemy import select
 
+from app import notifications
 from app.core.config import settings
 from app.core.security import SESSION_COOKIE, clear_cookie, set_cookie
+from app.core.time import utcnow
 from app.models.auth_session import AuthEvent
 from app.models.user import User
 from app.modules.auth import service, sessions
@@ -132,23 +136,36 @@ async def signup_complete(
     response_model_by_alias=True,
     dependencies=[Depends(ip_rate_limit(LOGIN_PER_IP))],
 )
-async def login(payload: LoginRequest, response: Response, db: DbSession, client: sessions.Client) -> LoginResponse:
+async def login(
+    payload: LoginRequest, response: Response, db: DbSession, client: sessions.Client, background: BackgroundTasks
+) -> LoginResponse:
     await get_limiter().check(LOGIN_PER_EMAIL, service.normalize_email(payload.email))
-    user = await service.authenticate(db, email=payload.email, password=payload.password, client=client)
+    signin = await service.authenticate(db, email=payload.email, password=payload.password, client=client)
+    user = signin.user
     await _start(db, response, user, client)
+    if signin.new_device:
+        background.add_task(
+            notifications.deliver_safely,
+            notifications.send_new_device_signin,
+            to=user.email,
+            first_name=notifications.first_name_of(user.full_name),
+            device=sessions.device_label(client.user_agent),
+            signed_in_at=utcnow(),
+        )
     return login_response(user)
 
 
 @router.post("/change-password", response_model=OkResponse, response_model_by_alias=True)
 async def change_password(
     payload: ChangePasswordRequest, user: CurrentUser, session_id: CurrentSessionId, db: DbSession,
-    client: sessions.Client,
+    client: sessions.Client, background: BackgroundTasks,
 ) -> OkResponse:
     # Other sessions are revoked; this browser stays signed in.
     await service.change_password(
         db, user, current_password=payload.current_password, new_password=payload.new_password,
         keep_session=session_id, client=client,
     )
+    _notify_password_changed(background, user)
     return OkResponse()
 
 
@@ -171,10 +188,14 @@ async def forgot_password(payload: ForgotPasswordRequest, db: DbSession, client:
     response_model_by_alias=True,
     dependencies=[Depends(ip_rate_limit(RESET_PER_IP))],
 )
-async def reset_password(payload: ResetPasswordRequest, response: Response, db: DbSession, client: sessions.Client) -> OkResponse:
-    await service.reset_password(
+async def reset_password(
+    payload: ResetPasswordRequest, response: Response, db: DbSession, client: sessions.Client,
+    background: BackgroundTasks,
+) -> OkResponse:
+    user = await service.reset_password(
         db, email=payload.email, code=payload.code, new_password=payload.new_password, client=client
     )
+    _notify_password_changed(background, user)
     clear_cookie(response, SESSION_COOKIE)
     return OkResponse()
 
@@ -218,6 +239,17 @@ async def security_overview(user: CurrentUser, db: DbSession) -> SecurityOvervie
         recent=[AuthEventOut.model_validate(e, from_attributes=True) for e in events],
         idle_timeout_minutes=int(policy.idle.total_seconds() // 60),
         max_session_days=policy.absolute.days,
+    )
+
+
+def _notify_password_changed(background: BackgroundTasks, user: User) -> None:
+    """Tell the account holder, so a change they didn't make is noticed."""
+    background.add_task(
+        notifications.deliver_safely,
+        notifications.send_password_changed,
+        to=user.email,
+        first_name=notifications.first_name_of(user.full_name),
+        changed_at=utcnow(),
     )
 
 

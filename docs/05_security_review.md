@@ -36,7 +36,8 @@ Status: ✅ meets policy · ⚠️ partial · ❌ gap · ⏳ planned (agreed pha
 | F13 / D2 — CORS localhost | ✅ Only in DEBUG |
 | Admin IP allowlist | ✅ `ADMIN_IP_ALLOWLIST` built, empty = off (testing phase) |
 | `admin_actions` attribution | ✅ `admin_user_id` FK on every new audit row |
-| Still open from Phase A | ⏳ Reason prompt before an admin reveals a number / opens a file (B10); hash-chained audit log (F12, with Phase B's insert-only role) |
+| Still open from Phase A | ⏳ Hash-chained audit log (F12, with Phase B's insert-only role) |
+| Added in M1 (Nov 2026) | ✅ Reason required and stored for every admin number reveal and file open (B10, CX-066); uploaded images re-encoded without EXIF/XMP/GPS (CX-067); market shows the seller's state, never the city (CX-068); email on password change and on sign-in from a browser not seen before (CX-034) |
 
 Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted storage + malware scan, Redis limits, Vault/KMS, Cloudflare, central logs, DB hardening) and the dependency upgrades (F2, F3) are unchanged.
 
@@ -84,12 +85,12 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | B2 | Cross-business access (BOLA) | Owner only; no existence leak | ✅ | Live: another business's file → 404; tests: stranger can't list/reveal/edit/delete/download entries |
 | B3 | User session on admin routes | Refused | ✅ | `/admin/verify/queue`, `/admin/docs/{id}/reveal` with user cookie → 401 |
 | B4 | KYB file access | Owner or admin only | ✅ | No session → 401; legacy public path → 404 |
-| B5 | Public market masking | No seller name / contact | ✅ | `/public/products` seller keys = `city, sellerId, state, verified`; no emails in response |
+| B5 | Public market masking | No seller name / contact | ✅ | `/public/products` seller keys = `sellerId, state, verified` (city removed in CX-068); no emails in response |
 | B6 | Contact reveal | Verified buyer ↔ verified seller; limited | ✅ | Tests: gates + 20 new reveals / business / hour |
 | B7 | Full KYB numbers only on deliberate action | Masked in lists | ✅ | Live: no full GSTIN/PAN in `/me` or the entry list; reveal rate-limited (30/h user, 200/h admin) |
 | B8 | Admin roles (super admin / reviewer) | Least privilege | ❌ → A | All admins can do everything |
 | B9 | Route-permission matrix test | Every admin route declares a permission | ⏳ A | Not present |
-| B10 | Reason required for admin reveal/download | Purpose-bound access | ⏳ A | Views are audited, no reason captured |
+| B10 | Reason required for admin reveal/download | Purpose-bound access | ✅ | `POST /admin/docs/{id}/reveal` and `/file` refuse a request without a reason (422) and store it on `admin_actions.reason` |
 | B11 | Tenant isolation at database level | Row-level security | ⏳ C | App-level checks only |
 | B12 | Super admin only: countries & admin users | Agreed | ⏳ A | Today any admin can manage countries/doc types |
 

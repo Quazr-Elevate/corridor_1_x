@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, Index, Integer, String, Uuid, func, text
+from sqlalchemy import JSON, Boolean, CheckConstraint, Enum, Index, Integer, SmallInteger, String, Text, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UTCDateTime
@@ -38,6 +38,10 @@ class AdminUser(Base):
         CheckConstraint("email = lower(email)", name="ck_admin_users_email_lowercase"),
         CheckConstraint("failed_login_count >= 0", name="ck_admin_users_failed_login_count"),
         CheckConstraint("lockout_count >= 0", name="ck_admin_users_lockout_count"),
+        CheckConstraint(
+            "(totp_secret_encrypted IS NULL) = (totp_secret_key_version IS NULL)",
+            name="ck_admin_users_totp_secret_pair",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -58,6 +62,14 @@ class AdminUser(Base):
     failed_login_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     lockout_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    # ─── Two-factor (columns only; nothing reads them until Phase B) ──
+    # AES-256-GCM ciphertext of the TOTP secret + the key version it was
+    # encrypted under (core/crypto.py), like KYB values.
+    totp_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_secret_key_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # Hashes of the one-time backup codes — never the codes themselves.
+    backup_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)

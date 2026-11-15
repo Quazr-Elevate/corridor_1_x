@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,35 @@ async def send_password_reset_code(*, to: str, code: str, first_name: str, valid
     )
 
 
+def _when(moment: datetime) -> str:
+    return moment.strftime("%d %b %Y, %H:%M UTC")
+
+
+async def send_password_changed(*, to: str, first_name: str, changed_at: datetime) -> None:
+    await _send(
+        to,
+        "Your Cor1x password was changed",
+        "password_changed",
+        first_name=first_name,
+        when=_when(changed_at),
+        reset_url=frontend_url("/forgot-password"),
+        support_email=settings.support_email,
+    )
+
+
+async def send_new_device_signin(*, to: str, first_name: str, device: str, signed_in_at: datetime) -> None:
+    await _send(
+        to,
+        "New sign-in to your Cor1x account",
+        "new_device_signin",
+        first_name=first_name,
+        device=device,
+        when=_when(signed_in_at),
+        reset_url=frontend_url("/forgot-password"),
+        support_email=settings.support_email,
+    )
+
+
 async def send_verification_approved(*, to: str, first_name: str) -> None:
     await _send(
         to,
@@ -122,6 +152,9 @@ __all__ = [
     "first_name_of",
     "render",
     "send_doc_rejected",
+    "send_new_device_signin",
+    "send_password_changed",
+    "send_password_reset_code",
     "send_verification_approved",
     "send_verification_rejected",
     "send_signup_code",
