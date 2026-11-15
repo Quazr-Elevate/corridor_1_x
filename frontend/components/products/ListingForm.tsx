@@ -1015,7 +1015,8 @@ export function ListingForm({ productId }: { productId?: string }) {
               <span className="text-fg-3">Ready. A reviewer checks it before it reaches the market.</span>
             )}
           </p>
-          <div className="flex items-center gap-2">
+          {/* Three buttons do not fit one row on a phone: submit takes its own. */}
+          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
             <Button variant="quiet" onClick={() => confirmIfDirty(() => router.push("/dashboard/products"))} disabled={busy !== null} className="flex-1 sm:flex-none">
               {dirty ? "Cancel" : "Back"}
             </Button>
@@ -1039,7 +1040,7 @@ export function ListingForm({ productId }: { productId?: string }) {
                   disabled={uploading > 0 || !canSubmit}
                   title={canSubmit ? undefined : verified ? "Complete the checklist first" : "Verify your company first"}
                   onClick={onSubmit}
-                  className="flex-[2] sm:flex-none"
+                  className="flex-1 basis-full sm:flex-none sm:basis-auto"
                 >
                   Submit for review
                 </Button>

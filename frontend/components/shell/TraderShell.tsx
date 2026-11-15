@@ -202,7 +202,7 @@ function TopCluster({ me, loading, pathname }: { me: Me | null; loading: boolean
         }}
       />
       <div className={cn(MEASURE, "relative flex items-center justify-between gap-2 py-4 sm:gap-3")}>
-        <div className="flex min-w-0 items-center gap-2.5 sm:gap-5">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-5">
           <Link
             href={signedIn ? "/dashboard" : "/"}
             onClick={(e) => {
@@ -220,7 +220,7 @@ function TopCluster({ me, loading, pathname }: { me: Me | null; loading: boolean
           {signedIn && onHome ? <LensSwitch /> : null}
         </div>
 
-        <div className="glass flex shrink-0 items-center gap-1 rounded-full p-1">
+        <div className="glass flex shrink-0 items-center gap-0.5 rounded-full p-1 sm:gap-1">
           <SearchButton onOpen={() => setPaletteOpen(true)} />
           {loading ? null : signedIn && me ? (
             <>
@@ -258,7 +258,7 @@ function SearchButton({ onOpen }: { onOpen: () => void }) {
       aria-label="Search or jump to"
       aria-keyshortcuts="Meta+K Control+K"
       aria-haspopup="dialog"
-      className="flex h-10 items-center gap-2.5 rounded-full px-3 text-fg-3 transition-colors hover:bg-fg/5 hover:text-fg-2 md:min-w-[220px]"
+      className="flex h-10 items-center gap-2.5 rounded-full px-3 text-fg-3 transition-colors hover:bg-fg/5 hover:text-fg-2 max-[359px]:hidden md:min-w-[220px]"
     >
       <Icon name="search" size={17} />
       <span className="t-sub hidden flex-1 text-left md:block">Search or jump to…</span>

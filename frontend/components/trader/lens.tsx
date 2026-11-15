@@ -102,8 +102,9 @@ export function LensSwitch({ className }: { className?: string }) {
               refs.current[OPTIONS.indexOf(next)]?.focus();
             }}
             className={cn(
-              "relative z-10 flex h-9 items-center rounded-full text-[13px] font-medium tracking-[-0.01em] transition-colors duration-300",
-              i === 0 ? "pl-3 pr-5" : "pl-5 pr-3",
+              "relative z-10 flex h-9 items-center rounded-full text-[12px] font-medium tracking-[-0.01em] transition-colors duration-300 sm:text-[13px]",
+              // Tighter on phones so the switch clears the top cluster at 360px.
+              i === 0 ? "pl-2.5 pr-4 sm:pl-3 sm:pr-5" : "pl-4 pr-2.5 sm:pl-5 sm:pr-3",
               on ? "text-cream" : "text-fg-3 hover:text-fg",
             )}
           >
