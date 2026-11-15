@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import BadRequest, NotFound, PayloadTooLarge, UnsupportedMediaType
 from app.core.time import utcnow
 from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
+from app.shared.images import strip_metadata
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument
 from app.models.country import Country
@@ -383,7 +384,8 @@ def _kyb_snapshot(b: Business) -> tuple:
 
 
 async def set_branding_image(db: AsyncSession, user: User, slot: str, content: bytes) -> str:
-    """Validate by magic bytes, store publicly, replace the old image."""
+    """Validate by magic bytes, drop the metadata, store publicly, replace
+    the old image."""
     column = BRANDING_SLOTS[slot]
     if not content:
         raise BadRequest("Empty file.")
@@ -393,6 +395,7 @@ async def set_branding_image(db: AsyncSession, user: User, slot: str, content: b
     if ftype is None or ftype not in IMAGE_TYPES:
         raise UnsupportedMediaType("Only JPG, PNG or WEBP images are supported.")
     key = f"{BRANDING_PREFIX}/{uuid.uuid4().hex}.{ftype.ext}"
+    content = await strip_metadata(content, ftype)
     await get_storage().save(content, key, ftype.mime)
     u = await reload_user(db, user.id)
     old = getattr(u.business, column)

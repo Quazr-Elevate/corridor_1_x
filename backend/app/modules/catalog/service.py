@@ -22,6 +22,7 @@ from app.modules.accounts.service import get_owner
 from app.modules.accounts.uniqueness import commit_or_conflict
 from app.modules.catalog.queries import hydrate_businesses, public_products_stmt, visible_products_select
 from app.modules.fx import service as fx
+from app.shared.images import strip_metadata
 from app.modules.catalog.schemas import (
     MAX_PHOTOS_PER_PRODUCT,
     CatalogFacets,
@@ -51,7 +52,8 @@ def photo_key(filename: str) -> str | None:
 
 
 async def store_photo(content: bytes) -> str:
-    """Validate by magic bytes, store, return the public relative URL."""
+    """Validate by magic bytes, drop the metadata, store, return the public
+    relative URL."""
     if not content:
         raise BadRequest("Empty file.")
     if len(content) > MAX_PHOTO_BYTES:
@@ -60,6 +62,7 @@ async def store_photo(content: bytes) -> str:
     if ftype is None or ftype not in IMAGE_TYPES:
         raise UnsupportedMediaType("Only JPG, PNG or WEBP images are supported")
     filename = f"{uuid.uuid4().hex}.{ftype.ext}"
+    content = await strip_metadata(content, ftype)
     await get_storage().save(content, f"{PHOTO_PREFIX}/{filename}", ftype.mime)
     return f"{PHOTO_URL_PREFIX}{filename}"
 
@@ -148,7 +151,6 @@ async def delete_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
 def _seller_dto(business: Business | None, business_id: uuid.UUID) -> PublicSeller:
     return PublicSeller(
         seller_id=str(business_id),
-        city=business.city if business else None,
         state=business.state if business else None,
     )
 

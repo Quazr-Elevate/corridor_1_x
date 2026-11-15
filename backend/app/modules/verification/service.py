@@ -33,6 +33,7 @@ from app.models.kyb_document_type import KybDocumentType
 from app.models.user import User
 from app.modules.verification.rules import reopen_review
 from app.shared.files import safe_filename
+from app.shared.images import strip_metadata
 
 # Big enough for a scanned PDF/photo, small enough that a wrong upload
 # doesn't choke the server.
@@ -116,6 +117,7 @@ async def _store_file(business_id: uuid.UUID, filename: str | None, content: byt
     if ftype is None or ftype not in DOCUMENT_TYPES:
         raise UnsupportedMediaType("Only PDF, JPG, PNG or WEBP files are accepted.")
     key = f"{STORAGE_PREFIX}/{business_id}/{uuid.uuid4().hex}.{ftype.ext}"
+    content = await strip_metadata(content, ftype)
     await get_storage().save(content, key, ftype.mime)
     return {
         "original_filename": safe_filename(filename, default=f"document.{ftype.ext}")[:300],

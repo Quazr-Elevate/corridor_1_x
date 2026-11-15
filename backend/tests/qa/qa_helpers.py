@@ -7,10 +7,12 @@ import uuid
 
 import httpx
 
-# A tiny valid 1x1 PNG — accepted wherever file bytes are expected.
+# A real 1x1 PNG. Uploads are decoded and re-encoded (CX-067), so it must be
+# a picture an image library can open, not just bytes with a PNG header.
 TINY_PNG = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-    "0000000d49444154789c6368606000000000050001a5a5a90a0000000049454e44ae426082"
+    "0000000d49444154789c63106850f80f00030401b0f6d1ccb10000000049454e44"
+    "ae426082"
 )
 
 
