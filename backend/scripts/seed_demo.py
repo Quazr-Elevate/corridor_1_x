@@ -6,7 +6,8 @@ startup. Run (from anywhere)::
     backend/.venv/bin/python backend/scripts/seed_demo.py
 
 Every seller (one business + its owner) gets all seven mandatory
-verification fields and business status ``verified``. Every product gets a
+verification fields and business status ``verified``. Every product is
+``published`` (demo listings skip the review queue) and gets a
 photo stored via the storage integration (so it is served by GET /uploads/products/<32hex>.<ext>):
 
 * Rice, Sugar, Wheat, Pulses, Spices — the commodity photograph from
@@ -224,6 +225,12 @@ async def main() -> None:
                         price_per_unit=Decimal(price),
                         description=desc,
                         photos=[await photo_for(category)],
+                        # Demo listings skip the review queue, the way 0026
+                        # treated listings that were already live.
+                        status="published",
+                        published_at=utcnow(),
+                        price_max=Decimal(price),
+                        origin_country="IN",
                     )
                 )
                 added += 1
