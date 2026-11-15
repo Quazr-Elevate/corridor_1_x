@@ -25,7 +25,7 @@ async def _types(c, country: str | None = None) -> dict[str, dict]:
     q = f"?country={country}" if country else ""
     r = await c.get(f"/kyb/document-types{q}")
     assert r.status_code == 200, r.text
-    return {t["code"]: t for t in r.json()}
+    return {t["code"]: t for t in r.json()["items"]}
 
 
 async def _add(c, *, type_id=None, name=None, value=None, file: bytes | None = None, filename="doc.pdf"):
@@ -155,7 +155,7 @@ async def test_same_gstin_cannot_belong_to_two_businesses(client, make_client, a
     assert r.status_code == 409 and "already registered" in r.json()["detail"]
 
     # A rejected claim stops blocking the real owner.
-    first = (await client.get("/me/verification-docs")).json()[0]
+    first = (await client.get("/me/verification-docs")).json()["items"][0]
     assert (await admin_client.post(f"/admin/docs/{first['id']}/reject", json={"reason": "Not yours"})).status_code == 200
     assert (await _add(other, type_id=t["gstin"]["id"], value=GSTIN)).status_code == 201
 
@@ -168,7 +168,7 @@ async def test_other_business_cannot_touch_entries(client, make_client):
     stranger = make_client()
     await signup_and_login(stranger, "s@othermill.in")
     base = f"/me/verification-docs/{entry['id']}"
-    assert (await stranger.get("/me/verification-docs")).json() == []
+    assert (await stranger.get("/me/verification-docs")).json()["items"] == []
     assert (await stranger.post(f"{base}/reveal")).status_code == 404
     assert (await stranger.get(f"{base}/file")).status_code == 404
     assert (await stranger.patch(base, data={"value": "99999999999999"})).status_code == 404
@@ -199,7 +199,7 @@ async def test_update_entry_goes_back_to_review(client, admin_client):
     assert r.status_code == 200 and r.json()["filename"] == "new.pdf"
 
     assert (await client.delete(base)).status_code == 204
-    assert (await client.get("/me/verification-docs")).json() == []
+    assert (await client.get("/me/verification-docs")).json()["items"] == []
 
 
 # ── submission ───────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ async def test_admin_manages_document_types(client, admin_client):
     r = await admin_client.patch(f"/admin/kyb/document-types/{created['id']}", json={"active": False, "isMandatory": True})
     assert r.status_code == 200 and r.json()["active"] is False
     assert "spice_board" not in await _types(client)  # hidden from the dropdown
-    all_in = (await admin_client.get("/admin/kyb/document-types?country=IN")).json()
+    all_in = (await admin_client.get("/admin/kyb/document-types?country=IN")).json()["items"]
     assert "spice_board" in {x["code"] for x in all_in}
 
     # Users can't use the admin editor.

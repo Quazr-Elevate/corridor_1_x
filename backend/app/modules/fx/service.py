@@ -172,8 +172,9 @@ async def _upsert(db: AsyncSession, quote: FxQuote) -> None:
 
 
 async def recompute_price_usd(db: AsyncSession, rates: LatestRates | None = None) -> int:
-    """Refresh ``price_usd`` / ``price_usd_as_of`` of every non-deleted
-    listing — one UPDATE per currency. Returns the rows touched."""
+    """Refresh ``price_usd`` / ``price_usd_max`` / ``price_usd_as_of`` of
+    every non-deleted listing — one UPDATE per currency. Returns the rows
+    touched."""
     rates = rates or await get_latest_rates(db)
     touched = 0
     today = utcnow().date()
@@ -188,10 +189,15 @@ async def recompute_price_usd(db: AsyncSession, rates: LatestRates | None = None
             if code == BASE
             else func.round(Product.price_per_unit / literal(rate, Numeric(18, 8)), 2)
         )
+        value_max = (
+            Product.price_max
+            if code == BASE
+            else func.round(Product.price_max / literal(rate, Numeric(18, 8)), 2)
+        )
         result = await db.execute(
             update(Product)
             .where(*priced)
-            .values(price_usd=value, price_usd_as_of=rates.as_of_by.get(code, today))
+            .values(price_usd=value, price_usd_max=value_max, price_usd_as_of=rates.as_of_by.get(code, today))
             .execution_options(synchronize_session=False)
         )
         touched += result.rowcount or 0

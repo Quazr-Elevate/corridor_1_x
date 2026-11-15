@@ -1,4 +1,5 @@
-"""Catalog schemas — seller products, the public catalog, contact reveal.
+"""Catalog schemas — seller listings, category templates, the public
+catalog, contact reveal.
 
 Public shapes are STRICT: no contact info (email, address, bank, IDs).
 That only leaves the backend through the contact-reveal endpoint.
@@ -11,10 +12,9 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from app.models.product import Product
 from pydantic import StringConstraints
 
-from app.shared.schemas import CamelModel, RequestModel, text
+from app.shared.schemas import CamelModel, CountryCode, RequestModel, text
 
 Category = Literal[
     "Rice", "Sugar", "Wheat", "Pulses", "Spices", "Oilseeds",
@@ -38,28 +38,90 @@ Description = text(MAX_DESCRIPTION)
 
 # ── Seller products ──────────────────────────────────────────────────
 
+Operator = Literal["MIN", "MAX", "EQ"]
+Incoterm = Literal["EXW", "FOB", "CIF", "CFR", "DAP", "DDP"]
+HsCode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[0-9]{6,10}$")]
 
-class ProductCreate(RequestModel):
-    name: ProductName  # type: ignore[valid-type]
-    category: Category
+#: Changes to these go live at once on a published listing (they move daily).
+#: Every other field waits for a reviewer (decision A-021).
+LIVE_FIELDS = frozenset({"quantity", "moq", "price_min", "price_max", "currency", "price_valid_until"})
+
+
+class SpecIn(RequestModel):
+    """The seller's value for one parameter of the category template."""
+
+    parameter_id: str
+    value: text(200, 1)  # type: ignore[valid-type]
+    operator: Operator | None = None  # defaults to the parameter's
+    test_method: text(100) | None = None  # type: ignore[valid-type]
+
+
+class ProductUpdate(RequestModel):
+    """Any subset of a listing's fields. A draft needs only a name and a
+    category; the rest is checked when the listing is submitted."""
+
+    name: ProductName | None = None  # type: ignore[valid-type]
+    category: Category | None = None
     variety: ShortField | None = None  # type: ignore[valid-type]
+    description: Description | None = None  # type: ignore[valid-type]
+    grade: ShortField | None = None  # type: ignore[valid-type]
+    hs_code: HsCode | None = None
+    origin_country: CountryCode | None = None
     origin_state: ShortField | None = None  # type: ignore[valid-type]
     packaging: Packaging | None = None
     quantity: Amount | None = None
-    unit: Unit = "MT"
+    unit: Unit | None = None
     moq: Amount | None = None
-    price_per_unit: Amount | None = None
-    description: Description | None = None  # type: ignore[valid-type]
-    currency: Currency = "INR"
-    # URLs returned by POST /products/upload-photo. 1..5 required —
-    # checked in the service for friendlier messages.
-    photos: list[str] = Field(default_factory=list, max_length=20)
+    capacity_per_month: Amount | None = None
+    capacity_unit: Unit | None = None
+    lead_time_days: int | None = Field(None, ge=0, le=730)
+    price_min: Amount | None = None
+    price_max: Amount | None = None
+    currency: Currency | None = None
+    price_valid_until: date | None = None
+    incoterms: list[Incoterm] | None = Field(None, max_length=6)
+    port_of_loading: ShortField | None = None  # type: ignore[valid-type]
+    # URLs returned by POST /products/upload-photo (at most 5).
+    photos: list[str] | None = Field(None, max_length=20)
+    # Replaces the listing's specification rows.
+    specs: list[SpecIn] | None = Field(None, max_length=60)
 
     @model_validator(mode="after")
-    def _moq_within_quantity(self) -> "ProductCreate":
+    def _consistent(self) -> "ProductUpdate":
         if self.moq is not None and self.quantity is not None and self.moq > self.quantity:
             raise ValueError("MOQ can't be larger than the available quantity.")
+        if self.price_min is not None and self.price_max is not None and self.price_max < self.price_min:
+            raise ValueError("The maximum price can't be lower than the minimum price.")
         return self
+
+
+class ProductCreate(ProductUpdate):
+    name: ProductName  # type: ignore[valid-type]
+    category: Category
+
+
+class SpecOut(CamelModel):
+    parameter_id: str
+    code: str
+    name: str
+    unit: str | None = None
+    value: str
+    operator: str
+    test_method: str | None = None
+
+
+class CertificateOut(CamelModel):
+    id: str
+    certificate_type_id: str
+    code: str
+    name: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    # internal | downloadable — set by an admin; buyers only get "downloadable".
+    visibility: str
+    uploaded_at: datetime
+    url: str
 
 
 class ProductRead(CamelModel):
@@ -67,41 +129,90 @@ class ProductRead(CamelModel):
     name: str
     category: str
     variety: str | None = None
+    description: str | None = None
+    grade: str | None = None
+    hs_code: str | None = None
+    origin_country: str | None = None
     origin_state: str | None = None
     packaging: str | None = None
     quantity: Decimal | None = None
     unit: str
     moq: Decimal | None = None
-    price_per_unit: Decimal | None = None
+    capacity_per_month: Decimal | None = None
+    capacity_unit: str | None = None
+    lead_time_days: int | None = None
+    price_min: Decimal | None = None
+    price_max: Decimal | None = None
     currency: str = "INR"
     price_usd: Decimal | None = None
+    price_usd_max: Decimal | None = None
     price_usd_as_of: date | None = None
-    description: str | None = None
+    price_valid_until: date | None = None
+    incoterms: list[str] = []
+    port_of_loading: str | None = None
     photos: list[str] = []
+    specs: list[SpecOut] = []
+    certificates: list[CertificateOut] = []
+    # draft | under_review | published | rejected | paused
+    status: str
+    submitted_at: datetime | None = None
+    published_at: datetime | None = None
+    rejection_reason: str | None = None
+    # Edits to a published listing that a reviewer has not approved yet
+    # (camelCase field → proposed value); the published values stay live.
+    pending_revision: dict | None = None
+    revision_submitted_at: datetime | None = None
+    revision_rejection_reason: str | None = None
+    # What is still needed before this listing can be submitted.
+    missing: list[str] = []
+    created_at: datetime
+    updated_at: datetime
 
 
-def product_to_read(p: Product) -> ProductRead:
-    return ProductRead(
-        id=str(p.id),
-        name=p.name,
-        category=p.category,
-        variety=p.variety,
-        origin_state=p.origin_state,
-        packaging=p.packaging,
-        quantity=p.quantity,
-        unit=p.unit,
-        moq=p.moq,
-        price_per_unit=p.price_per_unit,
-        currency=p.currency,
-        price_usd=p.price_usd,
-        price_usd_as_of=p.price_usd_as_of,
-        description=p.description,
-        photos=list(p.photos or []),
-    )
+class ProductList(CamelModel):
+    total: int
+    items: list[ProductRead]
 
 
 class PhotoUploaded(CamelModel):
     url: str
+
+
+# ── Category template ────────────────────────────────────────────────
+
+
+class SpecParameterOut(CamelModel):
+    id: str
+    category: str
+    code: str
+    name: str
+    value_type: str
+    unit: str | None = None
+    default_operator: str
+    test_method: str | None = None
+    is_required: bool
+    sort_order: int
+    active: bool
+
+
+class CertificateTypeOut(CamelModel):
+    id: str
+    # A product category, or "*" for every category.
+    category: str
+    code: str
+    name: str
+    help_text: str | None = None
+    is_required: bool
+    sort_order: int
+    active: bool
+
+
+class CategoryTemplate(CamelModel):
+    """What a listing in this category is asked for."""
+
+    category: str
+    spec_parameters: list[SpecParameterOut]
+    certificate_types: list[CertificateTypeOut]
 
 
 # ── Public catalog ───────────────────────────────────────────────────
@@ -124,24 +235,46 @@ class PublicProductCard(CamelModel):
     name: str
     category: str
     variety: str | None = None
+    grade: str | None = None
+    origin_country: str | None = None
     origin_state: str | None = None
     packaging: str | None = None
     quantity: Decimal | None = None
     unit: str
     moq: Decimal | None = None
-    price_per_unit: Decimal | None = None
-    currency: str = "INR"
-    # Indicative USD value (latest rate on price_usd_as_of) — for comparing
-    # across currencies; the seller's price above is the real one.
+    capacity_per_month: Decimal | None = None
+    capacity_unit: str | None = None
+    incoterms: list[str] = []
+    # The price range is for signed-in, verified businesses (decision A-022).
+    # For everyone else price_visible is false and every price field is null.
+    price_visible: bool = False
+    price_min: Decimal | None = None
+    price_max: Decimal | None = None
+    currency: str | None = None
+    # Indicative USD values (latest rate on price_usd_as_of) — for comparing
+    # across currencies; the seller's range above is the real one.
     price_usd: Decimal | None = None
+    price_usd_max: Decimal | None = None
     price_usd_as_of: date | None = None
+    price_valid_until: date | None = None
     photo: str | None = None  # first photo only — detail has the gallery
     seller: PublicSeller
+
+
+class PublicCertificate(CamelModel):
+    """A certificate an admin approved for download. The filename is not
+    shown: it often carries the seller's name."""
+
+    id: str
+    name: str
+    url: str
 
 
 class PublicProductDetail(PublicProductCard):
     description: str | None = None
     photos: list[str] = []
+    specs: list[SpecOut] = []
+    certificates: list[PublicCertificate] = []
 
 
 class PublicProductList(CamelModel):
@@ -152,7 +285,8 @@ class PublicProductList(CamelModel):
 class CatalogFacets(CamelModel):
     categories: list[dict[str, int | str]]
     origin_states: list[dict[str, int | str]]
-    # Range of price_usd over visible listings (USD).
+    # Range of price_usd over visible listings (USD); null unless the viewer
+    # may see prices.
     price_min: Decimal | None = None
     price_max: Decimal | None = None
     price_currency: str = "USD"

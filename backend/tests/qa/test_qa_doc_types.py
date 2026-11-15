@@ -35,7 +35,7 @@ async def test_full_lifecycle(client, admin_client):
     assert row["code"] == body["code"] and row["country"] == "IN"
     assert row["isMandatory"] is True and row["active"] is True
 
-    assert body["code"] in {x["code"] for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()}
+    assert body["code"] in {x["code"] for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()["items"]}
 
     r = await admin_client.patch(
         f"/admin/kyb/document-types/{row['id']}", json={"name": "Renamed", "isMandatory": False, "helpText": "See the portal"}
@@ -47,9 +47,9 @@ async def test_full_lifecycle(client, admin_client):
     r = await admin_client.patch(f"/admin/kyb/document-types/{row['id']}", json={"active": False})
     assert r.status_code == 200 and r.json()["active"] is False
     # Hidden: still listed for admins, gone from the trader dropdown.
-    assert body["code"] in {x["code"] for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()}
+    assert body["code"] in {x["code"] for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()["items"]}
     await signup_and_login(client, f"{uniq('qa200')}@test.cor1x.co")
-    assert body["code"] not in {t["code"] for t in (await client.get("/kyb/document-types")).json()}
+    assert body["code"] not in {t["code"] for t in (await client.get("/kyb/document-types")).json()["items"]}
 
 
 # QA-200.3 — code format refused (capitals are lower-cased, not refused)

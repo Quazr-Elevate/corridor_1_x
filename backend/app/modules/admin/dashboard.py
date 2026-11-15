@@ -7,6 +7,7 @@ from app.modules.admin import service
 from app.modules.admin.schemas import DashboardStats, StuckUser, TimelinePoint, VerifyQueueRow
 from app.modules.auth.deps import DbSession
 from app.modules.admin.deps import CanReviewKyb, CanViewDashboard
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
 
@@ -21,11 +22,11 @@ async def dashboard_timeline(_: CanViewDashboard, db: DbSession, days: int = Que
     return await service.dashboard_timeline(db, days)
 
 
-@router.get("/dashboard/stuck", response_model=list[StuckUser], response_model_by_alias=True)
-async def dashboard_stuck(_: CanViewDashboard, db: DbSession, limit: int = Query(10, ge=1, le=100)) -> list[StuckUser]:
-    return await service.stuck_users(db, limit)
+@router.get("/dashboard/stuck", response_model=ItemList[StuckUser], response_model_by_alias=True)
+async def dashboard_stuck(_: CanViewDashboard, db: DbSession, limit: int = Query(10, ge=1, le=100)) -> ItemList[StuckUser]:
+    return item_list(await service.stuck_users(db, limit))
 
 
-@router.get("/verify/queue", response_model=list[VerifyQueueRow], response_model_by_alias=True)
-async def verify_queue(_: CanReviewKyb, db: DbSession) -> list[VerifyQueueRow]:
-    return await service.verify_queue(db)
+@router.get("/verify/queue", response_model=ItemList[VerifyQueueRow], response_model_by_alias=True)
+async def verify_queue(_: CanReviewKyb, db: DbSession) -> ItemList[VerifyQueueRow]:
+    return item_list(await service.verify_queue(db))

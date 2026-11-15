@@ -14,7 +14,7 @@ from decimal import Decimal
 
 import httpx
 import pytest
-from conftest import png_bytes, set_status, signup_and_login
+from conftest import force_published, png_bytes, set_status, signup_and_login
 from sqlalchemy import insert, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -193,9 +193,12 @@ async def _photo(c) -> str:
 async def _list(c, name: str, price: str | None, currency: str, category: str = "Rice") -> dict:
     body = {"name": name, "category": category, "quantity": "100", "currency": currency, "photos": [await _photo(c)]}
     if price is not None:
-        body["pricePerUnit"] = price
+        body["priceMin"] = price
+        body["priceMax"] = price
     r = await c.post("/products", json=body)
     assert r.status_code == 201, r.text
+    # These tests are about prices, not review: put the listing in the market.
+    await force_published(r.json()["id"])
     return r.json()
 
 
@@ -260,7 +263,10 @@ async def test_market_price_filter_in_any_currency(client, make_client):
     await _list(client, "AED 520", "520", "AED")  # $141.59 (≈ ₹13,451)
     await _list(client, "USD 480", "480", "USD")  # $480.00
     await _list(client, "Unpriced", None, "INR")
+    # Prices and price filters are for verified businesses (decision A-022).
     anon = make_client()
+    await _verified_seller(anon, "buyer@othermill.in")
+    guest = make_client()
 
     async def names(**params) -> set[str]:
         r = await anon.get("/public/products", params=params)
@@ -291,11 +297,22 @@ async def test_market_price_filter_in_any_currency(client, make_client):
     assert (facets["priceMin"], facets["priceMax"]) == ("100.00", "480.00")
     assert facets["priceCurrency"] == "USD" and facets["fxAsOf"] == TODAY.isoformat()
 
+    # A guest gets no price, no price range, and the filter does nothing:
+    # otherwise narrowing it would reveal each listing's price.
+    r = await guest.get("/public/products", params={"minPrice": "200"})
+    assert {i["name"] for i in r.json()["items"]} == {"INR 9500", "AED 520", "USD 480", "Unpriced"}
+    for item in r.json()["items"]:
+        assert item["priceVisible"] is False
+        assert [item[k] for k in ("priceMin", "priceMax", "currency", "priceUsd", "priceUsdMax")] == [None] * 5
+    hidden = (await guest.get("/public/catalog/facets")).json()
+    assert (hidden["priceMin"], hidden["priceMax"]) == (None, None)
+
 
 async def test_price_filter_without_rates_is_503(client, make_client):
     await _verified_seller(client, "nr@kaverifoods.in")
     await _list(client, "INR lot", "9500", "INR")
     anon = make_client()
+    await _verified_seller(anon, "buyer@othermill.in")
     assert (await anon.get("/public/products", params={"minPrice": "1", "priceCurrency": "INR"})).status_code == 503
     # USD needs no rate.
     assert (await anon.get("/public/products", params={"minPrice": "1"})).status_code == 200

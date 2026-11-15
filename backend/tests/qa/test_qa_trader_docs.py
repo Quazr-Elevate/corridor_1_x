@@ -30,7 +30,7 @@ async def test_new_type_visible_to_trader(client, admin_client):
     await _signup(client)
     code = uniq_code("qa300")
     await admin_add_doc_type(admin_client, code=code, name="QA300 Doc")
-    hit = {t["code"]: t for t in (await client.get("/kyb/document-types")).json()}[code]
+    hit = {t["code"]: t for t in (await client.get("/kyb/document-types")).json()["items"]}[code]
     assert hit["name"] == "QA300 Doc" and hit["isMandatory"] is True
 
 
@@ -41,7 +41,7 @@ async def test_other_country_type_not_visible(client, admin_client, make_client)
     await admin_add_doc_type(admin_client, code=code, name="India-only")
     uae = make_client()
     await _signup(uae, country="AE")
-    assert all(t["code"] != code for t in (await uae.get("/kyb/document-types")).json())
+    assert all(t["code"] != code for t in (await uae.get("/kyb/document-types")).json()["items"])
 
 
 # QA-400.1 — upload fills the type; response and list carry code + name
@@ -51,7 +51,7 @@ async def test_upload_fills_type_and_name(client, admin_client):
     t = await admin_add_doc_type(admin_client, code=code, name="QA400 Doc")
     doc = await upload_entry(client, type_id=t["id"])
     assert doc["documentTypeCode"] == code and doc["certType"] == "QA400 Doc"
-    hits = [d for d in (await client.get("/me/verification-docs")).json() if d["documentTypeCode"] == code]
+    hits = [d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == code]
     assert len(hits) == 1 and hits[0]["certType"] == "QA400 Doc"
 
 
@@ -67,7 +67,7 @@ async def test_replace_file_keeps_one_row(client, admin_client):
     assert r.status_code == 409 and "edit that entry" in r.json()["detail"]
     r = await client.patch(f"/me/verification-docs/{first['id']}", files={"file": ("second.png", TINY_PNG, "image/png")})
     assert r.status_code == 200 and r.json()["filename"] == "second.png"
-    docs = [d for d in (await client.get("/me/verification-docs")).json() if d["documentTypeCode"] == code]
+    docs = [d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == code]
     assert len(docs) == 1 and docs[0]["filename"] == "second.png"
 
 

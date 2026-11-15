@@ -31,7 +31,7 @@ async def test_approve_cascades_to_required_docs(client, admin_client):
     r = await admin_client.post(f"/admin/users/{uid}/verify")
     assert r.status_code == 200 and r.json()["status"] == "verified"
     assert (await client.get("/me")).json()["verification"]["status"] == "verified"
-    docs = [d for d in (await client.get("/me/verification-docs")).json() if d["documentTypeCode"] == ctx["code"]]
+    docs = [d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == ctx["code"]]
     assert len(docs) == 1 and docs[0]["status"] == "approved"
 
 
@@ -48,7 +48,7 @@ async def test_reject_with_items_cascades(client, admin_client):
     assert v["status"] == "rejected" and "Legal name doesn" in v["rejectedReason"]
     assert v["rejectedItems"] == ["legalName", f"kyb:{ctx['code']}"]
     assert v["rejectedItemLabels"] == ["Company name", "QA6 cert"]
-    doc = next(d for d in (await client.get("/me/verification-docs")).json() if d["documentTypeCode"] == ctx["code"])
+    doc = next(d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == ctx["code"])
     assert doc["status"] == "rejected" and "Legal name doesn" in doc["rejectionReason"]
 
 
@@ -94,7 +94,7 @@ async def test_non_admin_cant_verify_reject(client, admin_client):
 async def test_verify_queue_docs_carry_type_metadata(client, admin_client):
     email, ctx = await _ready_business(client, admin_client)
     uid = await user_id_for(admin_client, email)
-    row = next(q for q in (await admin_client.get("/admin/verify/queue")).json() if q["userId"] == uid)
+    row = next(q for q in (await admin_client.get("/admin/verify/queue")).json()["items"] if q["userId"] == uid)
     cert = next(d for d in row["docs"] if d["documentTypeCode"] == ctx["code"])
     assert cert["certType"] == "QA6 cert" and cert["isOther"] is False
 

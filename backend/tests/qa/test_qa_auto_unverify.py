@@ -68,10 +68,10 @@ async def test_trade_position_edit_stays_verified(client, admin_client):
 # QA-800.5 — approved documents stay approved after the flip
 async def test_approved_docs_stay_approved_after_flip(client, admin_client):
     await _verified_business(client, admin_client)
-    before = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()}
+    before = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert set(before.values()) == {"approved"}
     assert (await _company(client, legalName="Flipped Name Pvt Ltd")).status_code == 200
-    after = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()}
+    after = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert after == before
 
 

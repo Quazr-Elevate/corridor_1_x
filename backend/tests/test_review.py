@@ -11,7 +11,7 @@ from app.models.admin_action import AdminAction
 
 
 async def _types(c) -> dict[str, dict]:
-    return {t["code"]: t for t in (await c.get("/kyb/document-types")).json()}
+    return {t["code"]: t for t in (await c.get("/kyb/document-types")).json()["items"]}
 
 
 async def _submitted(client, admin_client, *, email="r@kaverifoods.in", n=1, verify=False) -> dict:
@@ -28,7 +28,7 @@ async def _submitted(client, admin_client, *, email="r@kaverifoods.in", n=1, ver
 
 async def test_only_set_up_countries_can_be_picked(client):
     await signup_and_login(client, "c@kaverifoods.in")
-    countries = (await client.get("/kyb/countries")).json()
+    countries = (await client.get("/kyb/countries")).json()["items"]
     assert [c["code"] for c in countries] == ["IN", "AE"]  # by name: India, United Arab Emirates
     india = countries[0]
     assert india["name"] == "India" and india["defaultCurrency"] == "INR" and india["postalLabel"] == "PIN code"
@@ -57,7 +57,7 @@ async def test_admin_adds_country_with_required_documents(client, admin_client):
     assert r.status_code == 400 and "Add QA as a country first" in r.json()["detail"]
 
     await signup_and_login(client, "sa@gulfgrain.sa")
-    assert "SA" in [c["code"] for c in (await client.get("/kyb/countries")).json()]
+    assert "SA" in [c["code"] for c in (await client.get("/kyb/countries")).json()["items"]]
     r = await client.put(
         "/me/business-profile",
         json={"legalName": "Gulf Grain Co", "country": "SA", "addressLine": "1 Olaya St", "city": "Riyadh"},
@@ -66,7 +66,7 @@ async def test_admin_adds_country_with_required_documents(client, admin_client):
 
 
 async def test_last_required_document_is_protected(admin_client):
-    types = {t["code"]: t for t in (await admin_client.get("/admin/kyb/document-types?country=AE")).json()}
+    types = {t["code"]: t for t in (await admin_client.get("/admin/kyb/document-types?country=AE")).json()["items"]}
     lic = types["trade_licence"]  # the only required AE document
     for patch in ({"isMandatory": False}, {"active": False}):
         r = await admin_client.patch(f"/admin/kyb/document-types/{lic['id']}", json=patch)
@@ -95,7 +95,7 @@ async def test_reject_flags_items_and_rejects_those_documents(client, admin_clie
     assert me["verification"]["rejectedItems"] == ["addressLine", "kyb:gstin"]
     assert me["verification"]["rejectedItemLabels"] == ["Registered address", "GSTIN"]
     assert "kyb:gstin" in me["verification"]["missing"]  # a rejected required document no longer counts
-    docs = {d["documentTypeCode"]: d for d in (await client.get("/me/verification-docs")).json()}
+    docs = {d["documentTypeCode"]: d for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert docs["gstin"]["status"] == "rejected" and docs["gstin"]["rejectionReason"] == "GSTIN doesn't match the address"
     assert docs["pan"]["status"] == "pending"
     detail = (await admin_client.get(f"/admin/users/{uid}")).json()
@@ -128,10 +128,10 @@ async def test_other_entries_are_labelled_and_decided_separately(client, admin_c
 
     # Approving the business approves only the required documents.
     assert (await admin_client.post(f"/admin/users/{body['userId']}/verify")).status_code == 200
-    docs = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()}
+    docs = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert docs[other["id"]] == "pending" and docs[iec["id"]] == "pending"
     assert sorted(docs.values()).count("approved") == 2  # GSTIN + PAN
-    [row] = (await admin_client.get("/admin/verify/queue")).json()
+    [row] = (await admin_client.get("/admin/verify/queue")).json()["items"]
     assert row["reviewKind"] == "documents"  # the rest still need a look
 
     # Revoke flagging the Other entry: its own name comes back as the label.
@@ -146,9 +146,9 @@ async def test_other_entries_are_labelled_and_decided_separately(client, admin_c
 
 async def test_approve_approves_the_documents_too(client, admin_client):
     body = await _submitted(client, admin_client, verify=True)
-    docs = (await client.get("/me/verification-docs")).json()
+    docs = (await client.get("/me/verification-docs")).json()["items"]
     assert {d["status"] for d in docs} == {"approved"}
-    assert (await admin_client.get("/admin/verify/queue")).json() == []
+    assert (await admin_client.get("/admin/verify/queue")).json()["items"] == []
     me = (await client.get("/me")).json()
     assert me["status"] == "verified" and me["verification"]["rejectedItems"] == []
     assert body
@@ -162,7 +162,7 @@ async def test_verified_business_goes_back_to_review_on_kyb_changes(client, admi
     r = await client.post("/me/verification-docs", data={"documentTypeId": t["iec"]["id"], "value": "AAACS1234K"})
     assert r.status_code == 201
     assert (await client.get("/me")).json()["status"] == "verified"
-    [row] = (await admin_client.get("/admin/verify/queue")).json()
+    [row] = (await admin_client.get("/admin/verify/queue")).json()["items"]
     assert row["reviewKind"] == "documents" and row["status"] == "verified"
 
     # Non-KYB detail: no change of status.
@@ -177,13 +177,13 @@ async def test_verified_business_goes_back_to_review_on_kyb_changes(client, admi
         json={"legalName": "Acme Agro 1 Pvt Ltd", "country": "IN", "addressLine": "1 Market Road", "city": "Panipat"},
     )
     assert r.json()["status"] == "pending_verification"
-    [row] = (await admin_client.get("/admin/verify/queue")).json()
+    [row] = (await admin_client.get("/admin/verify/queue")).json()["items"]
     assert row["reviewKind"] == "submitted"
 
 
 async def test_changing_a_required_document_reopens_review(client, admin_client):
     await _submitted(client, admin_client, verify=True)
-    gstin = next(d for d in (await client.get("/me/verification-docs")).json() if d["documentTypeCode"] == "gstin")
+    gstin = next(d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == "gstin")
     r = await client.patch(f"/me/verification-docs/{gstin['id']}", data={"value": "02AAAAA0002A1Z5"})
     assert r.status_code == 200
     assert (await client.get("/me")).json()["status"] == "pending_verification"
@@ -205,7 +205,7 @@ async def test_country_details_pause_and_new_country(client, make_client, admin_
     assert r.status_code == 201, r.text
     assert (await admin_client.post("/admin/kyb/countries", json={"country": "OM", "dialCode": "968", "documents": [doc]})).status_code == 422
 
-    listed = {c["code"]: c for c in (await admin_client.get("/admin/kyb/countries")).json()}
+    listed = {c["code"]: c for c in (await admin_client.get("/admin/kyb/countries")).json()["items"]}
     assert listed["KE"]["name"] == "Kenya" and listed["KE"]["requiredDocuments"] == 1 and listed["KE"]["active"]
     assert listed["IN"]["requiredDocuments"] == 2
 
@@ -219,7 +219,7 @@ async def test_country_details_pause_and_new_country(client, make_client, admin_
     # Pause Kenya: new businesses can't pick it; the existing one keeps working.
     r = await admin_client.patch("/admin/kyb/countries/KE", json={"active": False})
     assert r.status_code == 200 and r.json()["active"] is False and r.json()["businesses"] == 1
-    assert "KE" not in [c["code"] for c in (await client.get("/kyb/countries")).json()]
+    assert "KE" not in [c["code"] for c in (await client.get("/kyb/countries")).json()["items"]]
     other = make_client()
     await signup_and_login(other, "x@mombasatrade.co.ke")
     r = await other.put("/me/business-profile", json=body | {"legalName": "Mombasa Trade Ltd"})

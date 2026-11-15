@@ -1,7 +1,7 @@
 """Shared Pydantic building blocks."""
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Generic, TypeVar
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints
 from pydantic.alias_generators import to_camel
@@ -28,6 +28,22 @@ class RequestModel(CamelModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+
+T = TypeVar("T")
+
+
+class ItemList(CamelModel, Generic[T]):
+    """Every collection is returned as ``{items, total}``, never a bare array,
+    so paging can be added without breaking a client (decision A-024)."""
+
+    total: int
+    items: list[T]
+
+
+def item_list(items: list[T]) -> ItemList[T]:
+    """Wrap a complete, unpaged collection."""
+    return ItemList(total=len(items), items=items)
 
 
 def _drop_blank_items(v: Any) -> Any:

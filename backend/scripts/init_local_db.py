@@ -46,15 +46,19 @@ def sqlite_file(url: str) -> Path | None:
 async def _create_all(url: str) -> None:
     from app.models.country import Country
     from app.models.kyb_document_type import KybDocumentType
+    from app.models.listing import CertificateType, SpecParameter
+    from app.modules.catalog.seed import default_certificate_rows, default_spec_rows
     from app.modules.verification.seed import default_country_rows, default_rows
 
     engine = create_async_engine(url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrations 0021 and 0023 seed these; create_all does not run them,
+        # Migrations 0021, 0023 and 0026 seed these; create_all does not run them,
         # and a business cannot be inserted without its country row.
         await conn.execute(Country.__table__.insert(), default_country_rows())
         await conn.execute(KybDocumentType.__table__.insert(), default_rows())
+        await conn.execute(SpecParameter.__table__.insert(), default_spec_rows())
+        await conn.execute(CertificateType.__table__.insert(), default_certificate_rows())
     await engine.dispose()
 
 

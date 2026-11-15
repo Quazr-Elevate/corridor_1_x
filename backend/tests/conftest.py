@@ -88,13 +88,19 @@ def pytest_sessionfinish(session, exitstatus):
 
 
 async def _seed(conn) -> None:
-    """Default countries + KYB document types (what migrations 0021/0023 seed)."""
+    """Default countries, KYB document types and listing templates (what
+    migrations 0021, 0023 and 0026 seed)."""
     from app.models.country import Country
     from app.models.kyb_document_type import KybDocumentType
     from app.modules.verification.seed import default_country_rows, default_rows
 
     await conn.execute(Country.__table__.insert(), default_country_rows())
     await conn.execute(KybDocumentType.__table__.insert(), default_rows())
+    from app.models.listing import CertificateType, SpecParameter
+    from app.modules.catalog.seed import default_certificate_rows, default_spec_rows
+
+    await conn.execute(SpecParameter.__table__.insert(), default_spec_rows())
+    await conn.execute(CertificateType.__table__.insert(), default_certificate_rows())
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
@@ -220,10 +226,76 @@ async def fill_mandatory(c: httpx.AsyncClient, *, n: int = 1) -> None:
     assert r.status_code == 200, r.text
     r = await c.post("/onboarding/business", json={"tradePosition": "both"})
     assert r.status_code == 200, r.text
-    types = {t["code"]: t["id"] for t in (await c.get("/kyb/document-types")).json()}
+    types = {t["code"]: t["id"] for t in (await c.get("/kyb/document-types")).json()["items"]}
     for code, value in (("gstin", f"{n:02d}AAAAA{n:04d}A1Z5"), ("pan", f"AAAAA{n:04d}A")):
         r = await c.post("/me/verification-docs", data={"documentTypeId": types[code], "value": value})
         assert r.status_code == 201, r.text
+
+
+async def upload_photo(c: httpx.AsyncClient) -> str:
+    r = await c.post("/products/upload-photo", files={"file": ("p.png", png_bytes(), "image/png")})
+    assert r.status_code == 201, r.text
+    return r.json()["url"]
+
+
+async def complete_listing(c: httpx.AsyncClient, **over) -> dict:
+    """Create a draft that meets the submit checklist (decision A-023): the
+    plan's minimum fields, one photo and the category's required specs."""
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+
+    category = over.get("category", "Rice")
+    template = (await c.get("/public/catalog/template", params={"category": category})).json()
+    body = {
+        "name": "1121 Steam Basmati",
+        "category": category,
+        "description": "Aromatic long grain",
+        "grade": "Grade A",
+        "originCountry": "IN",
+        "originState": "Haryana",
+        "quantity": "500",
+        "moq": "25",
+        "capacityPerMonth": "2000",
+        "capacityUnit": "MT",
+        "leadTimeDays": 14,
+        "priceMin": "72.50",
+        "priceMax": "80.00",
+        "priceValidUntil": (utcnow().date() + timedelta(days=30)).isoformat(),
+        "incoterms": ["FOB", "CIF"],
+        "photos": [await upload_photo(c)],
+        "specs": [{"parameterId": p["id"], "value": "5"} for p in template["specParameters"] if p["isRequired"]],
+    }
+    body.update(over)
+    r = await c.post("/products", json=body)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+async def publish_listing(c: httpx.AsyncClient, admin: httpx.AsyncClient, product_id: str) -> None:
+    """Seller submits, reviewer approves: the listing is in the market if the
+    business is verified."""
+    r = await c.post(f"/products/{product_id}/submit")
+    assert r.status_code == 200, r.text
+    r = await admin.post(f"/admin/listings/{product_id}/approve")
+    assert r.status_code == 200, r.text
+
+
+async def force_published(*product_ids: str) -> None:
+    """Mark listings published without the review steps, for tests about
+    something else (prices, reveals)."""
+    import uuid
+
+    from app.core.time import utcnow
+    from app.models.product import Product
+
+    async with SessionLocal() as db:
+        await db.execute(
+            update(Product)
+            .where(Product.id.in_([uuid.UUID(p) for p in product_ids]))
+            .values(status="published", published_at=utcnow())
+        )
+        await db.commit()
 
 
 async def set_status(user_id: str, status: BusinessStatus) -> None:

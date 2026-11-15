@@ -18,6 +18,7 @@ from app.modules.verification.schemas import RevealedValue
 from app.ratelimit import RateLimitRule, get_limiter
 from app.shared.files import file_response
 from app.modules.admin.deps import CanReviewKyb, CanViewSensitive
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
 
@@ -25,9 +26,9 @@ router = APIRouter()
 ADMIN_REVEAL = RateLimitRule("admin.kyb_reveal:admin", limit=200, window_sec=60 * 60)
 
 
-@router.get("/docs/pending", response_model=list[PendingDocRow], response_model_by_alias=True)
-async def pending_docs(_: CanReviewKyb, db: DbSession) -> list[PendingDocRow]:
-    return await service.pending_docs(db)
+@router.get("/docs/pending", response_model=ItemList[PendingDocRow], response_model_by_alias=True)
+async def pending_docs(_: CanReviewKyb, db: DbSession) -> ItemList[PendingDocRow]:
+    return item_list(await service.pending_docs(db))
 
 
 @router.post("/docs/{doc_id}/file")

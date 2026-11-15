@@ -6,6 +6,7 @@ import pytest
 from conftest import ROOT_URL
 
 from app.core.config import settings
+from app.main import app as asgi_app
 from app.main import docs_urls
 
 
@@ -117,3 +118,22 @@ def test_every_json_request_body_is_strict():
             if isinstance(model, type) and issubclass(model, BaseModel) and model.model_config.get("extra") != "forbid":
                 loose.append(f"{ctx.path}: {model.__name__}")
     assert not loose, "Request bodies that accept unknown fields:\n" + "\n".join(loose)
+
+
+# ── Collections (decision A-024) ─────────────────────────────────────
+
+#: A chart series, not a collection: it is never paged.
+_BARE_ARRAY_ALLOWED = {"/v1/admin/dashboard/timeline"}
+
+
+def test_no_get_route_returns_a_bare_array():
+    """Every collection is ``{items, total}`` so paging can be added later
+    without breaking a client."""
+    schema = asgi_app.openapi()
+    bare = []
+    for path, methods in schema["paths"].items():
+        ok = methods.get("get", {}).get("responses", {}).get("200", {})
+        body = ok.get("content", {}).get("application/json", {}).get("schema", {})
+        if body.get("type") == "array" and path not in _BARE_ARRAY_ALLOWED:
+            bare.append(path)
+    assert bare == []

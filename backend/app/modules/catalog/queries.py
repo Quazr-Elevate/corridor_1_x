@@ -6,17 +6,18 @@ from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business import Business, BusinessStatus
-from app.models.product import Product
+from app.models.product import ListingStatus, Product
 
 
 def visible_products_clause():
-    """Product not deleted AND owning business verified and not deleted
-    (the caller joins ``Business`` on ``Product.business_id``)."""
+    """Product published and not deleted AND owning business verified and not
+    deleted (the caller joins ``Business`` on ``Product.business_id``)."""
     return and_(
+        Product.status == ListingStatus.published,
         Product.deleted_at.is_(None),
         Business.verification_status == BusinessStatus.verified,
         Business.deleted_at.is_(None),
@@ -42,7 +43,8 @@ def public_products_stmt(
     q: str | None = None,
 ) -> Select[tuple[Product]]:
     """SELECT of market-visible products; callers add order/offset/limit.
-    Price bounds are in USD and compare ``price_usd`` (any listing currency)."""
+    Price bounds are in USD. A listing matches when its range
+    (``price_usd`` … ``price_usd_max``) overlaps the bounds."""
     stmt = visible_products_select()
     if category:
         stmt = stmt.where(Product.category == category)
@@ -51,7 +53,7 @@ def public_products_stmt(
     if origin_state:
         stmt = stmt.where(Product.origin_state == origin_state)
     if min_price_usd is not None:
-        stmt = stmt.where(Product.price_usd >= min_price_usd)
+        stmt = stmt.where(func.coalesce(Product.price_usd_max, Product.price_usd) >= min_price_usd)
     if max_price_usd is not None:
         stmt = stmt.where(Product.price_usd <= max_price_usd)
     if min_moq is not None:

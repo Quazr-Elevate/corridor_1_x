@@ -187,7 +187,7 @@ async def test_admin_lockout_and_unlock(admin_client, make_client):
     c = make_client()
     codes = [(await c.post("/admin/login", json={"email": "rev@cor1x.test", "password": "nope"})).status_code for _ in range(5)]
     assert codes == [401, 401, 401, 401, 423]
-    rows = {a["id"]: a for a in (await admin_client.get("/admin/admins")).json()}
+    rows = {a["id"]: a for a in (await admin_client.get("/admin/admins")).json()["items"]}
     assert rows[rid]["lockState"] == "temporary"
     assert (await admin_client.post(f"/admin/admins/{rid}/unlock")).status_code == 200
     assert (await c.post("/admin/login", json={"email": "rev@cor1x.test", "password": NEW_PW})).status_code == 200

@@ -31,6 +31,7 @@ from app.modules.verification.schemas import CountryOut, DocTypeOut, country_to_
 from app.modules.verification.seed import COUNTRY_REFERENCE
 from app.shared.schemas import RequestModel, CountryCode, text
 from app.modules.admin.deps import CanManageCatalog, CanViewCatalog
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter(prefix="/kyb/document-types")
 countries_router = APIRouter(prefix="/kyb/countries")
@@ -191,13 +192,13 @@ def _snapshot(t: KybDocumentType) -> dict:
     return {f: (getattr(t, f).value if f == "input_kind" else getattr(t, f)) for f in _EDITABLE}
 
 
-@router.get("", response_model=list[DocTypeAdminOut], response_model_by_alias=True)
-async def list_types(_: CanViewCatalog, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> list[DocTypeAdminOut]:
+@router.get("", response_model=ItemList[DocTypeAdminOut], response_model_by_alias=True)
+async def list_types(_: CanViewCatalog, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> ItemList[DocTypeAdminOut]:
     """All types (active and hidden), optionally for one country."""
     q = select(KybDocumentType).order_by(KybDocumentType.country, KybDocumentType.sort_order, KybDocumentType.name)
     if country:
         q = q.where(KybDocumentType.country == country.upper())
-    return [_out(t) for t in await db.scalars(q)]
+    return item_list([_out(t) for t in await db.scalars(q)])
 
 
 def _country_snapshot(c: Country) -> dict:
@@ -220,10 +221,10 @@ async def _country_out(db, c: Country) -> CountryAdminOut:
     )
 
 
-@countries_router.get("", response_model=list[CountryAdminOut], response_model_by_alias=True)
-async def list_countries(_: CanViewCatalog, db: DbSession) -> list[CountryAdminOut]:
+@countries_router.get("", response_model=ItemList[CountryAdminOut], response_model_by_alias=True)
+async def list_countries(_: CanViewCatalog, db: DbSession) -> ItemList[CountryAdminOut]:
     """Every country (open and paused) with document and business counts."""
-    return [await _country_out(db, c) for c in await db.scalars(select(Country).order_by(Country.name))]
+    return item_list([await _country_out(db, c) for c in await db.scalars(select(Country).order_by(Country.name))])
 
 
 @countries_router.patch("/{code}", response_model=CountryAdminOut, response_model_by_alias=True)

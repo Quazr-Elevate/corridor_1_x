@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from conftest import fill_mandatory, png_bytes, set_status, signup_and_login
+from conftest import complete_listing, fill_mandatory, publish_listing, set_status, signup_and_login, upload_photo
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
@@ -15,10 +15,7 @@ from app.models.user import User
 from app.models.business import BusinessStatus
 
 
-async def _photo(c) -> str:
-    r = await c.post("/products/upload-photo", files={"file": ("p.png", png_bytes(), "image/png")})
-    assert r.status_code == 201, r.text
-    return r.json()["url"]
+_photo = upload_photo
 
 
 def _product(photos, **over):
@@ -27,7 +24,8 @@ def _product(photos, **over):
         "category": "Rice",
         "quantity": "500",
         "moq": "25",
-        "pricePerUnit": "72.50",
+        "priceMin": "72.50",
+        "priceMax": "80.00",
         "description": "Aromatic long grain",
         "photos": photos,
     }
@@ -56,13 +54,18 @@ async def test_product_validation(client):
     await signup_and_login(client, "pv@kaverifoods.in")
     url = await _photo(client)
     assert (await client.post("/products", json=_product([url], name="X"))).status_code == 422
-    assert (await client.post("/products", json=_product([url], pricePerUnit="-1"))).status_code == 422
+    assert (await client.post("/products", json=_product([url], priceMin="-1"))).status_code == 422
+    assert (await client.post("/products", json=_product([url], priceMax="70"))).status_code == 422  # max < min
     assert (await client.post("/products", json=_product([url], description="d" * 5001))).status_code == 422
     assert (await client.post("/products", json=_product([url], category="Gold"))).status_code == 422
     assert (await client.post("/products", json=_product([url], moq="600"))).status_code == 422  # moq > quantity
     assert (await client.post("/products", json=_product([url], currency="RUPEES"))).status_code == 422
-    r = await client.post("/products", json=_product([]))
-    assert r.status_code == 400 and "photo" in r.json()["detail"]
+    assert (await client.post("/products", json=_product([url], hsCode="10-06"))).status_code == 422
+    assert (await client.post("/products", json=_product([url], incoterms=["FOB", "XYZ"]))).status_code == 422
+    assert (await client.post("/products", json=_product([url], leadTimeDays=-1))).status_code == 422
+    # The client never sets the review status.
+    r = await client.post("/products", json=_product([url], status="published"))
+    assert r.status_code == 422 and r.json()["code"] == "request.unknown_field"
     r = await client.post("/products", json=_product(["https://evil.example/x.png"]))
     assert r.status_code == 400
     r = await client.post("/products", json=_product(["/uploads/products/" + "a" * 32 + ".png"]))
@@ -70,34 +73,42 @@ async def test_product_validation(client):
     many = [await _photo(client) for _ in range(6)]
     r = await client.post("/products", json=_product(many))
     assert r.status_code == 400 and "At most 5" in r.json()["detail"]
+    # A maximum price needs a minimum.
+    r = await client.post("/products", json={"name": "No floor", "category": "Rice", "priceMax": "10"})
+    assert r.status_code == 400 and "minimum price" in r.json()["detail"]
 
     r = await client.post("/products", json=_product([url, url]))
     assert r.status_code == 201, r.text
-    assert r.json()["photos"] == [url]
+    assert r.json()["photos"] == [url] and r.json()["status"] == "draft"
     listed = (await client.get("/products")).json()
-    assert len(listed) == 1 and listed[0]["pricePerUnit"] == "72.50" and listed[0]["currency"] == "INR"
+    assert listed["total"] == 1
+    first = listed["items"][0]
+    assert (first["priceMin"], first["priceMax"], first["currency"]) == ("72.50", "80.00", "INR")
 
     # Soft delete: gone from the business's list; only the owner business can delete.
-    pid = listed[0]["id"]
+    pid = first["id"]
     assert (await client.delete(f"/products/{pid}")).status_code == 204
-    assert (await client.get("/products")).json() == []
+    assert (await client.get("/products")).json() == {"total": 0, "items": []}
     assert (await client.delete(f"/products/{pid}")).status_code == 404
 
 
-async def test_market_visibility_is_business_level(client, make_client, admin_client):
+async def test_market_visibility_needs_a_verified_business_and_a_published_listing(client, make_client, admin_client):
     seller = await signup_and_login(client, "seller@kaverifoods.in")
     await fill_mandatory(client, n=1)
-    url = await _photo(client)
-    pid = (await client.post("/products", json=_product([url]))).json()["id"]
+    listing = await complete_listing(client)
+    pid, url = listing["id"], listing["photos"][0]
 
     anon = make_client()
-    # Draft business → not in the market.
+    # Draft business → not in the market, and it can't submit a listing yet.
     assert (await anon.get("/public/products")).json()["total"] == 0
     assert (await anon.get(f"/public/products/{pid}")).status_code == 404
+    assert (await client.post(f"/products/{pid}/submit")).status_code == 403
 
     await client.post("/me/submit-verification")
-    assert (await anon.get("/public/products")).json()["total"] == 0  # pending is not enough
     assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200
+    # A verified business is not enough: the listing itself must be approved.
+    assert (await anon.get("/public/products")).json()["total"] == 0
+    await publish_listing(client, admin_client, pid)
 
     listing = (await anon.get("/public/products?q=basmati")).json()
     assert listing["total"] == 1
@@ -106,7 +117,6 @@ async def test_market_visibility_is_business_level(client, make_client, admin_cl
     assert "businessName" not in card["seller"]
     assert "Acme Agro" not in str(listing)
     assert card["seller"]["sellerId"] == seller["businessId"]
-    assert card["currency"] == "INR"
     assert "email" not in card["seller"]
     detail = (await anon.get(f"/public/products/{pid}")).json()
     assert detail["photos"] == [url]
@@ -129,10 +139,10 @@ async def test_market_visibility_is_business_level(client, make_client, admin_cl
 async def _verified_seller_with_product(client, admin_client, email="seller@kaverifoods.in", n=1) -> tuple[dict, str]:
     seller = await signup_and_login(client, email)
     await fill_mandatory(client, n=n)
-    url = await _photo(client)
-    pid = (await client.post("/products", json=_product([url]))).json()["id"]
+    pid = (await complete_listing(client))["id"]
     await client.post("/me/submit-verification")
     assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200
+    await publish_listing(client, admin_client, pid)
     return seller, pid
 
 
@@ -201,6 +211,7 @@ async def test_reveal_limit_is_per_business(client, make_client, admin_client):
                 name=f"Lot {i}",
                 category="Rice",
                 unit="MT",
+                status="published",
                 photos=["/uploads/products/" + "a" * 32 + ".png"],
             )
             db.add(p)

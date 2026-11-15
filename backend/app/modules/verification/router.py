@@ -24,6 +24,7 @@ from app.modules.verification.schemas import (
 )
 from app.ratelimit import RateLimitRule, get_limiter
 from app.shared.files import file_response
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter(prefix="/me/verification-docs", tags=["verification"])
 types_router = APIRouter(prefix="/kyb", tags=["verification"])
@@ -42,17 +43,17 @@ def _flag(raw: str | None) -> bool:
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-@types_router.get("/countries", response_model=list[CountryOut], response_model_by_alias=True)
-async def kyb_countries(_: CurrentUser, db: DbSession) -> list[CountryOut]:
+@types_router.get("/countries", response_model=ItemList[CountryOut], response_model_by_alias=True)
+async def kyb_countries(_: CurrentUser, db: DbSession) -> ItemList[CountryOut]:
     """Countries a business may pick — active and set up by admins with
     required documents — with their address labels."""
-    return [country_to_out(c) for c in await rules.open_countries(db)]
+    return item_list([country_to_out(c) for c in await rules.open_countries(db)])
 
 
-@types_router.get("/document-types", response_model=list[DocTypeOut], response_model_by_alias=True)
-async def document_types(user: CurrentUser, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> list[DocTypeOut]:
+@types_router.get("/document-types", response_model=ItemList[DocTypeOut], response_model_by_alias=True)
+async def document_types(user: CurrentUser, db: DbSession, country: str | None = Query(None, min_length=2, max_length=2)) -> ItemList[DocTypeOut]:
     """Active document types for ``country`` (default: the business's)."""
-    return [doc_type_to_out(t) for t in await service.list_types(db, country or user.business.country)]
+    return item_list([doc_type_to_out(t) for t in await service.list_types(db, country or user.business.country)])
 
 
 @router.post("", response_model=DocOut, response_model_by_alias=True, status_code=201)
@@ -86,9 +87,9 @@ async def add_entry(
     return doc_to_out(doc)
 
 
-@router.get("", response_model=list[DocOut], response_model_by_alias=True)
-async def list_entries(user: CurrentUser, db: DbSession) -> list[DocOut]:
-    return [doc_to_out(d) for d in await service.list_docs(db, user.business_id)]
+@router.get("", response_model=ItemList[DocOut], response_model_by_alias=True)
+async def list_entries(user: CurrentUser, db: DbSession) -> ItemList[DocOut]:
+    return item_list([doc_to_out(d) for d in await service.list_docs(db, user.business_id)])
 
 
 @router.patch("/{doc_id}", response_model=DocOut, response_model_by_alias=True)

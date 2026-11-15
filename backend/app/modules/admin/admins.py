@@ -13,6 +13,7 @@ from app.modules.admin.schemas import AdminAccountOut, AdminCreateIn, AdminPatch
 from app.modules.auth.deps import DbSession
 from app.modules.auth.lockout import lock_state
 from app.modules.auth.schemas import OkResponse
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
 
@@ -25,9 +26,9 @@ def _out(a: AdminUser) -> AdminAccountOut:
     )
 
 
-@router.get("/admins", response_model=list[AdminAccountOut], response_model_by_alias=True)
-async def list_admins(_: CanManageAdmins, db: DbSession) -> list[AdminAccountOut]:
-    return [_out(a) for a in await accounts.list_admins(db)]
+@router.get("/admins", response_model=ItemList[AdminAccountOut], response_model_by_alias=True)
+async def list_admins(_: CanManageAdmins, db: DbSession) -> ItemList[AdminAccountOut]:
+    return item_list([_out(a) for a in await accounts.list_admins(db)])
 
 
 @router.post("/admins", response_model=AdminWithPassword, response_model_by_alias=True, status_code=201)

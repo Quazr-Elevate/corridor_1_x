@@ -47,7 +47,7 @@ async def test_verify_flow_with_audit_and_email(client, admin_client):
 
     await fill_mandatory(client)
     assert (await client.post("/me/submit-verification")).status_code == 200
-    queue = (await admin_client.get("/admin/verify/queue")).json()
+    queue = (await admin_client.get("/admin/verify/queue")).json()["items"]
     assert [(row["userId"], row["businessId"]) for row in queue] == [(uid, bid)]
     assert queue[0]["country"] == "IN" and queue[0]["missingFields"] == []
 
@@ -183,7 +183,7 @@ async def test_dashboard(client, admin_client):
     }
     tl = (await admin_client.get("/admin/dashboard/timeline?days=7")).json()
     assert len(tl) == 7 and tl[-1]["count"] == 1
-    assert (await admin_client.get("/admin/dashboard/stuck")).json() == []
+    assert (await admin_client.get("/admin/dashboard/stuck")).json()["items"] == []
     users = (await admin_client.get("/admin/users?q=dash")).json()
     assert users["total"] == 1 and users["items"][0]["status"] == "draft"
     assert (await admin_client.get("/admin/users?status=draft")).json()["total"] == 1

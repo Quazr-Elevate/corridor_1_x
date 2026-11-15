@@ -60,7 +60,7 @@ async def test_doc_access_control(client, make_client, admin_client):
     assert (await stranger.get(f"/uploads/verification/{owner['businessId']}/x.pdf")).status_code == 404
 
     # Admin sees admin URLs and can download.
-    pending = (await admin_client.get("/admin/docs/pending")).json()
+    pending = (await admin_client.get("/admin/docs/pending")).json()["items"]
     assert pending[0]["doc"]["url"] == f"/admin/docs/{doc['id']}/file"
     # Opening it needs a reason; a request without one is refused and not logged.
     assert (await admin_client.post(pending[0]["doc"]["url"], json={})).status_code == 422
@@ -89,7 +89,7 @@ async def test_doc_access_control(client, make_client, admin_client):
     assert stored.storage_key.startswith(f"verification/{stored.business_id}/")
     assert stored.reviewed_by == "admin@cor1x.test" and stored.doc_type == "GST Certificate"
 
-    listed = (await client.get("/me/verification-docs")).json()
+    listed = (await client.get("/me/verification-docs")).json()["items"]
     assert listed[0]["status"] == "approved"
 
     # Owner deletes → file gone.
