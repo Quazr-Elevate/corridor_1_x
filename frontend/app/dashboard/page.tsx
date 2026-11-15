@@ -25,6 +25,7 @@ import { Progress } from "@/components/ui/Controls";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { Skeleton, SolidPanel } from "@/components/ui/Surface";
 import { Beacon } from "@/components/trader/Beacon";
+import { priceRangeFigure } from "@/components/products/format";
 import { dot, lotCode, memberCode, price, qty } from "@/components/trader/format";
 import { LENS_LABEL, useLens, type Lens } from "@/components/trader/lens";
 import { LotThumb } from "@/components/trader/LotThumb";
@@ -823,8 +824,8 @@ function YourLots({ me, own }: { me: Me; own: HomeData["own"] }) {
                 amount={qty(p.quantity, p.unit)}
                 code={lotCode(p.id)}
                 meta={dot(p.category, p.variety, p.originState)}
-                right={price(p.pricePerUnit, p.unit, p.currency)}
-                rightApprox={<ApproxPrice amount={p.pricePerUnit} currency={p.currency} />}
+                right={priceRangeFigure(p.priceMin, p.priceMax, p.unit, p.currency)}
+                rightApprox={<ApproxPrice amount={p.priceMin} currency={p.currency} />}
                 rightSub={
                   verified ? (
                     <>
@@ -915,8 +916,8 @@ function MarketLots({ market }: { market: HomeData["market"] }) {
                 amount={qty(p.quantity, p.unit)}
                 code={lotCode(p.id)}
                 meta={dot(p.category, p.originState)}
-                right={price(p.pricePerUnit, p.unit, p.currency)}
-                rightApprox={<ApproxPrice amount={p.pricePerUnit} currency={p.currency} />}
+                right={priceRangeFigure(p.priceMin, p.priceMax, p.unit, p.currency)}
+                rightApprox={<ApproxPrice amount={p.priceMin} currency={p.currency} />}
                 rightSub={
                   <>
                     <Icon name="shield" size={12} className="text-accent" />

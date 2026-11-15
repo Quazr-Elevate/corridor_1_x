@@ -1,22 +1,24 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Photo } from "@/components/art/Photo";
 import { ApproxPrice } from "@/components/fx/FxContext";
 import { Chip } from "@/components/ui/Chip";
 import { Icon } from "@/components/ui/Icon";
 import { Skeleton } from "@/components/ui/Surface";
-import { formatQty, joinDot, listingCode, packingLabel, priceFigure } from "@/components/products/format";
-import { assetUrl, type ProductRead } from "@/lib/api";
+import { formatQty, joinDot, listingCode, packingLabel, priceRangeFigure } from "@/components/products/format";
+import { api, assetUrl, type ProductRead } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { MEDIA } from "@/lib/media";
-import { lotCompleteness } from "./completeness";
 import { LotThumb } from "./LotPhoto";
 
 /**
  * Selling-lens cards, after the reference market (portal /market):
  *   • ListLotCard — the sunk "List a lot" well with a solid lime-plus disc.
- *   • ListingCard — relief card: 72px photo thumb, Live/Pending chip over a
- *     mono L-id, name, origin line, VOLUME / PRICE, the completeness bar.
+ *   • ListingCard — relief card: 72px photo thumb, the review status chip
+ *     over a mono L-id, name, origin line, VOLUME / PRICE, what to do next,
+ *     and the actions the status allows (edit, pause, withdraw, delete).
  */
 
 export function ListLotCard({ empty, className }: { empty: boolean; className?: string }) {
@@ -36,38 +38,80 @@ export function ListLotCard({ empty, className }: { empty: boolean; className?: 
       <span className="t-title3 mt-5 text-fg">List a lot</span>
       <span className="t-sub mt-1.5 max-w-[240px] text-fg-3">
         {empty
-          ? "Your first lot takes a minute. One sentence and a photo — enrich later."
-          : "One sentence. Publish in under a minute, enrich later."}
+          ? "Start with a name and a category. Save the draft and finish it when you’re ready."
+          : "Start a draft. A reviewer checks it before it reaches the market."}
       </span>
     </Link>
   );
 }
 
-export function ListingCard({ product: p, live }: { product: ProductRead; live: boolean }) {
-  const { score, hint } = lotCompleteness(p);
+const STATUS: Record<ProductRead["status"], { label: string; tone: "verified" | "move" | "frozen" | "quiet" }> = {
+  draft: { label: "Draft", tone: "quiet" },
+  under_review: { label: "In review", tone: "move" },
+  published: { label: "Live", tone: "verified" },
+  rejected: { label: "Needs changes", tone: "frozen" },
+  paused: { label: "Paused", tone: "quiet" },
+};
+
+/** What the seller should know or do next, in one line. */
+function nextStep(p: ProductRead, businessVerified: boolean): string {
+  if (p.status === "rejected") return p.rejectionReason ?? "The reviewer asked for changes.";
+  if (p.status === "under_review") return "A reviewer is checking it.";
+  if (p.status === "paused") return "Hidden from the market until you resume it.";
+  if (p.status === "published") {
+    if (p.pendingRevision) return "Your changes are waiting for review.";
+    if (p.revisionRejectionReason) return `Changes not accepted: ${p.revisionRejectionReason}`;
+    return businessVerified ? "In the market." : "Hidden while your company is not verified.";
+  }
+  if (p.missing.length) return `Add ${p.missing[0]}${p.missing.length > 1 ? ` and ${p.missing.length - 1} more` : ""} to submit.`;
+  return businessVerified ? "Ready to submit for review." : "Ready. Submit once your company is verified.";
+}
+
+export function ListingCard({
+  product: p,
+  live: businessVerified,
+  onChanged,
+}: {
+  product: ProductRead;
+  /** The seller's company is verified. */
+  live: boolean;
+  /** Called with the updated listing, or null when it was deleted. */
+  onChanged?: (id: string, next: ProductRead | null) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const volume = formatQty(p.quantity, p.unit);
-  const price = priceFigure(p.pricePerUnit, p.unit, p.currency);
+  const price = priceRangeFigure(p.priceMin, p.priceMax, p.unit, p.currency);
   const photo = p.photos[0] ? assetUrl(p.photos[0]) : null;
   const origin = joinDot(
-    p.variety || p.category,
+    p.grade || p.variety || p.category,
     p.originState ? `from ${p.originState}` : null,
     packingLabel(p.packaging),
   );
+  const status = STATUS[p.status];
+  const inMarket = p.status === "published" && businessVerified;
 
-  const body: ReactNode = (
-    <>
+  const run = async (call: () => Promise<ProductRead | void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await call();
+      onChanged?.(p.id, next ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That didn’t work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article className="relief flex h-full flex-col rounded-[30px] p-5" aria-busy={busy || undefined}>
       <div className="flex items-start justify-between gap-3">
         <LotThumb src={photo} category={p.category} />
         <div className="flex flex-col items-end gap-1.5">
-          {live ? (
-            <Chip tone="verified" noIcon>
-              Live
-            </Chip>
-          ) : (
-            <Chip tone="move" noIcon>
-              Pending
-            </Chip>
-          )}
+          <Chip tone={status.tone} noIcon>
+            {status.label}
+          </Chip>
           <span className="t-code text-fg-3">{listingCode(p.id)}</span>
         </div>
       </div>
@@ -81,64 +125,72 @@ export function ListingCard({ product: p, live }: { product: ProductRead; live: 
           label="Price"
           value={price}
           muted={price === "On request"}
-          sub={<ApproxPrice amount={p.pricePerUnit} currency={p.currency} variant="line" />}
+          sub={<ApproxPrice amount={p.priceMin} currency={p.currency} variant="line" />}
         />
       </dl>
 
-      <div className="mt-4">
-        <div className="flex justify-between gap-3">
-          <span className="t-foot text-fg-3">Listing {score}%</span>
-          <span className="t-foot text-fg-3">
-            {p.photos.length} {p.photos.length === 1 ? "photo" : "photos"}
-          </span>
-        </div>
-        <div
-          role="progressbar"
-          aria-label={`${p.name} — listing completeness`}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={score}
-          className="well mt-1.5 h-1.5 overflow-hidden rounded-full"
-        >
-          <div className="h-full rounded-full bg-fg" style={{ width: `${score}%` }} />
-        </div>
-        {score < 100 ? <p className="t-foot mt-2 text-fg-3">{hint}</p> : null}
-      </div>
-
-      <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-        <span className="t-foot truncate text-fg-3">
-          {formatQty(p.moq, p.unit) ? `MOQ ${formatQty(p.moq, p.unit)}` : p.category}
-        </span>
-        {live ? (
-          <span className="t-sub inline-flex shrink-0 items-center gap-1.5 font-semibold text-fg">
-            View in market
-            <Icon
-              name="arrow-right"
-              size={15}
-              className="transition-transform duration-300 ease-expo group-hover:translate-x-0.5"
-            />
-          </span>
-        ) : (
-          <span className="t-sub shrink-0 text-fg-3">Live after verification</span>
-        )}
-      </div>
-    </>
-  );
-
-  const cls = "relief flex h-full flex-col rounded-[30px] p-5";
-  // Live lots open their public market page — what buyers see.
-  if (live) {
-    return (
-      <Link
-        href={`/products/${p.id}`}
-        aria-label={`${p.name} — view in the market`}
-        className={cn(cls, "relief-hover group focus-visible:rounded-[30px]")}
+      <p
+        className={cn("t-sub mt-4 line-clamp-3", p.status === "rejected" || error ? "text-danger" : "text-fg-2")}
+        role={error ? "alert" : undefined}
       >
-        {body}
-      </Link>
-    );
-  }
-  return <article className={cls}>{body}</article>;
+        {error ?? nextStep(p, businessVerified)}
+      </p>
+
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-5">
+        <Link
+          href={`/dashboard/products/${p.id}`}
+          className="relief-sm t-sub inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 font-semibold text-fg hover:shadow-[var(--relief)]"
+        >
+          <Icon name="pen" size={14} />
+          {p.status === "under_review" ? "Open" : "Edit"}
+        </Link>
+        {p.status === "published" ? (
+          <CardAction disabled={busy} onClick={() => run(() => api.pauseProduct(p.id))}>
+            Pause
+          </CardAction>
+        ) : p.status === "paused" ? (
+          <CardAction disabled={busy} onClick={() => run(() => api.resumeProduct(p.id))}>
+            Resume
+          </CardAction>
+        ) : p.status === "under_review" ? (
+          <CardAction disabled={busy} onClick={() => run(() => api.withdrawProduct(p.id))}>
+            Withdraw
+          </CardAction>
+        ) : null}
+        {inMarket ? (
+          <Link href={`/products/${p.id}`} className="t-sub inline-flex h-9 items-center gap-1 px-2 text-fg-2 hover:text-fg">
+            View
+            <Icon name="external" size={13} />
+          </Link>
+        ) : null}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm(`Delete “${p.name}”? This can’t be undone.`)) void run(() => api.deleteProduct(p.id));
+          }}
+          aria-label={`Delete ${p.name}`}
+          title="Delete"
+          className="ml-auto grid size-9 place-items-center rounded-full text-fg-3 transition-colors hover:bg-danger-soft hover:text-danger disabled:opacity-40"
+        >
+          <Icon name="trash" size={15} />
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function CardAction({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="t-sub inline-flex h-9 items-center rounded-full px-3 font-medium text-fg-2 transition-colors hover:bg-[rgb(10_10_10/0.05)] hover:text-fg disabled:opacity-40"
+    >
+      {children}
+    </button>
+  );
 }
 
 function Figure({ label, value, muted, sub }: { label: string; value: string; muted?: boolean; sub?: ReactNode }) {
@@ -192,7 +244,7 @@ export function EmptyWarehouseCard({ className }: { className?: string }) {
         <p className="t-label text-cream/70">Nothing listed yet</p>
         <p className="t-title2 mt-2 max-w-sm text-cream">Buyers browse verified lots like these every day.</p>
         <p className="t-callout mt-2 max-w-sm text-cream/80">
-          A name, a category and one photo is enough to publish. Add volume, price and a description when you have them.
+          Start a draft with a name and a category. Add the price range, specifications and a photo, then submit it for review.
         </p>
       </div>
     </div>

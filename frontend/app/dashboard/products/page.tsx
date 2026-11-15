@@ -73,8 +73,8 @@ export default function ListingsPage() {
           <p className="t-label text-fg-3">Selling lens</p>
           <h1 className="t-large mt-2 text-fg">What you&rsquo;re selling</h1>
           <p className="t-callout mt-2 max-w-xl text-fg-2">
-            Verified buyers find your lots in the market. Your name and contact open only to verified buyers who
-            reveal them.
+            Each listing is checked by a reviewer before it reaches the market. Your name and contact open only to
+            verified buyers who reveal them.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -105,7 +105,7 @@ export default function ListingsPage() {
                 ? "Your company is in review"
                 : status === "rejected"
                   ? "Verification needs changes"
-                  : "Listings go live after verification"
+                  : "Listings can be submitted after verification"
             }
             action={
               <LinkButton href="/dashboard/account" variant="secondary" size="sm" iconRight="arrow-right">
@@ -114,8 +114,8 @@ export default function ListingsPage() {
             }
           >
             {status === "pending_verification"
-              ? "Your lots appear in the market the moment Corridor ops verifies you."
-              : "You can list now. Buyers see your lots once your company is verified."}
+              ? "Keep drafting. You can submit listings for review once Corridor ops verifies you."
+              : "You can save drafts now. Submitting for review needs a verified company."}
           </Notice>
         </div>
       ) : null}
@@ -156,7 +156,15 @@ export default function ListingsPage() {
             ) : (
               visible.map((p) => (
                 <StaggerItem as="li" key={p.id} className="min-w-0">
-                  <ListingCard product={p} live={verified} />
+                  <ListingCard
+                    product={p}
+                    live={verified}
+                    onChanged={(id, next) =>
+                      setItems((cur) =>
+                        (cur ?? []).flatMap((x) => (x.id === id ? (next ? [next] : []) : [x])),
+                      )
+                    }
+                  />
                 </StaggerItem>
               ))
             )}

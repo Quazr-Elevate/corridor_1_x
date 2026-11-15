@@ -38,7 +38,21 @@ export class PublicApiError extends Error {
   }
 }
 
-async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+/**
+ * `cookie` is the visitor's Cookie header, passed by server components
+ * (`(await cookies()).toString()`): the price range is only returned to a
+ * signed-in, verified business, and a server-side fetch has no cookies of
+ * its own. In the browser the cookie rides along by itself.
+ */
+export interface ViewerInit {
+  cookie?: string;
+}
+
+async function get<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+  viewer?: ViewerInit,
+): Promise<T> {
   const qs = params
     ? Object.entries(params)
         .filter(([, v]) => v !== undefined && v !== "" && v !== null)
@@ -49,8 +63,11 @@ async function get<T>(path: string, params?: Record<string, string | number | un
   let res: Response;
   try {
     res = await fetch(`${resolveApiBase()}${path}${qs ? `?${qs}` : ""}`, {
-      // Cookies only matter (and only work) in the browser.
-      ...(onServer ? {} : { credentials: "include" as const }),
+      ...(onServer
+        ? viewer?.cookie
+          ? { headers: { cookie: viewer.cookie } }
+          : {}
+        : { credentials: "include" as const }),
       cache: "no-store",
     });
   } catch {
@@ -75,22 +92,52 @@ export interface PublicSeller {
   verified: boolean;
 }
 
+export interface PublicSpec {
+  parameterId: string;
+  code: string;
+  name: string;
+  unit: string | null;
+  value: string;
+  operator: "MIN" | "MAX" | "EQ";
+  testMethod: string | null;
+}
+
+export interface PublicCertificate {
+  id: string;
+  /** The document type. The filename is not shown: it can name the seller. */
+  name: string;
+  url: string;
+}
+
 export interface PublicProductCard {
   id: string;
   name: string;
   category: string;
   variety: string | null;
+  grade: string | null;
+  originCountry: string | null;
   originState: string | null;
   packaging: string | null;
   quantity: string | null;
   unit: string;
   moq: string | null;
-  pricePerUnit: string | null;
-  currency: string;
-  /** Indicative USD value (latest rate) — for comparing across currencies. */
+  capacityPerMonth: string | null;
+  capacityUnit: string | null;
+  incoterms: string[];
+  /**
+   * The price range is for signed-in, verified businesses. When false, every
+   * price field below is null and the card says "Price on request".
+   */
+  priceVisible: boolean;
+  priceMin: string | null;
+  priceMax: string | null;
+  currency: string | null;
+  /** Indicative USD values (latest rate) — for comparing across currencies. */
   priceUsd: string | null;
+  priceUsdMax: string | null;
   /** Day of the rate behind priceUsd (YYYY-MM-DD). */
   priceUsdAsOf: string | null;
+  priceValidUntil: string | null;
   photo: string | null;
   seller: PublicSeller;
 }
@@ -98,6 +145,8 @@ export interface PublicProductCard {
 export interface PublicProductDetail extends PublicProductCard {
   description: string | null;
   photos: string[];
+  specs: PublicSpec[];
+  certificates: PublicCertificate[];
 }
 
 export interface PublicProductList {
@@ -108,7 +157,7 @@ export interface PublicProductList {
 export interface CatalogFacets {
   categories: Array<{ value: string; count: number }>;
   originStates: Array<{ value: string; count: number }>;
-  /** Range of priceUsd over live lots — in `priceCurrency` (always USD). */
+  /** Range of priceUsd over live lots, in USD; null unless the viewer may see prices. */
   priceMin: string | null;
   priceMax: string | null;
   priceCurrency?: string;
@@ -137,13 +186,47 @@ export interface CatalogFilters {
   limit?: number;
 }
 
+export interface SpecParameter {
+  id: string;
+  category: string;
+  code: string;
+  name: string;
+  valueType: "number" | "text";
+  unit: string | null;
+  defaultOperator: "MIN" | "MAX" | "EQ";
+  testMethod: string | null;
+  isRequired: boolean;
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface CertificateType {
+  id: string;
+  /** A product category, or "*" for every category. */
+  category: string;
+  code: string;
+  name: string;
+  helpText: string | null;
+  isRequired: boolean;
+  sortOrder: number;
+  active: boolean;
+}
+
+/** What a listing in a category is asked for. */
+export interface CategoryTemplate {
+  category: string;
+  specParameters: SpecParameter[];
+  certificateTypes: CertificateType[];
+}
+
 export const publicApi = {
-  listProducts: (filters: CatalogFilters = {}) =>
-    get<PublicProductList>("/public/products", { ...filters }),
-  getProduct: (id: string) =>
-    get<PublicProductDetail>(`/public/products/${encodeURIComponent(id)}`),
-  facets: () => get<CatalogFacets>("/public/catalog/facets"),
+  listProducts: (filters: CatalogFilters = {}, viewer?: ViewerInit) =>
+    get<PublicProductList>("/public/products", { ...filters }, viewer),
+  getProduct: (id: string, viewer?: ViewerInit) =>
+    get<PublicProductDetail>(`/public/products/${encodeURIComponent(id)}`, undefined, viewer),
+  facets: (viewer?: ViewerInit) => get<CatalogFacets>("/public/catalog/facets", undefined, viewer),
   fxRates: () => get<FxRates>("/public/fx/rates"),
+  categoryTemplate: (category: string) => get<CategoryTemplate>("/public/catalog/template", { category }),
 };
 
 /**

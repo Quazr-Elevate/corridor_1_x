@@ -6,15 +6,14 @@ import { Icon } from "@/components/ui/Icon";
 import { Notice } from "@/components/ui/Surface";
 import { LinkButton } from "@/components/ui/Button";
 import { MarketAmbient } from "@/components/market/MarketAmbient";
-import { ProductForm } from "@/components/products/ProductForm";
+import { ListingForm } from "@/components/products/ListingForm";
 import { MEDIA } from "@/lib/media";
 import { useMe } from "@/lib/useMe";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 /**
- * New listing — the reference's "Say it like you would on a call" composer
- * (portal /market → List a lot), as a page: the sentence first, then what
- * buyers will see, photos and the description.
+ * New listing. It starts as a draft: the seller fills what they have, saves,
+ * and submits for review once the checklist is met.
  */
 export default function NewListingPage() {
   const { me } = useMe();
@@ -40,9 +39,9 @@ export default function NewListingPage() {
 
       <header className="mt-6 animate-rise">
         <p className="t-label text-fg-3">New listing · Selling</p>
-        <h1 className="t-large mt-2 text-fg">Say it like you would on a call.</h1>
+        <h1 className="t-large mt-2 text-fg">List what you’re selling.</h1>
         <p className="t-callout mt-2 max-w-xl text-fg-2">
-          A name and one photo is enough to publish. Add the detail buyers ask for when you have it.
+          A name and a category are enough to save a draft. A reviewer checks the listing before it reaches the market.
         </p>
       </header>
 
@@ -50,20 +49,20 @@ export default function NewListingPage() {
         <div className="mt-8 animate-rise">
           <Notice
             tone="move"
-            title="Goes live after verification"
+            title="Submit after verification"
             action={
               <LinkButton href="/dashboard/account" variant="secondary" size="sm">
                 Passport
               </LinkButton>
             }
           >
-            You can publish now. Buyers see the lot once Corridor ops verifies your company.
+            You can save drafts now. Listings can be submitted for review once Corridor ops verifies your company.
           </Notice>
         </div>
       ) : null}
 
       <div className="mt-8 animate-rise">
-        <ProductForm />
+        <ListingForm />
       </div>
     </div>
   );

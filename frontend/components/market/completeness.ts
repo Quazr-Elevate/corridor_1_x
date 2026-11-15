@@ -16,7 +16,7 @@ export interface LotFields {
   packaging?: string | null;
   quantity?: Num;
   moq?: Num;
-  pricePerUnit?: Num;
+  priceMin?: Num;
   description?: string | null;
   photos?: ReadonlyArray<string> | null;
 }
@@ -48,7 +48,7 @@ export function lotCompleteness(p: LotFields): Completeness {
     { ok: photos >= 1, points: 15, phrase: "a photo" },
     { ok: has(p.description), points: 15, phrase: "a description" },
     { ok: photos >= FULL_PHOTO_COUNT, points: 10, phrase: photos ? "more photos" : "" },
-    { ok: has(p.pricePerUnit), points: 8, phrase: "your price" },
+    { ok: has(p.priceMin), points: 8, phrase: "your price" },
     { ok: has(p.quantity), points: 8, phrase: "the volume" },
     { ok: has(p.originState), points: 6, phrase: "the origin state" },
     { ok: has(p.variety), points: 6, phrase: "the grade" },

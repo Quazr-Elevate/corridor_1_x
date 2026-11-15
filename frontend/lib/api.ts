@@ -212,22 +212,116 @@ export interface BusinessProfileSaveIn {
   websiteUrl?: string;
 }
 
+/** Every collection the API returns is wrapped: `{ items, total }`. */
+export interface ItemList<T> {
+  total: number;
+  items: T[];
+}
+
+export type ListingStatus = "draft" | "under_review" | "published" | "rejected" | "paused";
+export type SpecOperator = "MIN" | "MAX" | "EQ";
+
+export interface ProductSpec {
+  parameterId: string;
+  code: string;
+  name: string;
+  unit: string | null;
+  value: string;
+  operator: SpecOperator;
+  testMethod: string | null;
+}
+
+export interface ProductCertificate {
+  id: string;
+  certificateTypeId: string;
+  code: string;
+  name: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** "internal" until an admin marks it "downloadable" for verified buyers. */
+  visibility: "internal" | "downloadable";
+  uploadedAt: string;
+  url: string;
+}
+
 export interface ProductRead {
   id: string;
   name: string;
   category: string;
-  variety?: string;
-  originState?: string;
-  packaging?: string;
-  quantity?: number | string;
+  variety: string | null;
+  description: string | null;
+  grade: string | null;
+  hsCode: string | null;
+  originCountry: string | null;
+  originState: string | null;
+  packaging: string | null;
+  quantity: string | null;
   unit: string;
-  moq?: number | string;
-  pricePerUnit?: number | string;
-  description?: string;
-  photos: string[];
+  moq: string | null;
+  capacityPerMonth: string | null;
+  capacityUnit: string | null;
+  leadTimeDays: number | null;
+  /** The price is a range; a single price has priceMin = priceMax. */
+  priceMin: string | null;
+  priceMax: string | null;
   currency: string;
-  priceUsd?: string | null;
-  priceUsdAsOf?: string | null;
+  priceUsd: string | null;
+  priceUsdMax: string | null;
+  priceUsdAsOf: string | null;
+  priceValidUntil: string | null;
+  incoterms: string[];
+  portOfLoading: string | null;
+  photos: string[];
+  specs: ProductSpec[];
+  certificates: ProductCertificate[];
+  status: ListingStatus;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  /** Why the reviewer rejected it; shown to the seller as written. */
+  rejectionReason: string | null;
+  /** Edits to a published listing still waiting for a reviewer. */
+  pendingRevision: (Record<string, unknown> & { specs?: ProductSpec[] }) | null;
+  revisionSubmittedAt: string | null;
+  revisionRejectionReason: string | null;
+  /** What is still needed before the listing can be submitted. */
+  missing: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SpecIn {
+  parameterId: string;
+  value: string;
+  operator?: SpecOperator;
+  testMethod?: string | null;
+}
+
+/** Any subset of a listing's fields (PATCH); a draft needs name + category. */
+export interface ProductWrite {
+  name?: string;
+  category?: string;
+  variety?: string | null;
+  description?: string | null;
+  grade?: string | null;
+  hsCode?: string | null;
+  originCountry?: string | null;
+  originState?: string | null;
+  packaging?: string | null;
+  quantity?: number | null;
+  unit?: string;
+  moq?: number | null;
+  capacityPerMonth?: number | null;
+  capacityUnit?: string | null;
+  leadTimeDays?: number | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+  currency?: string;
+  priceValidUntil?: string | null;
+  incoterms?: string[];
+  portOfLoading?: string | null;
+  photos?: string[];
+  specs?: SpecIn[];
 }
 
 // ── Auth flow shapes ───────────────────────────────────────────────────
@@ -478,16 +572,18 @@ export const api = {
       method: "POST",
     }),
   listVerificationDocs: () =>
-    jsonFetch<VerificationDoc[]>("/me/verification-docs"),
+    jsonFetch<ItemList<VerificationDoc>>("/me/verification-docs").then((r) => r.items),
   uploadVerificationDoc: (certType: string, file: File): Promise<VerificationDoc> => {
     const form = new FormData();
     form.append("customName", certType);
     form.append("file", file);
     return jsonFetch<VerificationDoc>("/me/verification-docs", { method: "POST", body: form });
   },
-  kybCountries: () => jsonFetch<KybCountry[]>("/kyb/countries"),
+  kybCountries: () => jsonFetch<ItemList<KybCountry>>("/kyb/countries").then((r) => r.items),
   kybDocTypes: (country?: string) =>
-    jsonFetch<KybDocType[]>(`/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
+    jsonFetch<ItemList<KybDocType>>(
+      `/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`,
+    ).then((r) => r.items),
   addKybEntry: (entry: KybEntryIn): Promise<VerificationDoc> => {
     const form = new FormData();
     if (entry.documentTypeId) form.append("documentTypeId", entry.documentTypeId);
@@ -515,12 +611,28 @@ export const api = {
     jsonFetch<RevealedContact>(`/products/${productId}/contact-reveal`, {
       method: "POST",
     }),
-  listProducts: () => jsonFetch<ProductRead[]>("/products"),
-  createProduct: (payload: unknown) =>
-    jsonFetch<ProductRead>("/products", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
+  listProducts: () => jsonFetch<ItemList<ProductRead>>("/products").then((r) => r.items),
+  getProduct: (id: string) => jsonFetch<ProductRead>(`/products/${id}`),
+  /** Starts a draft. Nothing reaches the market until it is submitted and approved. */
+  createProduct: (payload: ProductWrite) =>
+    jsonFetch<ProductRead>("/products", { method: "POST", body: JSON.stringify(payload) }),
+  /** On a published listing, price and stock change at once; the rest waits for review. */
+  updateProduct: (id: string, payload: ProductWrite) =>
+    jsonFetch<ProductRead>(`/products/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  submitProduct: (id: string) => jsonFetch<ProductRead>(`/products/${id}/submit`, { method: "POST" }),
+  withdrawProduct: (id: string) => jsonFetch<ProductRead>(`/products/${id}/withdraw`, { method: "POST" }),
+  pauseProduct: (id: string) => jsonFetch<ProductRead>(`/products/${id}/pause`, { method: "POST" }),
+  resumeProduct: (id: string) => jsonFetch<ProductRead>(`/products/${id}/resume`, { method: "POST" }),
+  discardProductRevision: (id: string) => jsonFetch<ProductRead>(`/products/${id}/revision`, { method: "DELETE" }),
+  deleteProduct: (id: string) => jsonFetch<void>(`/products/${id}`, { method: "DELETE" }),
+  uploadProductCertificate: (productId: string, certificateTypeId: string, file: File): Promise<ProductCertificate> => {
+    const form = new FormData();
+    form.append("certificateTypeId", certificateTypeId);
+    form.append("file", file);
+    return jsonFetch<ProductCertificate>(`/products/${productId}/certificates`, { method: "POST", body: form });
+  },
+  deleteProductCertificate: (productId: string, certificateId: string) =>
+    jsonFetch<void>(`/products/${productId}/certificates/${certificateId}`, { method: "DELETE" }),
   uploadProductPhoto: (file: File): Promise<{ url: string }> => {
     const form = new FormData();
     form.append("file", file);

@@ -7,7 +7,7 @@ import { LotCover } from "@/components/market/LotPhoto";
 import { FrostName } from "@/components/market/SellerFrost";
 import type { PublicProductCard as CardData } from "@/lib/publicApi";
 import { photoUrl } from "@/lib/publicApi";
-import { formatQty, joinDot, listingCode, packingLabel, priceFigure } from "./format";
+import { formatQty, joinDot, listingCode, packingLabel, priceRangeFigure } from "./format";
 
 /**
  * Market card (buying lens) — a relief card led by the lot's photograph:
@@ -20,7 +20,7 @@ export function PublicProductCard({ product: p, priority }: { product: CardData;
   const place = p.seller.state || "India";
   const volume = formatQty(p.quantity, p.unit);
   const moq = formatQty(p.moq, p.unit);
-  const price = priceFigure(p.pricePerUnit, p.unit, p.currency);
+  const price = priceRangeFigure(p.priceMin, p.priceMax, p.unit, p.currency);
 
   return (
     <Link
@@ -47,7 +47,7 @@ export function PublicProductCard({ product: p, priority }: { product: CardData;
       <div className="flex flex-1 flex-col px-2.5 pb-2.5 pt-4">
         <h3 className="t-title3 line-clamp-2 break-words text-fg">{p.name}</h3>
         <p className="t-sub mt-0.5 truncate text-fg-3">
-          {joinDot(p.variety || p.category, p.originState && `from ${p.originState}`, packingLabel(p.packaging))}
+          {joinDot(p.grade || p.variety || p.category, p.originState && `from ${p.originState}`, packingLabel(p.packaging))}
         </p>
 
         <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4">
@@ -56,7 +56,13 @@ export function PublicProductCard({ product: p, priority }: { product: CardData;
             label="Price"
             value={price}
             muted={price === "On request"}
-            sub={<ApproxPrice amount={p.pricePerUnit} currency={p.currency} variant="line" />}
+            sub={
+              p.priceVisible ? (
+                <ApproxPrice amount={p.priceMin} currency={p.currency} variant="line" />
+              ) : (
+                <span className="t-foot mt-0.5 block truncate text-fg-3">Shown to verified buyers</span>
+              )
+            }
           />
         </dl>
 

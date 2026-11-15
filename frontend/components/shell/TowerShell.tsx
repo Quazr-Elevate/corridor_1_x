@@ -67,8 +67,10 @@ const NAV: ReadonlyArray<{
     count: (s) => s.pendingVerificationBusinesses,
     match: (p) => p.startsWith("/admin/verify") || p.startsWith("/admin/docs"),
   },
+  { href: "/admin/listings", label: "Listings", icon: "sack", perm: "listings.review", match: (p) => p.startsWith("/admin/listings") },
   { href: "/admin/users", label: "Directory", icon: "users", match: (p) => p.startsWith("/admin/users") },
   { href: "/admin/kyb-types", label: "Doc types", icon: "settings", perm: "catalog.view", match: (p) => p.startsWith("/admin/kyb-types") },
+  { href: "/admin/listing-templates", label: "Templates", icon: "list", perm: "catalog.view", match: (p) => p.startsWith("/admin/listing-templates") },
   { href: "/admin/admins", label: "Admins", icon: "key", perm: "admins.manage", match: (p) => p.startsWith("/admin/admins") },
 ];
 

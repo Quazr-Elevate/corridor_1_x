@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { LinkButton } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -8,9 +9,10 @@ import { Icon } from "@/components/ui/Icon";
 import { EmptyState } from "@/components/ui/Surface";
 import { MarketAmbient } from "@/components/market/MarketAmbient";
 import { ApproxPrice } from "@/components/fx/FxContext";
+import { CertificateLinks } from "@/components/products/CertificateLinks";
 import { ContactGate } from "@/components/products/ContactGate";
 import { PhotoCarousel } from "@/components/products/PhotoCarousel";
-import { formatPrice, formatQty, joinDot, listingCode, packingLabel } from "@/components/products/format";
+import { formatQty, joinDot, listingCode, packingLabel, priceRangeFigure, specValue } from "@/components/products/format";
 import { commodityPhoto, MEDIA } from "@/lib/media";
 import { publicApi, PublicApiError, type PublicProductDetail } from "@/lib/publicApi";
 
@@ -42,7 +44,8 @@ export default async function ProductDetailPage({ params }: Params) {
   const { id } = await params;
   let product: PublicProductDetail;
   try {
-    product = await publicApi.getProduct(id);
+    // The visitor's cookie decides whether the price range comes back.
+    product = await publicApi.getProduct(id, { cookie: (await cookies()).toString() });
   } catch (err) {
     if (err instanceof PublicApiError && (err.status === 404 || err.status === 422)) notFound();
     return (
@@ -70,12 +73,15 @@ export default async function ProductDetailPage({ params }: Params) {
   const sellerPlace = p.seller.state || null;
   const volume = formatQty(p.quantity, p.unit);
   const moq = formatQty(p.moq, p.unit);
-  const priced = p.pricePerUnit !== null && p.pricePerUnit !== "";
-  const specs: Array<{ label: string; value: string | null }> = [
+  const priced = p.priceVisible && p.priceMin !== null && p.priceMin !== "";
+  const capacity = formatQty(p.capacityPerMonth, p.capacityUnit || p.unit);
+  const facts: Array<{ label: string; value: string | null }> = [
     { label: "Category", value: p.category },
-    { label: "Variety / grade", value: p.variety },
-    { label: "Origin", value: p.originState },
+    { label: "Grade", value: p.grade || p.variety },
+    { label: "Origin", value: joinDot(p.originState, p.originCountry) || null },
     { label: "Packaging", value: p.packaging },
+    { label: "Monthly capacity", value: capacity },
+    { label: "Incoterms", value: p.incoterms.length ? p.incoterms.join(" · ") : null },
   ];
 
   return (
@@ -89,7 +95,7 @@ export default async function ProductDetailPage({ params }: Params) {
           <PhotoCarousel photos={photos} alt={p.name} category={p.category} />
         </div>
 
-        <div className="min-w-0 space-y-6 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <div className="min-w-0 space-y-6 lg:col-start-2 lg:row-span-3 lg:row-start-1">
           <header className="animate-rise" style={{ animationDelay: "60ms" }}>
             <div className="flex flex-wrap items-center gap-2">
               <Chip tone="neutral" noIcon>
@@ -101,7 +107,7 @@ export default async function ProductDetailPage({ params }: Params) {
             <h1 className="t-large mt-4 break-words text-fg">{p.name}</h1>
             <p className="t-body mt-2 text-fg-2">
               {joinDot(
-                p.variety || p.category,
+                p.grade || p.variety || p.category,
                 p.originState ? `from ${p.originState}` : "India",
                 packingLabel(p.packaging),
               )}
@@ -115,10 +121,18 @@ export default async function ProductDetailPage({ params }: Params) {
           >
             <p className="t-label text-fg-3">Price</p>
             <p className={`t-title1 tabular mt-1.5 ${priced ? "text-fg" : "text-fg-3"}`}>
-              {formatPrice(p.pricePerUnit, p.unit, p.currency)}
-              <ApproxPrice amount={p.pricePerUnit} currency={p.currency} />
+              {priceRangeFigure(p.priceMin, p.priceMax, p.unit, p.currency)}
+              {priced ? <ApproxPrice amount={p.priceMin} currency={p.currency} /> : null}
             </p>
-            {!priced ? <p className="t-sub mt-1 text-fg-3">The seller quotes on request.</p> : null}
+            {!p.priceVisible ? (
+              <p className="t-sub mt-1 text-fg-3">
+                The price range is shown to signed-in, verified businesses.
+              </p>
+            ) : !priced ? (
+              <p className="t-sub mt-1 text-fg-3">The seller quotes on request.</p>
+            ) : p.priceValidUntil ? (
+              <p className="t-sub mt-1 text-fg-3">Indicative range, valid until {p.priceValidUntil}.</p>
+            ) : null}
 
             <dl className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-4">
               <Figure label="Volume" value={volume} />
@@ -126,7 +140,7 @@ export default async function ProductDetailPage({ params }: Params) {
             </dl>
 
             <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-line pt-5">
-              {specs.map((s) => (
+              {facts.map((s) => (
                 <ReadField key={s.label} label={s.label} value={s.value} />
               ))}
             </div>
@@ -137,9 +151,46 @@ export default async function ProductDetailPage({ params }: Params) {
           </div>
         </div>
 
+        {p.specs.length || p.certificates.length ? (
+          <section
+            className="relief min-w-0 animate-rise rounded-[30px] p-6 sm:p-8 lg:col-start-1"
+            style={{ animationDelay: "150ms" }}
+            aria-labelledby="lot-specs"
+          >
+            {p.specs.length ? (
+              <>
+                <p className="t-label text-fg-3">Stated by the seller</p>
+                <h2 id="lot-specs" className="t-title3 mt-1.5 text-fg">
+                  Specifications
+                </h2>
+                <dl className="mt-4 divide-y divide-line">
+                  {p.specs.map((s) => (
+                    <div key={s.parameterId} className="flex items-baseline justify-between gap-4 py-2.5">
+                      <dt className="t-body min-w-0 text-fg-2">
+                        {s.name}
+                        {s.testMethod ? <span className="t-foot ml-2 text-fg-3">{s.testMethod}</span> : null}
+                      </dt>
+                      <dd className="t-code tabular shrink-0 text-fg">{specValue(s.value, s.unit, s.operator)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            ) : null}
+            {p.certificates.length ? (
+              <div className={p.specs.length ? "mt-7 border-t border-line pt-6" : undefined}>
+                <p className="t-label text-fg-3">Checked by Corridor ops</p>
+                <h2 id={p.specs.length ? undefined : "lot-specs"} className="t-title3 mt-1.5 text-fg">
+                  Documents
+                </h2>
+                <CertificateLinks certificates={p.certificates} />
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         {p.description ? (
           <section
-            className="relief min-w-0 animate-rise rounded-[30px] p-6 sm:p-8 lg:col-start-1 lg:row-start-2"
+            className="relief min-w-0 animate-rise rounded-[30px] p-6 sm:p-8 lg:col-start-1"
             style={{ animationDelay: "120ms" }}
             aria-labelledby="about-lot"
           >

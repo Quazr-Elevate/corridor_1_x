@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition, type FormEvent } from "react";
+import { useMe } from "@/lib/useMe";
 import { DISPLAY_CURRENCIES, isDisplayCurrency, useFx, type DisplayCurrency } from "@/components/fx/FxContext";
 import { convertAmount, currencySymbol, formatApproxMoney } from "@/components/products/format";
 import { Button, IconButton } from "@/components/ui/Button";
@@ -51,6 +52,10 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
 
   const fx = useFx();
   const { setGuestCurrency, signedIn } = fx;
+  // Prices, and so price filters, are only for a signed-in, verified business
+  // (decision A-022). The API ignores the bounds for everyone else.
+  const { me } = useMe();
+  const canSeePrices = me?.verification.status === "verified";
   // Signed-out viewers: the URL pick (default USD) is their display currency.
   useEffect(() => {
     if (!signedIn) setGuestCurrency(current.priceCurrency);
@@ -214,6 +219,8 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
             onChange={(e) => push({ originState: e.target.value || undefined })}
             options={stateOptions}
           />
+          {canSeePrices ? (
+          <>
           <Input
             label={`Min price (${priceCurrency})`}
             inputMode="decimal"
@@ -232,6 +239,12 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
             onChange={(e) => setMaxPrice(numeric(e.target.value))}
             leading={<span className="t-code">{symbol}</span>}
           />
+          </>
+          ) : (
+            <p className="t-sub self-center text-fg-3 sm:col-span-1 lg:col-span-2">
+              Prices and price filters are shown to signed-in, verified businesses.
+            </p>
+          )}
           <Input
             label="Min MOQ"
             inputMode="decimal"
@@ -244,7 +257,7 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
               Apply
             </Button>
           </div>
-          {!signedIn ? (
+          {!signedIn && canSeePrices ? (
             <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-5">
               <span className="t-sub text-fg-3">Show prices in</span>
               <Segmented

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { LinkButton } from "@/components/ui/Button";
 import { EmptyState, Skeleton } from "@/components/ui/Surface";
@@ -44,9 +45,12 @@ export default async function MarketPage({
 }) {
   const filters: CatalogFilters = filtersFromRecord((await searchParams) ?? {});
 
+  // The visitor's cookie decides whether prices and price filters apply:
+  // they are only for a signed-in, verified business.
+  const viewer = { cookie: (await cookies()).toString() };
   const [listRes, facetsRes] = await Promise.allSettled([
-    publicApi.listProducts({ ...filters, limit: MARKET_PAGE_SIZE }),
-    publicApi.facets(),
+    publicApi.listProducts({ ...filters, limit: MARKET_PAGE_SIZE }, viewer),
+    publicApi.facets(viewer),
   ]);
   const list: PublicProductList | null = listRes.status === "fulfilled" ? listRes.value : null;
   const facets = facetsRes.status === "fulfilled" ? facetsRes.value : EMPTY_FACETS;

@@ -72,6 +72,24 @@ export function priceFigure(v: Num, unit: string, currency?: string | null): str
   return n === null ? "On request" : `${formatMoney(n, currency)}/${unit}`;
 }
 
+/**
+ * "₹72–₹80/MT" · "₹72/MT" when both ends are equal · "On request" when the
+ * listing is unpriced or the viewer may not see prices.
+ */
+export function priceRangeFigure(min: Num, max: Num, unit: string, currency?: string | null): string {
+  const lo = toNumber(min);
+  const hi = toNumber(max);
+  if (lo === null) return "On request";
+  if (hi === null || hi === lo) return `${formatMoney(lo, currency)}/${unit}`;
+  return `${formatMoney(lo, currency)}–${formatMoney(hi, currency)}/${unit}`;
+}
+
+/** "MIN 6.5 mm" · "MAX 12 %" · "5 %" for EQ — one specification row's value. */
+export function specValue(value: string, unit: string | null, operator: string): string {
+  const figure = unit ? `${value} ${unit}` : value;
+  return operator === "EQ" ? figure : `${operator === "MIN" ? "min" : "max"} ${figure}`;
+}
+
 // ── Indicative conversions ───────────────────────────────────────────
 // A listing's price is always shown as the seller entered it. When the
 // viewer's display currency differs, an indicative conversion follows:

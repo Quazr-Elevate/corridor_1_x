@@ -1,4 +1,6 @@
+import type { ItemList, ProductRead } from "./api";
 import { versioned } from "./apiBase";
+import type { CertificateType, SpecParameter } from "./publicApi";
 
 export const API_BASE = versioned(process.env.NEXT_PUBLIC_API_BASE_URL || "/api");
 
@@ -12,6 +14,7 @@ export type AdminPermission =
   | "kyb.sensitive_view"
   | "catalog.view"
   | "catalog.manage"
+  | "listings.review"
   | "accounts.security"
   | "admins.manage";
 
@@ -363,6 +366,56 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+// ── Listings (review queue) ──────────────────────────────────────────
+
+export interface ListingSeller {
+  businessId: string;
+  legalName: string | null;
+  state: string | null;
+  country: string | null;
+  verified: boolean;
+}
+
+export interface AdminListingRow {
+  id: string;
+  name: string;
+  category: string;
+  status: ProductRead["status"];
+  /** "new" — a submitted listing; "revision" — edits to a published one. */
+  reviewKind: "new" | "revision" | null;
+  waitingSince: string | null;
+  photo: string | null;
+  seller: ListingSeller;
+}
+
+export interface RevisionChange {
+  field: string;
+  current: unknown;
+  proposed: unknown;
+}
+
+export interface AdminListingDetail {
+  listing: ProductRead;
+  reviewKind: "new" | "revision" | null;
+  seller: ListingSeller;
+  changes: RevisionChange[];
+}
+
+export interface ListingStatusChanged {
+  id: string;
+  status: ProductRead["status"];
+  hasPendingRevision: boolean;
+}
+
+export type SpecParameterIn = Pick<SpecParameter, "category" | "code" | "name"> &
+  Partial<Pick<SpecParameter, "valueType" | "unit" | "defaultOperator" | "testMethod" | "isRequired" | "sortOrder">>;
+export type SpecParameterPatch = Partial<
+  Pick<SpecParameter, "name" | "unit" | "defaultOperator" | "testMethod" | "isRequired" | "sortOrder" | "active">
+>;
+export type CertificateTypeIn = Pick<CertificateType, "category" | "code" | "name"> &
+  Partial<Pick<CertificateType, "helpText" | "isRequired" | "sortOrder">>;
+export type CertificateTypePatch = Partial<Pick<CertificateType, "name" | "helpText" | "isRequired" | "sortOrder" | "active">>;
+
 export const adminApi = {
   login: (email: string, password: string) =>
     req<AdminMe>("/admin/login", {
@@ -376,7 +429,7 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ currentPassword, newPassword }),
     }),
-  admins: () => req<AdminAccount[]>("/admin/admins"),
+  admins: () => req<ItemList<AdminAccount>>("/admin/admins").then((r) => r.items),
   createAdmin: (payload: { email: string; fullName: string; role: AdminRole }) =>
     req<AdminWithPassword>("/admin/admins", { method: "POST", body: JSON.stringify(payload) }),
   updateAdmin: (id: string, patch: { fullName?: string; role?: AdminRole; status?: "active" | "disabled" }) =>
@@ -391,9 +444,9 @@ export const adminApi = {
   timeline: (days = 30) =>
     req<TimelinePoint[]>(`/admin/dashboard/timeline?days=${days}`),
   stuck: (limit = 10) =>
-    req<StuckUser[]>(`/admin/dashboard/stuck?limit=${limit}`),
-  verifyQueue: () => req<VerifyQueueRow[]>("/admin/verify/queue"),
-  pendingDocs: () => req<PendingDocRow[]>("/admin/docs/pending"),
+    req<ItemList<StuckUser>>(`/admin/dashboard/stuck?limit=${limit}`).then((r) => r.items),
+  verifyQueue: () => req<ItemList<VerifyQueueRow>>("/admin/verify/queue").then((r) => r.items),
+  pendingDocs: () => req<ItemList<PendingDocRow>>("/admin/docs/pending").then((r) => r.items),
   approveDoc: (docId: string) =>
     req<{ docId: string; status: string }>(`/admin/docs/${docId}/approve`, {
       method: "POST",
@@ -425,7 +478,9 @@ export const adminApi = {
     return res.blob();
   },
   kybTypes: (country?: string) =>
-    req<AdminKybDocType[]>(`/admin/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
+    req<ItemList<AdminKybDocType>>(
+      `/admin/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`,
+    ).then((r) => r.items),
   createKybType: (payload: AdminKybDocTypeIn) =>
     req<AdminKybDocType>("/admin/kyb/document-types", { method: "POST", body: JSON.stringify(payload) }),
   updateKybType: (id: string, patch: Partial<Omit<AdminKybDocTypeIn, "country" | "code">>) =>
@@ -458,7 +513,7 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ reason, failedItems }),
     }),
-  kybCountries: () => req<AdminCountry[]>("/admin/kyb/countries"),
+  kybCountries: () => req<ItemList<AdminCountry>>("/admin/kyb/countries").then((r) => r.items),
   createKybCountry: (
     country: string,
     documents: Array<Omit<AdminKybDocTypeIn, "country">>,
@@ -470,4 +525,47 @@ export const adminApi = {
     }),
   updateKybCountry: (code: string, patch: AdminCountryFields & { active?: boolean }) =>
     req<AdminCountry>(`/admin/kyb/countries/${code}`, { method: "PATCH", body: JSON.stringify(patch) }),
+
+  // ─── Listings ───
+  listings: (params: { queue?: "pending" | "all"; status?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+    return req<ItemList<AdminListingRow>>(`/admin/listings${qs.size ? `?${qs}` : ""}`);
+  },
+  listing: (id: string) => req<AdminListingDetail>(`/admin/listings/${id}`),
+  approveListing: (id: string) => req<ListingStatusChanged>(`/admin/listings/${id}/approve`, { method: "POST" }),
+  rejectListing: (id: string, reason: string) =>
+    req<ListingStatusChanged>(`/admin/listings/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
+  setCertificateVisibility: (listingId: string, certificateId: string, visibility: "internal" | "downloadable") =>
+    req<{ id: string; visibility: string }>(`/admin/listings/${listingId}/certificates/${certificateId}/visibility`, {
+      method: "POST",
+      body: JSON.stringify({ visibility }),
+    }),
+
+  // ─── Listing templates ───
+  specParameters: (category?: string) =>
+    req<ItemList<SpecParameter>>(
+      `/admin/listing-templates/spec-parameters${category ? `?category=${encodeURIComponent(category)}` : ""}`,
+    ).then((r) => r.items),
+  createSpecParameter: (payload: SpecParameterIn) =>
+    req<SpecParameter>("/admin/listing-templates/spec-parameters", { method: "POST", body: JSON.stringify(payload) }),
+  updateSpecParameter: (id: string, patch: SpecParameterPatch) =>
+    req<SpecParameter>(`/admin/listing-templates/spec-parameters/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  certificateTypes: (category?: string) =>
+    req<ItemList<CertificateType>>(
+      `/admin/listing-templates/certificate-types${category ? `?category=${encodeURIComponent(category)}` : ""}`,
+    ).then((r) => r.items),
+  createCertificateType: (payload: CertificateTypeIn) =>
+    req<CertificateType>("/admin/listing-templates/certificate-types", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateCertificateType: (id: string, patch: CertificateTypePatch) =>
+    req<CertificateType>(`/admin/listing-templates/certificate-types/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 };
