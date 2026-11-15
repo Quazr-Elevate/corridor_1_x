@@ -682,3 +682,69 @@ migration on a full table.
 
 `ck_users_totp_secret_pair` / `ck_admin_users_totp_secret_pair`: the secret
 and its key version are both set or both null.
+
+## Listing review (`0026_listing_review`)
+
+Build plan section 03. Listings are reviewed before they reach the market,
+carry commercial terms and template-driven specifications, and can hold
+certificates.
+
+### Changes to `products`
+
+| Column | Type | Notes |
+|---|---|---|
+| `status` | varchar(20), default `draft` | `draft`, `under_review`, `published`, `rejected`, `paused`. Changed only by `catalog/lifecycle.transition` |
+| `submitted_at`, `published_at`, `reviewed_at` | timestamptz, null | Review trail |
+| `reviewed_by` | uuid, null, FK `admin_users` (SET NULL) | Last reviewer |
+| `rejection_reason` | varchar(500), null | Shown to the seller |
+| `pending_revision` | JSON, null | Reviewed fields a seller changed on a published listing; applied on approval |
+| `revision_submitted_at` | timestamptz, null | When the edit was sent |
+| `revision_rejection_reason` | varchar(500), null | Why the last edit was turned down |
+| `grade`, `hs_code`, `origin_country`, `port_of_loading` | text, null | Commercial terms |
+| `incoterms` | JSON list, default `[]` | EXW, FOB, CIF, CFR, DAP, DDP |
+| `price_max` | numeric(12,2), null | `price_per_unit` is the range minimum |
+| `price_usd_max` | numeric(14,2), null | USD mirror of `price_max` |
+| `price_valid_until` | date, null | |
+| `lead_time_days` | integer, null | |
+| `capacity_per_month`, `capacity_unit` | numeric(12,2) / varchar(10), null | |
+
+Checks: `ck_products_status`, `ck_products_price_range` (a maximum needs a
+minimum and is not below it), `ck_products_lead_time`, `ck_products_capacity`.
+Index `ix_products_review_queue (status, submitted_at)` on live rows.
+
+Market rule: a product is visible when `status = 'published'`, it is not
+deleted, and its business is verified and not deleted.
+
+Backfill: listings of verified businesses became `published`; all others
+`draft`. Existing prices became a one-point range.
+
+### 14. `spec_parameters` — category specification template
+
+`id`, `category`, `code` (unique per category, lower-case), `name`,
+`value_type` (`number` | `text`), `unit`, `default_operator` (`MIN` | `MAX` |
+`EQ`), `test_method`, `is_required`, `sort_order`, `active`, timestamps.
+Never deleted; retire with `active = false`.
+
+### 15. `product_specs` — a listing's values
+
+`id`, `product_id` (FK, CASCADE), `parameter_id` (FK, RESTRICT),
+`value_number` numeric(14,4) or `value_text` (exactly one), `operator`,
+`test_method`. Unique `(product_id, parameter_id)`.
+
+### 16. `certificate_types`
+
+`id`, `category` (a product category, or `*` for every category), `code`,
+`name`, `help_text`, `is_required`, `sort_order`, `active`, timestamps.
+
+### 17. `product_certificates`
+
+`id`, `product_id` (FK, CASCADE), `certificate_type_id` (FK, RESTRICT),
+`storage_key`, `original_filename`, `mime_type`, `size_bytes`, `visibility`
+(`internal` | `downloadable`), `visibility_set_by` (FK `admin_users`),
+`visibility_set_at`, `uploaded_by_user_id`, `created_at`. One file per
+`(product_id, certificate_type_id)`; replacing it resets it to `internal`.
+
+### 18. `certificate_downloads` — append-only download log
+
+`id`, `certificate_id`, `product_id`, `buyer_business_id`, `user_id`,
+`downloaded_at`.

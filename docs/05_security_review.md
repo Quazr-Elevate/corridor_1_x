@@ -37,7 +37,7 @@ Status: ✅ meets policy · ⚠️ partial · ❌ gap · ⏳ planned (agreed pha
 | Admin IP allowlist | ✅ `ADMIN_IP_ALLOWLIST` built, empty = off (testing phase) |
 | `admin_actions` attribution | ✅ `admin_user_id` FK on every new audit row |
 | Still open from Phase A | ⏳ Hash-chained audit log (F12, with Phase B's insert-only role) |
-| Added in M1 (Nov 2026) | ✅ Reason required and stored for every admin number reveal and file open (B10, CX-066); uploaded images re-encoded without EXIF/XMP/GPS (CX-067); market shows the seller's state, never the city (CX-068); email on password change and on sign-in from a browser not seen before (CX-034) |
+| Added in M1 (Nov 2026) | ✅ Reason required and stored for every admin number reveal and file open (B10, CX-066); uploaded images re-encoded without EXIF/XMP/GPS (CX-067); market shows the seller's state, never the city (CX-068); email on password change and on sign-in from a browser not seen before (CX-034); listings are reviewed before they reach the market, and a client can never set a listing's status (CX-071); the price range and price filters are returned only to a signed-in, verified business (A-022); listing documents are internal until an admin approves them, and downloads are logged (CX-075) |
 
 Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted storage + malware scan, Redis limits, Vault/KMS, Cloudflare, central logs, DB hardening) and the dependency upgrades (F2, F3) are unchanged.
 

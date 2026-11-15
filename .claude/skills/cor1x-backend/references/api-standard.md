@@ -109,9 +109,11 @@ with `limit` (bounded: default 24 or 50, maximum 60 or 200) and `offset` query
 parameters, and a stable sort: newest first by `created_at`, then `id` as the
 tiebreaker so pages never repeat or skip rows.
 
-**From M1:** the four lists that return bare arrays today (`GET /products`,
-`GET /me/verification-docs`, `GET /admin/admins`, `GET /admin/docs/pending`) move
-to the envelope, alongside the listing work.
+**Current (A-024, M1).** Every collection uses the envelope. An unpaged list
+wraps itself with `item_list(...)` and declares `ItemList[T]`
+(`app/shared/schemas.py`). `tests/test_api_contract.py` fails if a GET route
+returns a bare array; the one exception is `/admin/dashboard/timeline`, a
+chart series.
 
 **From M4:** high-volume feeds (chat messages, the ledger) use cursor pagination
 (`?after=<opaque cursor>`), because offsets drift while rows are being added.

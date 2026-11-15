@@ -41,7 +41,12 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ **Verified badge** on the dashboard and in the market; email when approved or rejected.
 
 ### 1.4 Products & market
-- ✅ Product listings: name, category, variety, origin, packaging, quantity, unit, minimum order (MOQ), price and currency, description, 1–5 photos.
+- ✅ Product listings: name, category, grade, variety, HS code, origin country and state, packaging, quantity, unit, minimum order (MOQ), monthly capacity, lead time, a **price range** with currency and validity date, accepted incoterms, port of loading, description, 1–5 photos.
+- ✅ **Listing review (M1):** a listing starts as a draft, is submitted once the checklist is met and the business is verified, and reaches the market only when a reviewer approves it. The seller sees the reviewer's reason on a rejection, and can withdraw, pause, resume or delete a listing.
+- ✅ **Editing a published listing (M1):** price range, price validity, quantity and MOQ change at once; any other change waits for a reviewer while the published version stays live.
+- ✅ **Specifications (M1):** each category has a template of specification rows (Rice, Spices and Pulses to start); the seller states a value, whether it is a minimum, maximum or exact, and optionally the test method.
+- ✅ **Listing documents (M1):** certificate of analysis, quality test report and product certificate; internal until a reviewer approves one for download by verified buyers. Every download is logged.
+- ✅ **Who sees prices (M1):** the price range and price filters are for signed-in, verified businesses; everyone else sees "On request". The market shows the seller's state, never the city.
 - ✅ Public **market** (no sign-in needed) with search and filters (category, variety, origin, price range, MOQ).
 - ✅ **Display currency** (INR / AED / USD) with indicative conversion from daily exchange rates.
 - ✅ Seller identity is **masked** in the market (city, state, verified badge only).
@@ -72,6 +77,13 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ Directory of all accounts with search and status filters; account detail with profile, documents, onboarding timeline.
 - ✅ Edit business details (audited).
 - ✅ **Sign-in & security** card per trader: lock state, signed-in device; super admins can **unlock** an account and **sign out** its device.
+
+### 2.3a Listing review (M1)
+- ✅ Queue of new submissions and edits to published listings; the reviewer sees the listing, the seller behind it, and for an edit the published value next to the proposed one.
+- ✅ Approve (publish, or apply the edit), reject with a reason, or take a published listing down. Every decision is in the audit trail.
+- ✅ Mark each listing document internal or downloadable.
+- ✅ Listing templates: specification rows and document types per category, required or optional, retired but never deleted.
+- ✅ Opening a KYB file or revealing a full KYB number asks for a reason once per business; the reason is stored with the audit entry.
 
 ### 2.4 Countries and document types
 - ✅ Super admins **open a country together with its required documents** (name, flag, dial code, currency, address labels, postcode format).
@@ -111,4 +123,5 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 | Date | Added |
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
+| Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
 | Earlier | Sign-up with email code, business profile and per-country KYB, combined review, countries, products and market, currency display, contact reveal, admin console |
