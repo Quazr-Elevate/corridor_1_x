@@ -176,7 +176,7 @@ async def test_other_business_cannot_touch_entries(client, make_client):
     anon = make_client()
     assert (await anon.post(f"{base}/reveal")).status_code == 401
     assert (await anon.get("/kyb/document-types")).status_code == 401
-    assert (await anon.post(f"/admin/docs/{entry['id']}/reveal")).status_code == 401
+    assert (await anon.post(f"/admin/docs/{entry['id']}/reveal", json={"reason": "KYB review"})).status_code == 401
     # Still intact for the owner.
     assert (await client.post(f"{base}/reveal")).json()["value"] == "12345678901234"
 
@@ -274,11 +274,15 @@ async def test_admin_reveal_is_audited_without_the_value(client, admin_client):
     await signup_and_login(client, "aud@kaverifoods.in")
     t = await _types(client)
     entry = (await _add(client, type_id=t["gstin"]["id"], value=GSTIN)).json()
-    r = await admin_client.post(f"/admin/docs/{entry['id']}/reveal")
+    # No reason, no number — and nothing in the log.
+    assert (await admin_client.post(f"/admin/docs/{entry['id']}/reveal")).status_code == 422
+    assert (await admin_client.post(f"/admin/docs/{entry['id']}/reveal", json={"reason": ""})).status_code == 422
+    r = await admin_client.post(f"/admin/docs/{entry['id']}/reveal", json={"reason": "Checking GSTIN against the portal"})
     assert r.status_code == 200 and r.json()["value"] == GSTIN
     async with SessionLocal() as db:
         rows = list(await db.scalars(select(AdminAction)))
     assert [a.action for a in rows] == ["kyb.value_viewed"]
+    assert rows[0].reason == "Checking GSTIN against the portal"
     assert GSTIN not in str(rows[0].details) and rows[0].target_id == entry["id"]
 
 

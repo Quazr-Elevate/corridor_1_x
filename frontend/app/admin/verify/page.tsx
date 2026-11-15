@@ -21,6 +21,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { DOC_REJECT_REASONS, RejectSheet, USER_REJECT_REASONS, type RejectItem } from "@/components/admin/RejectSheet";
+import { AccessScope } from "@/components/admin/AccessReason";
 import { ClearQueue } from "@/components/admin/ClearQueue";
 import { LaneHeader } from "@/components/admin/tower";
 import {
@@ -523,7 +524,11 @@ function DetailPanel({
 
   let paper: ReactNode;
   if (doc) {
-    paper = <DocPaper doc={doc} owner={name} preview />;
+    paper = (
+      <AccessScope id={row.businessId}>
+        <DocPaper doc={doc} owner={name} preview />
+      </AccessScope>
+    );
   } else if (loadingDetail) {
     paper = (
       <Paper eyebrow="Loading the account…" title={name} stamp="none" aria-busy="true">

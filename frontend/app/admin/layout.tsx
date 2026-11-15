@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { AccessReasonProvider } from "@/components/admin/AccessReason";
 import { TowerShell } from "@/components/shell/TowerShell";
 
 /**
@@ -10,5 +11,9 @@ import { TowerShell } from "@/components/shell/TowerShell";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   if (pathname === "/admin/login") return <>{children}</>;
-  return <TowerShell>{children}</TowerShell>;
+  return (
+    <TowerShell>
+      <AccessReasonProvider>{children}</AccessReasonProvider>
+    </TowerShell>
+  );
 }

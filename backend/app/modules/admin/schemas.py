@@ -162,6 +162,13 @@ class DocRejectIn(RequestModel):
     reason: str
 
 
+class AccessReasonIn(RequestModel):
+    """Why an admin is looking at a full KYB number or file; stored on the
+    audit row so the log answers "why", not only "who and when"."""
+
+    reason: text(500, 5)  # type: ignore[valid-type]
+
+
 # ── Users ────────────────────────────────────────────────────────────
 
 

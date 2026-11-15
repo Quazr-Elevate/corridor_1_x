@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { adminApi, docFileUrl, USER_STATUS_LABEL, type DocStatus, type VerifyDoc } from "@/lib/adminApi";
+import { adminApi, errorMessage, USER_STATUS_LABEL, type DocStatus, type VerifyDoc } from "@/lib/adminApi";
+import { AccessReasonCancelled, useAccessReason } from "./AccessReason";
 import { buttonClass } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -368,19 +369,75 @@ export function PaperRow({ label, value, mono }: { label: ReactNode; value: Reac
 
 /** The ink "Open" pill used on paper footers. */
 export function PaperOpenLink({ doc, label = "Open original" }: { doc: VerifyDoc; label?: string }) {
+  const { open, busy, error } = useOpenDoc(doc);
   if (!doc.url) return null;
   return (
-    <a
-      href={docFileUrl(doc.url)}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={`Open ${doc.filename} in a new tab`}
-      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3 text-[12.5px] font-medium text-cream transition-colors hover:bg-[#1f1f1f]"
-    >
-      <Icon name="external" size={14} />
-      {label}
-    </a>
+    <span className="inline-flex shrink-0 flex-wrap items-center justify-end gap-2">
+      {error ? <span className="text-[12px] text-[#b3261e]">{error}</span> : null}
+      <button
+        type="button"
+        onClick={open}
+        disabled={busy}
+        aria-label={`Open ${doc.filename} in a new tab`}
+        title="Opening the file is logged"
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-ink px-3 text-[12.5px] font-medium text-cream transition-colors hover:bg-[#1f1f1f] disabled:opacity-60"
+      >
+        <Icon name="external" size={14} />
+        {busy ? "Opening…" : label}
+      </button>
+    </span>
   );
+}
+
+/**
+ * Fetch a KYB file with the admin's reason and hand back a local blob URL.
+ * The URL is released when the document changes or the component unmounts.
+ */
+function useDocBlob(doc: Pick<VerifyDoc, "id" | "url">) {
+  const access = useAccessReason();
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const urlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setBlobUrl(null);
+    setError(null);
+    return () => {
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = null;
+    };
+  }, [doc.id]);
+
+  async function load(): Promise<string | null> {
+    if (!doc.url) return null;
+    if (urlRef.current) return urlRef.current;
+    setBusy(true);
+    setError(null);
+    try {
+      const blob = await adminApi.docFile(doc.url, await access.ask());
+      const url = URL.createObjectURL(blob);
+      urlRef.current = url;
+      setBlobUrl(url);
+      return url;
+    } catch (e) {
+      if (!(e instanceof AccessReasonCancelled)) setError(errorMessage(e, "Couldn’t open the file."));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return { blobUrl, busy, error, load, hasReason: access.known };
+}
+
+function useOpenDoc(doc: Pick<VerifyDoc, "id" | "url">) {
+  const { busy, error, load } = useDocBlob(doc);
+  async function open() {
+    const url = await load();
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }
+  return { open, busy, error };
 }
 
 const DOC_STAMP: Record<DocStatus, "pending" | "approved" | "rejected"> = {
@@ -414,7 +471,15 @@ export function DocPaper({
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   useEffect(() => setImgFailed(false), [doc.id]);
-  const src = docFileUrl(doc.url);
+  const file = useDocBlob(doc);
+  const src = file.blobUrl;
+  const canPreview = preview && doc.hasFile && (isImage(doc) || doc.mimeType === "application/pdf");
+  // A reason already given for this business covers the preview too.
+  const { load: loadPreview, hasReason } = file;
+  useEffect(() => {
+    if (canPreview && hasReason()) void loadPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id, canPreview]);
   return (
     <Paper
       eyebrow={`${mimeLabel(doc.mimeType)} · ${refId("DOC", doc.id)}`}
@@ -461,7 +526,22 @@ export function DocPaper({
           <PaperRow label="Reason" value={<span className="text-[#b3261e]">{doc.rejectionReason}</span>} />
         ) : null}
       </PaperRows>
-      {preview && isImage(doc) ? (
+      {canPreview && !src ? (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[14px] bg-ink/[0.05] px-4 py-4 shadow-[inset_0_0_0_1px_rgb(10_10_10/0.08)]">
+          <span className="t-sub text-ink/60">
+            {file.error ?? (file.busy ? "Loading the preview…" : "The preview is hidden until you say why you need it.")}
+          </span>
+          <button
+            type="button"
+            onClick={() => void loadPreview()}
+            disabled={file.busy}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full bg-ink/[0.08] px-3 text-[12.5px] font-medium text-ink hover:bg-ink/[0.12] disabled:opacity-60"
+          >
+            <Icon name="eye" size={14} />
+            Show preview
+          </button>
+        </div>
+      ) : preview && isImage(doc) && src ? (
         <div className="mt-5 overflow-hidden rounded-[14px] bg-ink/[0.05] shadow-[inset_0_0_0_1px_rgb(10_10_10/0.08)]">
           {imgFailed ? (
             <p className="t-sub px-4 py-10 text-center text-ink/60">Preview didn&apos;t load — open the original instead.</p>
@@ -525,6 +605,7 @@ export function isImage(doc: Pick<VerifyDoc, "mimeType">) {
  * writes `kyb.value_viewed` to the audit log — so it's never automatic.
  */
 export function RevealValue({ doc, onDark }: { doc: Pick<VerifyDoc, "id" | "valueMasked">; onDark?: boolean }) {
+  const access = useAccessReason();
   const [value, setValue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -537,9 +618,9 @@ export function RevealValue({ doc, onDark }: { doc: Pick<VerifyDoc, "id" | "valu
     setBusy(true);
     setError(null);
     try {
-      setValue((await adminApi.revealDocValue(doc.id)).value);
+      setValue((await adminApi.revealDocValue(doc.id, await access.ask())).value);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn’t show it.");
+      if (!(e instanceof AccessReasonCancelled)) setError(errorMessage(e, "Couldn’t show it."));
     } finally {
       setBusy(false);
     }
@@ -565,20 +646,22 @@ export function RevealValue({ doc, onDark }: { doc: Pick<VerifyDoc, "id" | "valu
   );
 }
 
-/** "Open" — authenticated file in a new tab (admin cookie rides along). */
+/** "Open" — the file in a new tab, after the admin's reason is on record. */
 export function OpenDocLink({ doc, size = "sm" }: { doc: VerifyDoc; size?: "sm" | "md" }) {
+  const { open, busy, error } = useOpenDoc(doc);
   if (!doc.url) return null;
   return (
-    <a
-      href={docFileUrl(doc.url)}
-      target="_blank"
-      rel="noopener noreferrer"
+    <button
+      type="button"
+      onClick={open}
+      disabled={busy}
       className={buttonClass("secondary", size)}
       aria-label={`Open ${doc.filename} in a new tab`}
+      title={error ?? "Opening the file is logged"}
     >
       <Icon name="external" size={15} />
-      Open
-    </a>
+      {busy ? "Opening…" : "Open"}
+    </button>
   );
 }
 

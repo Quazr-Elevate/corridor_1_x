@@ -9,6 +9,8 @@ import uuid
 from app.models.admin_action import AdminAction
 from app.models.business_document import BusinessDocument
 
+WHY = {"reason": "KYB review of this business"}
+
 
 async def test_doc_upload_rejects_disguised_html(client):
     await signup_and_login(client, "doc1@kaverifoods.in")
@@ -54,13 +56,17 @@ async def test_doc_access_control(client, make_client, admin_client):
     assert (await stranger.get(doc["url"])).status_code == 404
     assert (await stranger.delete(f"/me/verification-docs/{doc['id']}")).status_code == 404
     assert (await make_client().get(doc["url"])).status_code == 401
-    assert (await make_client().get(f"/admin/docs/{doc['id']}/file")).status_code == 401
+    assert (await make_client().post(f"/admin/docs/{doc['id']}/file", json=WHY)).status_code == 401
     assert (await stranger.get(f"/uploads/verification/{owner['businessId']}/x.pdf")).status_code == 404
 
     # Admin sees admin URLs and can download.
     pending = (await admin_client.get("/admin/docs/pending")).json()
     assert pending[0]["doc"]["url"] == f"/admin/docs/{doc['id']}/file"
-    r = await admin_client.get(pending[0]["doc"]["url"])
+    # Opening it needs a reason; a request without one is refused and not logged.
+    assert (await admin_client.post(pending[0]["doc"]["url"], json={})).status_code == 422
+    assert (await admin_client.post(pending[0]["doc"]["url"], json={"reason": "  x "})).status_code == 422
+    assert (await admin_client.get(pending[0]["doc"]["url"])).status_code == 405
+    r = await admin_client.post(pending[0]["doc"]["url"], json=WHY)
     assert r.status_code == 200 and r.content == PDF_BYTES
 
     # Admin reject → audit + email.
@@ -75,6 +81,7 @@ async def test_doc_access_control(client, make_client, admin_client):
     # The admin's file view is audited first (no file contents in the log).
     assert [a.action for a in rows] == ["kyb.file_viewed", "doc.reject", "doc.approve"]
     assert rows[0].target_type == "business_document" and rows[0].details["business_id"] == owner["businessId"]
+    assert rows[0].reason == WHY["reason"]
     assert {a.target_type for a in rows[1:]} == {"document"}
     assert rows[1].details["businessId"] == owner["businessId"]
     # Stored per business, reviewer recorded.

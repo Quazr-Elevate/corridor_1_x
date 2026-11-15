@@ -1,8 +1,8 @@
 """/admin/docs/* — KYB entry review, authenticated download and number reveal.
 
-Every admin view of a KYB file or full number is written to
-``admin_actions`` (``kyb.file_viewed`` / ``kyb.value_viewed``) — never the
-value itself."""
+Every admin view of a KYB file or full number needs a stated reason and is
+written to ``admin_actions`` (``kyb.file_viewed`` / ``kyb.value_viewed``)
+with it — never the value itself."""
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Response
@@ -11,7 +11,7 @@ from app import notifications
 from app.core.security import parse_uuid
 from app.models.business_document import DocStatus
 from app.modules.admin import service
-from app.modules.admin.schemas import DocRejectIn, DocStatusChanged, PendingDocRow
+from app.modules.admin.schemas import AccessReasonIn, DocRejectIn, DocStatusChanged, PendingDocRow
 from app.modules.auth.deps import DbSession
 from app.modules.verification import service as docs_service
 from app.modules.verification.schemas import RevealedValue
@@ -30,28 +30,32 @@ async def pending_docs(_: CanReviewKyb, db: DbSession) -> list[PendingDocRow]:
     return await service.pending_docs(db)
 
 
-@router.get("/docs/{doc_id}/file")
-async def download_doc(doc_id: str, admin: CanViewSensitive, db: DbSession) -> Response:
+@router.post("/docs/{doc_id}/file")
+async def download_doc(doc_id: str, payload: AccessReasonIn, admin: CanViewSensitive, db: DbSession) -> Response:
+    """The KYB file (audited). POST, not GET: the reason travels in the body,
+    out of URLs and access logs."""
     await get_limiter().check(ADMIN_REVEAL, str(admin.id))
     doc = await docs_service.get_doc(db, parse_uuid(doc_id))
     data = await docs_service.read_doc_bytes(doc)
     service.record_action(
         db, admin=admin, action="kyb.file_viewed", target_type="business_document", target_id=doc.id,
-        details={"business_id": str(doc.business_id), "doc_type": doc.doc_type},
+        reason=payload.reason, details={"business_id": str(doc.business_id), "doc_type": doc.doc_type},
     )
     await db.commit()
     return file_response(data, filename=doc.original_filename, cache_control="private, no-store")
 
 
 @router.post("/docs/{doc_id}/reveal", response_model=RevealedValue, response_model_by_alias=True)
-async def reveal_doc_value(doc_id: str, admin: CanViewSensitive, db: DbSession) -> RevealedValue:
+async def reveal_doc_value(
+    doc_id: str, payload: AccessReasonIn, admin: CanViewSensitive, db: DbSession
+) -> RevealedValue:
     """Full number of a KYB entry (audited)."""
     await get_limiter().check(ADMIN_REVEAL, str(admin.id))
     doc = await docs_service.get_doc(db, parse_uuid(doc_id))
     value = docs_service.reveal_value(doc)
     service.record_action(
         db, admin=admin, action="kyb.value_viewed", target_type="business_document", target_id=doc.id,
-        details={"business_id": str(doc.business_id), "doc_type": doc.doc_type},
+        reason=payload.reason, details={"business_id": str(doc.business_id), "doc_type": doc.doc_type},
     )
     await db.commit()
     return RevealedValue(id=str(doc.id), cert_type=doc.doc_type, value=value)

@@ -34,6 +34,7 @@ import {
   RejectSheet,
   USER_REJECT_REASONS,
 } from "@/components/admin/RejectSheet";
+import { AccessScope } from "@/components/admin/AccessReason";
 import { DocCard, KeyValue, StatusChip } from "@/components/admin/parts";
 import { displayValue, fmtDate, fmtDateTime, plural, refId, tradeLabel } from "@/components/admin/format";
 
@@ -536,33 +537,35 @@ export default function AccountDetailPage() {
                 </EmptyState>
               </Card>
             ) : (
-              <Stagger as="ul" className="mt-5 grid gap-4 sm:grid-cols-2">
-                {user.docs.map((d) => (
-                  <StaggerItem as="li" key={d.id} className="flex">
-                    <DocCard
-                      doc={d}
-                      actions={
-                        d.status === "pending" ? (
-                          <>
-                            <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
-                              Reject…
-                            </Button>
-                            <HoldButton
-                              tone="commit"
-                              size="sm"
-                              onCommit={() => approveDoc(d)}
-                              loading={docBusy === d.id}
-                              holdMs={900}
-                            >
-                              Approve
-                            </HoldButton>
-                          </>
-                        ) : null
-                      }
-                    />
-                  </StaggerItem>
-                ))}
-              </Stagger>
+              <AccessScope id={user.businessId}>
+                <Stagger as="ul" className="mt-5 grid gap-4 sm:grid-cols-2">
+                  {user.docs.map((d) => (
+                    <StaggerItem as="li" key={d.id} className="flex">
+                      <DocCard
+                        doc={d}
+                        actions={
+                          d.status === "pending" ? (
+                            <>
+                              <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
+                                Reject…
+                              </Button>
+                              <HoldButton
+                                tone="commit"
+                                size="sm"
+                                onCommit={() => approveDoc(d)}
+                                loading={docBusy === d.id}
+                                holdMs={900}
+                              >
+                                Approve
+                              </HoldButton>
+                            </>
+                          ) : null
+                        }
+                      />
+                    </StaggerItem>
+                  ))}
+                </Stagger>
+              </AccessScope>
             )}
           </section>
         </div>

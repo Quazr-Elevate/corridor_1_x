@@ -106,7 +106,7 @@ export interface VerifyDoc {
   rejectionReason: string | null;
   uploadedAt: string;
   reviewedAt: string | null;
-  /** Authenticated, backend-relative path (e.g. /admin/docs/{id}/file), or null without a file. */
+  /** Backend-relative path (e.g. /admin/docs/{id}/file) for `adminApi.docFile`, or null without a file. */
   url: string | null;
 }
 
@@ -323,7 +323,7 @@ export function errorStatus(e: unknown): number | undefined {
   return (e as AdminError | null)?.status;
 }
 
-/** Absolute URL for an authenticated document file (admin cookie is sent). */
+/** Absolute URL of a document file route. Fetch it with `adminApi.docFile` (a reason is required). */
 export function docFileUrl(url: string | null): string {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
@@ -403,8 +403,27 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
-  revealDocValue: (docId: string) =>
-    req<{ id: string; certType: string; value: string }>(`/admin/docs/${docId}/reveal`, { method: "POST" }),
+  /** Both calls are refused without a reason; it is stored on the audit row. */
+  revealDocValue: (docId: string, reason: string) =>
+    req<{ id: string; certType: string; value: string }>(`/admin/docs/${docId}/reveal`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  docFile: async (url: string, reason: string): Promise<Blob> => {
+    const res = await fetch(docFileUrl(url), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(detailToMessage((body as { detail?: unknown })?.detail, res.status)) as AdminError;
+      err.status = res.status;
+      throw err;
+    }
+    return res.blob();
+  },
   kybTypes: (country?: string) =>
     req<AdminKybDocType[]>(`/admin/kyb/document-types${country ? `?country=${encodeURIComponent(country)}` : ""}`),
   createKybType: (payload: AdminKybDocTypeIn) =>
