@@ -920,7 +920,7 @@ function MarketLots({ market }: { market: HomeData["market"] }) {
                 rightSub={
                   <>
                     <Icon name="shield" size={12} className="text-accent" />
-                    {dot("Verified seller", p.seller.city)}
+                    {dot("Verified seller", p.seller.state)}
                   </>
                 }
               />

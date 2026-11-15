@@ -70,7 +70,7 @@ async function get<T>(path: string, params?: Record<string, string | number | un
 export interface PublicSeller {
   /** The seller's business id. */
   sellerId: string;
-  city: string | null;
+  /** State or region only. The market never shows the seller's city. */
   state: string | null;
   verified: boolean;
 }

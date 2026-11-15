@@ -67,7 +67,7 @@ export default async function ProductDetailPage({ params }: Params) {
 
   const p = product;
   const photos = p.photos.length ? p.photos : p.photo ? [p.photo] : [];
-  const sellerPlace = joinDot(p.seller.city, p.seller.state) || null;
+  const sellerPlace = p.seller.state || null;
   const volume = formatQty(p.quantity, p.unit);
   const moq = formatQty(p.moq, p.unit);
   const priced = p.pricePerUnit !== null && p.pricePerUnit !== "";

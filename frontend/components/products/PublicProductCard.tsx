@@ -17,7 +17,7 @@ import { formatQty, joinDot, listingCode, packingLabel, priceFigure } from "./fo
  */
 export function PublicProductCard({ product: p, priority }: { product: CardData; priority?: boolean }) {
   const photo = photoUrl(p.photo);
-  const place = p.seller.city || p.seller.state || "India";
+  const place = p.seller.state || "India";
   const volume = formatQty(p.quantity, p.unit);
   const moq = formatQty(p.moq, p.unit);
   const price = priceFigure(p.pricePerUnit, p.unit, p.currency);

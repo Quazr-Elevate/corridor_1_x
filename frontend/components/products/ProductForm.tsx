@@ -328,7 +328,7 @@ export function ProductForm() {
   });
   const cover = photos[0] ? assetUrl(photos[0]) : null;
   const previewQty = formatQty(quantity || null, unit);
-  const sellerPlace = joinDot(me?.business.city, me?.business.state) || null;
+  const sellerPlace = me?.business.state || null;
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6" aria-busy={busy || undefined}>

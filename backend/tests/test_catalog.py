@@ -145,6 +145,15 @@ async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_c
     )
     assert r.status_code == 200
 
+    # The market shows the state and never the city (CX-068): card and detail.
+    guest = make_client()
+    card = (await guest.get("/public/products")).json()["items"][0]
+    detail = (await guest.get(f"/public/products/{pid}")).json()
+    for seller_view in (card["seller"], detail["seller"]):
+        assert set(seller_view) == {"sellerId", "state", "verified"}
+        assert seller_view["state"] == "Haryana"
+    assert "Karnal" not in str(card) + str(detail)
+
     assert (await make_client().post(f"/products/{pid}/contact-reveal")).status_code == 401
     buyer = make_client()
     b = await signup_and_login(buyer, "buyer@othermill.in")
