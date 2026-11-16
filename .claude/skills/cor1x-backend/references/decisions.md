@@ -50,6 +50,14 @@ If it changes the build plan's scope, say so to the user.
 | A-030 | CX-083: contact reveal is **turned off behind a setting in S4** and its code removed one sprint later; `contact_reveals` rows are kept | 16 Nov 2026 | User, M2 design review |
 | A-031 | Credit and plan prices are **configuration an admin can edit**, seeded with marked placeholder values until the client sets them (plan 17.5). Free quota: 10 RFQs per verified company | 16 Nov 2026 | User, M2 design review |
 | A-032 | CX-085: the payment processor for plans and top-ups is **Razorpay**, behind a provider interface with a signed test provider | 16 Nov 2026 | User, M2 design review |
+| A-033 | M3: the build plan is not in the repository, so the RFQ, quote, cost sheet and offer **fields are proposed in the design review** and approved there before code | 16 Nov 2026 | User, M3 design review |
+| A-034 | CX-089: the **whole deal transition table** in `docs/07_development_flow.md` §8 is encoded in M3, with a test per edge; M3 itself uses RFQ_OPEN, QUOTED and CANCELLED | 16 Nov 2026 | User, M3 design review |
+| A-035 | CX-092 hard rules: same category, monthly capacity ≥ RFQ quantity, every required spec within the buyer's limit, lead time inside the delivery window. Everything else only ranks | 16 Nov 2026 | User, M3 design review |
+| A-036 | CX-094: two roles added in M3, **trade desk** and **desk manager**. The manager approves a below-floor margin and cannot approve their own cost sheet. Quality, finance, logistics and legal arrive with their features | 16 Nov 2026 | User, M3 design review |
+| A-037 | CX-096: minimum margin percent and FX buffer percent are **admin-editable settings seeded with marked placeholders** until the client sets them | 16 Nov 2026 | User, M3 design review |
+| A-038 | An RFQ the desk rejects, or closes with no match, is **refunded automatically** by a REVERSAL ledger line (credits or the free RFQ) | 16 Nov 2026 | User, M3 design review |
+| A-039 | CX-090 sanctions check: an **admin-managed list of held countries**, empty at first; an RFQ touching one goes to a desk hold with the reason. The list's contents come from the client's compliance contact | 16 Nov 2026 | User, M3 design review |
+| A-040 | An RFQ stays open **14 days** and a quote is valid **7 days** unless the seller sets a date; both are settings marked as placeholders. An RFQ with no offer at expiry becomes CANCELLED with reason `expired` | 16 Nov 2026 | User, M3 design review |
 
 ## Proposed: awaiting approval
 
@@ -80,4 +88,6 @@ They're scheduled, but the milestone's design review is where they're confirmed.
 | CX-019, CX-024, CX-026 | Trader team accounts, buy/sell mode switch, Google sign-in | Client | Backlog (Phase C); don't build |
 | CX-084, CX-085 | Credit cost per action and plan prices (plan 17.5) | Client | Placeholder values in configuration (A-031) |
 | CX-147 | Tax invoice for plan purchases: GST registration, rate, place of supply, layout | Accountant | An invoice number is stored per paid purchase; the document is not built. No real payments until answered |
+| CX-096 | Minimum margin percent and FX buffer percent | Client | Placeholder settings (A-037) |
+| CX-090 | Which countries are held for sanctions review | Client's compliance contact | Empty admin-managed list; nothing is held until it is filled (A-039) |
 | Plan open questions | 29 questions across 13 plan sections (claim windows, retention %, credit prices, matching hard rules…) | Client, mostly | Make each one configuration with a sensible default, and list it in the milestone's design review |
