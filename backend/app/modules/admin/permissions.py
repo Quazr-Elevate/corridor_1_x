@@ -23,6 +23,7 @@ class Perm(str, enum.Enum):
     accounts_security = "accounts.security"  # unlock traders, sign them out
     admins_manage = "admins.manage"  # create / edit / unlock admin accounts
     rfqs_triage = "rfqs.triage"  # work the RFQ queue: matches, confirm, reject, hold
+    margin_approve = "margin.approve"  # accept a cost sheet whose margin is under the floor
     trade_configure = "trade.configure"  # held countries and the desk's settings
     credits_manage = "credits.manage"  # set credit prices and plans
     identity_unmask = "identity.unmask"  # turn a company code back into a name, with a reason
@@ -42,7 +43,7 @@ REVIEWER = frozenset({
 #: directory access, so it cannot read a name without ``identity.unmask``.
 TRADE_DESK = frozenset({Perm.dashboard_view, Perm.rfqs_triage})
 #: A desk manager also approves what a desk user may not approve alone.
-DESK_MANAGER = TRADE_DESK
+DESK_MANAGER = TRADE_DESK | {Perm.margin_approve}
 
 ROLE_PERMISSIONS: dict[AdminRole, frozenset[Perm]] = {
     AdminRole.super_admin: frozenset(Perm),

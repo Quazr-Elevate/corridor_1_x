@@ -93,6 +93,7 @@ CanReviewListings = Annotated[AdminPrincipal, Depends(require(Perm.listings_revi
 CanManageAccountSecurity = Annotated[AdminPrincipal, Depends(require(Perm.accounts_security))]
 CanManageAdmins = Annotated[AdminPrincipal, Depends(require(Perm.admins_manage))]
 CanTriageRfqs = Annotated[AdminPrincipal, Depends(require(Perm.rfqs_triage))]
+CanApproveMargin = Annotated[AdminPrincipal, Depends(require(Perm.margin_approve))]
 CanConfigureTrade = Annotated[AdminPrincipal, Depends(require(Perm.trade_configure))]
 CanManageCredits = Annotated[AdminPrincipal, Depends(require(Perm.credits_manage))]
 CanUnmaskIdentity = Annotated[AdminPrincipal, Depends(require(Perm.identity_unmask))]

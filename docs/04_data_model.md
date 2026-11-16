@@ -847,3 +847,26 @@ Prices on an RFQ are integers in the currency's minor unit, per `unit`.
 The deal transition table is `MOVES` in `modules/deals/machine.py`: the 24
 edges of the diagram in `07_development_flow.md` §8.
 
+---
+
+## Quotes, cost sheets and offers (`0030_quotes_offers`)
+
+Build plan section 06. Three records for three audiences. Every price is an
+integer in the currency's minor unit, per `unit`.
+
+| # | Table | Who reads it | What | Key rules |
+|---|---|---|---|---|
+| 34 | `quotes` | The seller and the desk | The seller's price (`price_minor`, the purchase price), currency, quantity, incoterm, port, lead time, payment terms, `valid_until`, `specs` (an answer per required limit), notes | UNIQUE `match_id`: one quote per seller per RFQ |
+| 35 | `cost_sheets` | The desk only | Purchase price and seven cost lines per unit in the purchase currency; `deal_currency`, `fx_rate`, `fx_as_of`, `fx_buffer_pct`; `margin_pct`, `min_margin_pct`; `sell_price_minor`; `status` draft / pending_approval / ready / published; `created_by`, `approved_by` | UNIQUE `quote_id`; `ck_cost_sheets_second_approver` (`approved_by <> created_by`) |
+| 36 | `offers` | The buyer and the desk | `price_minor` (the selling price) in the deal currency, quantity, incoterm, port, lead time, payment terms, `specs_met` / `specs_total`, `valid_until`, `status` | UNIQUE `cost_sheet_id`. No cost, margin or purchase-price column |
+| 37 | `offer_unlocks` | — | Which buyer business paid to see an offer | UNIQUE (`offer_id`, `buyer_business_id`) |
+
+**Deal currency.** A deal between businesses in different countries is priced
+in USD; a domestic deal stays in the seller's quote currency. The FX rate is
+read once, when the cost sheet is saved, and stored on the sheet with the
+buffer; nothing looks it up again. (An earlier note in this document said
+deals are in the seller's currency. That holds for domestic deals only.)
+
+Selling price = total cost × `fx_rate` × (1 + buffer %) × (1 + margin %),
+rounded up to the minor unit.
+

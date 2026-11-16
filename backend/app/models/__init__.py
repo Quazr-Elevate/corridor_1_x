@@ -23,10 +23,15 @@ from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
 from app.models.listing import CertificateDownload, CertificateType, ProductCertificate, ProductSpec, SpecParameter
 from app.models.product import INCOTERMS, ListingStatus, Product
+from app.models.quote import CostSheet, Offer, OfferUnlock, Quote
 from app.models.rfq import HeldCountry, Rfq, RfqMatch, RfqStatus, TradeSetting
 from app.models.user import AccountStatus, User, UserRole
 
 __all__ = [
+    "CostSheet",
+    "Offer",
+    "OfferUnlock",
+    "Quote",
     "Deal",
     "DealEvent",
     "DealStatus",

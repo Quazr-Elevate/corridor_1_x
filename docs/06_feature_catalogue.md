@@ -66,6 +66,8 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ **Preview** exactly what a seller will read. The target price and the buyer's name are never shown to a seller.
 - ✅ **Matched requests** for sellers: the desk sends a request only to sellers whose listing meets it. Opening one costs credits once.
 - ✅ A request the desk refuses, or that no seller fits, is **refunded** automatically.
+- ✅ **Quote (sellers):** price, quantity, incoterm, port, lead time, payment terms, validity, and whether each required specification is met. One quote per request, changeable until Corridor One X starts pricing it.
+- ✅ **Offers (buyers):** each offer shows the seller's code, lead time, incoterm and specifications met for free. Unlocking shows the price and terms and costs credits once. The buyer never sees what the seller quoted.
 
 ---
 
@@ -138,6 +140,8 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Request queue:** new requests with the sellers the rules propose and why. The desk adds or removes sellers, confirms, rejects with a reason, or closes a request as unmatched.
 - ✅ **Hard rules:** same category, monthly capacity covers the quantity, required specifications within the buyer's limits, lead time inside the delivery window. The desk cannot add a seller who fails one.
 - ✅ **Roles:** trade desk and desk manager. They see company codes, never names.
+- ✅ **Cost sheet:** the desk adds freight, insurance, inspection and other costs to a quote, converts once at a stored rate with a buffer, and sets the margin. A freight figure older than seven days is refused. A margin under the floor needs a desk manager other than the author.
+- ✅ **Publish the offer:** the buyer gets the selling price; the deal moves to Quoted. The offer ends at least two days before the quote behind it.
 - ✅ **Held countries** and the desk's settings (how long a request stays open and others), set by a super admin.
 
 ## Change log
@@ -146,6 +150,7 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
+| Nov 2026 (M3, sprint S7, API) | Seller quotes, cost sheets with stored FX and margin approval, offers with paid unlock |
 | Nov 2026 (M3, sprint S6, API) | Deals and their state machine, requests for quotation, matching by hard rules, trade desk queue and roles, held countries, automatic refund and expiry |
 | Nov 2026 (M2, sprint S5) | Credit wallet and ledger, free RFQ quota, plans and top-ups with a payment webhook, listing text checked by the leak filter, notification template lint |
 | Nov 2026 (M2, sprint S4) | Identity vault, company codes, market shows the code instead of an internal id, contact reveal retired, identity access by staff logged and limited |
