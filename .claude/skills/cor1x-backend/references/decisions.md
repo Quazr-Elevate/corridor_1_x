@@ -43,6 +43,13 @@ If it changes the build plan's scope, say so to the user.
 | A-024 | Every list endpoint returns `{items, total}` (was D-006), converted in M1 | 15 Nov 2026 | User, M1 design review |
 | A-025 | CX-007 (photography redesign) is done as the last M1 step, after the listing features | 15 Nov 2026 | User, M1 design review |
 | A-018 | All milestones are built on **one development branch**; no branch per row or per milestone. A milestone goes to `main` only when it is finished and tested | 15 Nov 2026 | User |
+| A-026 | **CX-077 decided: Cor1x is the masked trading desk**, the counterparty on both sides with identities hidden through delivery. Plan sections 05–16 are built; M2–M6 are unblocked | 16 Nov 2026 | User, M2 design review |
+| A-027 | CX-137 is still with counsel. Until it is answered the identity vault is built as its own tables in the **same database**, so it can be moved later; hosting stays a Phase B gate | 16 Nov 2026 | User, M2 design review |
+| A-028 | **Vault scope:** the company's legal name, address line, city, PIN code, website and social links, and the owner's name, email and phone. State and country stay outside for the market | 16 Nov 2026 | User, M2 design review |
+| A-029 | **Company code:** `{ISO2}-{6 random digits}` (e.g. `IN-482913`), issued when the business is verified, stable for life, never reused | 16 Nov 2026 | User, M2 design review |
+| A-030 | CX-083: contact reveal is **turned off behind a setting in S4** and its code removed one sprint later; `contact_reveals` rows are kept | 16 Nov 2026 | User, M2 design review |
+| A-031 | Credit and plan prices are **configuration an admin can edit**, seeded with marked placeholder values until the client sets them (plan 17.5). Free quota: 10 RFQs per verified company | 16 Nov 2026 | User, M2 design review |
+| A-032 | CX-085: the payment processor for plans and top-ups is **Razorpay**, behind a provider interface with a signed test provider | 16 Nov 2026 | User, M2 design review |
 
 ## Proposed: awaiting approval
 
@@ -60,16 +67,16 @@ They're scheduled, but the milestone's design review is where they're confirmed.
 |---|---|---|
 | CX-068 | Public market shows region, never city | Masking promise |
 | CX-071 | Listings go through review before the market (code currently publishes on verification) | — |
-| CX-083 | Retire contact reveal | **Only if CX-077 confirms the masked trading desk** |
+| CX-083 | Retire contact reveal | Confirmed by A-026; done as A-030 |
 
 ## Waiting on someone outside the team
 
 | Row | Question | Who answers | How to build meanwhile |
 |---|---|---|---|
-| **CX-077** | Is Cor1x the counterparty on both sides (masked trading desk, plan 05–16) or an introduction marketplace (current code, contact reveal)? | Client | **Blocks M2–M6.** Don't start masking-vault, deal or payment work until it's answered. M0–M1 are safe either way |
 | **CX-078** | LC outlay cap for merchanting deals: four months or six? The 2025 circular says six; the unamended LC clause says four | AD bank, in writing | Build the validator to **4** months as a configuration value (CX-110) |
-| **CX-137** | Hosting location and cross-border transfer basis (India, UAE, Railway Singapore today) | Counsel | Decides where the identity vault lives (CX-079, S4) |
+| **CX-137** | Hosting location and cross-border transfer basis (India, UAE, Railway Singapore today) | Counsel | The vault is built in the same database meanwhile (A-027); it moves when counsel answers |
 | CX-109 | Contract value above which legal review is required, and which clauses count as non-standard | Client and lawyer | Make the threshold configuration; the non-standard list a data table |
 | CX-020 | Collect bank details at KYB, or at the first payout? | Client | Payouts (CX-121) need verified accounts either way |
 | CX-019, CX-024, CX-026 | Trader team accounts, buy/sell mode switch, Google sign-in | Client | Backlog (Phase C); don't build |
+| CX-084, CX-085 | Credit cost per action and plan prices (plan 17.5) | Client | Placeholder values in configuration (A-031) |
 | Plan open questions | 29 questions across 13 plan sections (claim windows, retention %, credit prices, matching hard rules…) | Client, mostly | Make each one configuration with a sensible default, and list it in the milestone's design review |
