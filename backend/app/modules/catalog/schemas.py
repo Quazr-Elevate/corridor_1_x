@@ -219,13 +219,12 @@ class CategoryTemplate(CamelModel):
 
 
 class PublicSeller(CamelModel):
-    """State and verified badge only — never the city, the company name or
-    any contact detail: a city plus a commodity is often enough to name the
-    seller. The rest stays masked until a verified buyer reveals it
-    (POST /products/{id}/contact-reveal). ``seller_id`` is the seller
-    BUSINESS id."""
+    """The seller as another party sees it: the company code, the state and
+    the verified badge. Never the name, the city or a contact detail — a
+    city plus a commodity is often enough to name the seller — and never the
+    internal business id."""
 
-    seller_id: str
+    company_code: str | None = None
     state: str | None = None
     verified: bool = True  # Reserved for when we differentiate tiers.
 

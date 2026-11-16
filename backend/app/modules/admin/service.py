@@ -13,15 +13,13 @@ from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.time import ensure_aware, utcnow
 from app.models.admin_action import AdminAction
 from app.models.business import Business, BusinessStatus
+from app.models.business_identity import BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
 from app.models.user import User
-from app.modules.accounts.uniqueness import (
-    commit_or_conflict,
-    ensure_company_available,
-    ensure_phone_available,
-)
+from app.modules.accounts.uniqueness import commit_or_conflict, ensure_phone_available
+from app.modules.masking import service as masking
 from app.modules.admin.schemas import (
     AccountSecurityOut,
     SessionOut,
@@ -175,7 +173,7 @@ def _owner_join():
     )
 
 
-async def stuck_users(db: AsyncSession, limit: int) -> list[StuckUser]:
+async def stuck_users(db: AsyncSession, admin: Actor, limit: int) -> list[StuckUser]:
     """Businesses still in ``draft`` 24h+ after signup (never sent for
     verification), oldest first."""
     now = utcnow()
@@ -187,12 +185,13 @@ async def stuck_users(db: AsyncSession, limit: int) -> list[StuckUser]:
             .limit(limit)
         )
     ).all()
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
     return [
         StuckUser(
             user_id=str(u.id),
             business_id=str(b.id),
             email=u.email,
-            business_name=b.legal_name,
+            business_name=names.get(b.id),
             created_at=b.created_at,
             hours_waiting=int((now - ensure_aware(b.created_at)).total_seconds() // 3600),
         )
@@ -214,7 +213,7 @@ async def _docs_by_business(db: AsyncSession, business_ids: list[uuid.UUID]) -> 
     return out
 
 
-async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
+async def verify_queue(db: AsyncSession, admin: Actor) -> list[VerifyQueueRow]:
     """The single KYB review queue, oldest first:
 
     * businesses sent for verification (``pending_verification``), and
@@ -238,6 +237,7 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
     ).all()
     docs = await _docs_by_business(db, [b.id for _, b in rows])
     missing = {b.id: await missing_keys(db, b) for _, b in rows}
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
 
     def since(b: Business):
         if b.verification_status == BusinessStatus.pending_verification:
@@ -251,7 +251,8 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
             business_id=str(b.id),
             email=u.email,
             full_name=u.full_name,
-            business_name=b.legal_name,
+            business_name=names.get(b.id),
+            company_code=b.company_code,
             country=b.country,
             industry=b.industry,
             trade_position=b.trade_position,
@@ -271,7 +272,9 @@ async def verify_queue(db: AsyncSession) -> list[VerifyQueueRow]:
 # ── Users / businesses ───────────────────────────────────────────────
 
 
-async def list_users(db: AsyncSession, *, q: str | None, status: str | None, limit: int, offset: int) -> UserList:
+async def list_users(
+    db: AsyncSession, admin: Actor, *, q: str | None, status: str | None, limit: int, offset: int
+) -> UserList:
     stmt = (
         select(User, Business)
         .join(Business, Business.id == User.business_id)
@@ -285,10 +288,16 @@ async def list_users(db: AsyncSession, *, q: str | None, status: str | None, lim
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         stmt = stmt.where(
-            or_(User.email.ilike(pattern), User.full_name.ilike(pattern), Business.legal_name.ilike(pattern))
+            or_(
+                User.email.ilike(pattern),
+                User.full_name.ilike(pattern),
+                Business.company_code.ilike(pattern),
+                masking.name_matches(pattern),
+            )
         )
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = (await db.execute(stmt.order_by(User.created_at.desc()).offset(offset).limit(limit))).all()
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
     return UserList(
         total=total,
         items=[
@@ -296,7 +305,8 @@ async def list_users(db: AsyncSession, *, q: str | None, status: str | None, lim
                 user_id=str(u.id),
                 business_id=str(b.id),
                 email=u.email,
-                business_name=b.legal_name,
+                business_name=names.get(b.id),
+                company_code=b.company_code,
                 full_name=u.full_name,
                 status=b.verification_status.value,
                 email_verified=u.email_verified_at is not None,
@@ -311,20 +321,20 @@ def _profile_dict(u: User) -> dict[str, Any]:
     return {"fullName": u.full_name, "phone": u.phone, "position": u.position}
 
 
-def _business_dict(b: Business) -> dict[str, Any]:
+def _business_dict(b: Business, identity: BusinessIdentity) -> dict[str, Any]:
     return {
-        "legalName": b.legal_name,
+        "legalName": identity.legal_name,
         "entityType": b.entity_type,
         "industry": b.industry,
         "operatingCountries": b.operating_countries,
-        "websiteUrl": b.website_url,
-        "addressLine": b.address_line,
-        "city": b.city,
+        "websiteUrl": identity.website_url,
+        "addressLine": identity.address_line,
+        "city": identity.city,
         "state": b.state,
-        "pincode": b.pincode,
+        "pincode": identity.pincode,
         "country": b.country,
-        "googleBusinessUrl": b.google_business_url,
-        "facebookUrl": b.facebook_url,
+        "googleBusinessUrl": identity.google_business_url,
+        "facebookUrl": identity.facebook_url,
         "tradePosition": b.trade_position,
         "sellerType": b.seller_type,
         "exportStatus": b.export_status,
@@ -362,9 +372,12 @@ async def _account_security(db: AsyncSession, u: User) -> AccountSecurityOut:
     )
 
 
-async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
+async def user_detail(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> UserDetail:
+    """One account with its company identity. Stages ``identity.unmasked``;
+    the router commits."""
     u = await load_user(db, uid)
     b = u.business
+    identity = await masking.unmask_for_staff(db, admin, b.id, purpose="account_detail")
     product_count = (
         await db.scalar(
             select(func.count(Product.id)).where(Product.business_id == b.id, Product.deleted_at.is_(None))
@@ -382,12 +395,13 @@ async def user_detail(db: AsyncSession, uid: uuid.UUID | None) -> UserDetail:
         role=u.role.value,
         email=u.email,
         email_verified_at=u.email_verified_at,
-        business_name=b.legal_name,
+        business_name=identity.legal_name,
+        company_code=b.company_code,
         status=b.verification_status.value,
         created_at=u.created_at,
         updated_at=u.updated_at,
         profile=_profile_dict(u),
-        business_profile=_business_dict(b),
+        business_profile=_business_dict(b, identity),
         product_count=product_count,
         docs=[doc_to_out(d, for_admin=True) for d in docs],
         verification_submitted_at=b.verification_submitted_at,
@@ -417,7 +431,7 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
     if "phone" in profile_changes:
         await ensure_phone_available(db, user.id, profile_changes["phone"])
     if {"legal_name", "website_url"} & business_changes.keys():
-        await ensure_company_available(
+        await masking.ensure_company_available(
             db,
             business.id,
             legal_name=business_changes.get("legal_name"),
@@ -429,10 +443,11 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
     for key, val in profile_changes.items():
         setattr(user, key, _blank_to_none(val))
         changed.append(f"profile.{key}")
+    identity = await masking.own_identity(db, business.id)
     for key, val in business_changes.items():
         if key == "country" and not val:
             continue  # NOT NULL (defaults to IN)
-        setattr(business, key, _blank_to_none(val))
+        masking.set_company_field(business, identity, key, _blank_to_none(val))
         changed.append(f"businessProfile.{key}")
 
     if changed:
@@ -483,6 +498,7 @@ async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> 
     now = utcnow()
     b.verification_status = BusinessStatus.verified
     b.verified_at = now
+    await masking.assign_code(db, b)
     b.verification_submitted_at = b.verification_submitted_at or now
     b.verification_rejected_reason = None
     b.verification_rejected_items = None
@@ -579,7 +595,7 @@ async def _set_doc_status(
 # ── Documents ────────────────────────────────────────────────────────
 
 
-async def pending_docs(db: AsyncSession) -> list[PendingDocRow]:
+async def pending_docs(db: AsyncSession, admin: Actor) -> list[PendingDocRow]:
     rows = (
         await db.execute(
             select(BusinessDocument, Business)
@@ -588,6 +604,7 @@ async def pending_docs(db: AsyncSession) -> list[PendingDocRow]:
             .order_by(BusinessDocument.uploaded_at.asc())
         )
     ).all()
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
     out = []
     for d, b in rows:
         owner = await get_owner(db, b.id)
@@ -597,7 +614,7 @@ async def pending_docs(db: AsyncSession) -> list[PendingDocRow]:
                 user_id=str(owner.id) if owner else None,
                 business_id=str(b.id),
                 user_email=owner.email if owner else None,
-                user_business_name=b.legal_name,
+                user_business_name=names.get(b.id),
                 user_full_name=owner.full_name if owner else None,
                 user_country=b.country,
             )

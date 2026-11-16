@@ -22,6 +22,7 @@ class Perm(str, enum.Enum):
     listings_review = "listings.review"  # approve / reject listings, set certificate visibility
     accounts_security = "accounts.security"  # unlock traders, sign them out
     admins_manage = "admins.manage"  # create / edit / unlock admin accounts
+    identity_unmask = "identity.unmask"  # turn a company code back into a name, with a reason
 
 
 REVIEWER = frozenset({

@@ -70,7 +70,13 @@ export function PublicProductCard({ product: p, priority }: { product: CardData;
           <Chip tone="verified" size="sm">
             Verified
           </Chip>
-          <FrostName width={78} />
+          {p.seller.companyCode ? (
+            <span className="t-code shrink-0 text-fg-2" title="Seller's company code">
+              {p.seller.companyCode}
+            </span>
+          ) : (
+            <FrostName width={78} />
+          )}
           <span className="t-sub min-w-0 truncate text-fg-3">· {place}</span>
           {moq ? <span className="t-foot ml-auto shrink-0 text-fg-3">MOQ {moq}</span> : null}
         </div>

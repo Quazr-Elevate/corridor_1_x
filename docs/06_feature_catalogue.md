@@ -49,8 +49,9 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ **Who sees prices (M1):** the price range and price filters are for signed-in, verified businesses; everyone else sees "On request". The market shows the seller's state, never the city.
 - ✅ Public **market** (no sign-in needed) with search and filters (category, variety, origin, price range, MOQ).
 - ✅ **Display currency** (INR / AED / USD) with indicative conversion from daily exchange rates.
-- ✅ Seller identity is **masked** in the market (city, state, verified badge only).
-- ✅ **Contact reveal** between verified buyers and verified sellers, with a fair-use limit.
+- ✅ Seller identity is **masked** in the market: a company code such as `IN-482913`, the state and the verified badge. Never the name, the city or a contact.
+- ✅ **Company code (M2):** each business gets its code when it is first verified and keeps it for life.
+- ⛔ **Contact reveal is retired (M2).** Corridor One X is the counterparty for both sides, so a buyer is no longer handed the seller's name and email.
 
 ---
 
@@ -77,6 +78,7 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ Directory of all accounts with search and status filters; account detail with profile, documents, onboarding timeline.
 - ✅ Edit business details (audited).
 - ✅ **Sign-in & security** card per trader: lock state, signed-in device; super admins can **unlock** an account and **sign out** its device.
+- ✅ **Identity access is logged (M2):** opening an account or a listing under review records who looked at which company. A super admin can turn a company code back into a name by giving a reason. Unusual volume is flagged in the audit trail.
 
 ### 2.3a Listing review (M1)
 - ✅ Queue of new submissions and edits to published listings; the reviewer sees the listing, the seller behind it, and for an edit the published value next to the proposed one.
@@ -124,4 +126,5 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
+| Nov 2026 (M2, sprint S4) | Identity vault, company codes, market shows the code instead of an internal id, contact reveal retired, identity access by staff logged and limited |
 | Earlier | Sign-up with email code, business profile and per-country KYB, combined review, countries, products and market, currency display, contact reveal, admin console |

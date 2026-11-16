@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 
 from app.core.db import SessionLocal  # noqa: E402
+from app.modules.masking import service as masking  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
 from app.models.user import AccountStatus, User, UserRole  # noqa: E402
@@ -75,8 +76,10 @@ async def _upsert(db, row: dict) -> None:
     user.consent_at = user.consent_at or NOW - timedelta(days=1)
     user.consent_version = user.consent_version or "2026-08-29"
     user.deleted_at = None
+    await db.flush()  # the vault row needs the business id
+    identity = await masking.own_identity(db, business.id)
     for key, value in row["business"].items():
-        setattr(business, key, value)
+        masking.set_company_field(business, identity, key, value)
     business.country = "IN"
     business.deleted_at = None
     business.verification_status = row["status"]

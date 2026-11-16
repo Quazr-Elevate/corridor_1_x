@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 from conftest import signup_and_login
-from sqlalchemy import insert, update
+from sqlalchemy import delete, insert, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.db import SessionLocal
@@ -17,6 +17,7 @@ from app.core.time import utcnow
 from app.models import (
     Business,
     BusinessDocument,
+    BusinessIdentity,
     ContactReveal,
     EmailCode,
     Product,
@@ -99,13 +100,19 @@ async def test_business_consistent_states_are_accepted():
 
 
 @pytest.mark.parametrize("column", ["legal_name_normalized", "website_normalized"])
-async def test_business_unique_only_among_live_rows(column):
-    await _business(**{column: "acme"})
-    err = await _rejects(lambda: _business(**{column: "acme"}))
+async def test_company_name_and_website_are_unique_in_the_vault(column):
+    first = await _business()
+    await _insert(BusinessIdentity.__table__, business_id=first, **{column: "acme"})
+    second = await _business()
+    err = await _rejects(lambda: _insert(BusinessIdentity.__table__, business_id=second, **{column: "acme"}))
     assert column in str(err.orig)
-    # A deleted business doesn't block re-registration.
-    await _business(**{column: "gone", "deleted_at": NOW})
-    await _business(**{column: "gone"})
+    # Erasing a business deletes its vault row, which frees the name.
+    async with SessionLocal() as db:
+        await db.execute(delete(BusinessIdentity).where(BusinessIdentity.business_id == first))
+        await db.commit()
+    await _insert(BusinessIdentity.__table__, business_id=second, **{column: "acme"})
+    # A business has one vault row.
+    await _rejects(lambda: _insert(BusinessIdentity.__table__, business_id=second))
 
 
 # ── users ────────────────────────────────────────────────────────────
@@ -230,7 +237,7 @@ async def test_reveal_unique_and_not_self():
 
 
 async def test_unique_index_race_on_company_name_maps_to_409(client, make_client, monkeypatch):
-    import app.modules.accounts.service as accounts
+    from app.modules.masking import service as masking
 
     await signup_and_login(client, "n1@kaverifoods.in")
     body = {"legalName": "Kaveri Foods", "industry": "Rice", "operatingCountries": ["IN"]}
@@ -239,7 +246,7 @@ async def test_unique_index_race_on_company_name_maps_to_409(client, make_client
     async def no_check(*_a, **_k):
         return None
 
-    monkeypatch.setattr(accounts, "ensure_company_available", no_check)
+    monkeypatch.setattr(masking, "ensure_company_available", no_check)
     other = make_client()
     await signup_and_login(other, "n2@othermill.in")
     r = await other.post("/onboarding/company", json=body)

@@ -19,6 +19,7 @@ from app.modules.admin.service import Actor, clean_reason, record_action
 from app.modules.catalog import certificates, service
 from app.modules.catalog.lifecycle import transition
 from app.modules.catalog.queries import _escape_like, hydrate_businesses
+from app.modules.masking import service as masking
 from app.modules.catalog.schemas import ProductRead
 from app.shared.schemas import CamelModel
 
@@ -29,6 +30,8 @@ QUEUES = ("pending", "all")
 
 class ListingSeller(CamelModel):
     business_id: str
+    company_code: str | None = None
+    #: The reviewer needs the name to spot a listing that gives it away.
     legal_name: str | None = None
     state: str | None = None
     country: str | None = None
@@ -74,10 +77,10 @@ def _kind(p: Product) -> str | None:
     return "revision" if p.pending_revision else None
 
 
-def _seller(b: Business | None, business_id: uuid.UUID) -> ListingSeller:
+def _seller(b: Business | None, business_id: uuid.UUID, legal_name: str | None) -> ListingSeller:
     return ListingSeller(
-        business_id=str(business_id), legal_name=b.legal_name if b else None, state=b.state if b else None,
-        country=b.country if b else None, verified=bool(b and b.is_verified),
+        business_id=str(business_id), company_code=b.company_code if b else None, legal_name=legal_name,
+        state=b.state if b else None, country=b.country if b else None, verified=bool(b and b.is_verified),
     )
 
 
@@ -86,7 +89,7 @@ def _waiting(p: Product):
 
 
 async def list_listings(
-    db: AsyncSession, *, queue: str, status: str | None, q: str | None, limit: int, offset: int
+    db: AsyncSession, admin: Actor, *, queue: str, status: str | None, q: str | None, limit: int, offset: int
 ) -> AdminListingList:
     """``queue=pending``: listings waiting for a decision (new submissions and
     edits to published listings), oldest first. ``queue=all``: every listing,
@@ -106,13 +109,14 @@ async def list_listings(
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = list(await db.scalars(stmt.order_by(*order).offset(offset).limit(limit)))
     sellers = await hydrate_businesses(db, [r.business_id for r in rows])
+    names = await masking.names_for_staff(db, admin, list(sellers))
     return AdminListingList(
         total=total,
         items=[
             AdminListingRow(
                 id=str(p.id), name=p.name, category=p.category, status=p.status, review_kind=_kind(p),
                 waiting_since=_waiting(p), photo=(p.photos or [None])[0],
-                seller=_seller(sellers.get(p.business_id), p.business_id),
+                seller=_seller(sellers.get(p.business_id), p.business_id, names.get(p.business_id)),
             )
             for p in rows
         ],
@@ -126,8 +130,11 @@ async def _listing(db: AsyncSession, product_id: uuid.UUID | None) -> Product:
     return product
 
 
-async def listing_detail(db: AsyncSession, product_id: uuid.UUID | None) -> AdminListingDetail:
+async def listing_detail(db: AsyncSession, admin: Actor, product_id: uuid.UUID | None) -> AdminListingDetail:
+    """A listing for review with its seller's name. Stages
+    ``identity.unmasked``; the router commits."""
     product = await _listing(db, product_id)
+    identity = await masking.unmask_for_staff(db, admin, product.business_id, purpose="listing_review")
     read = await service.read_product(db, product)
     for cert in read.certificates:
         cert.url = f"/admin/listings/{product.id}/certificates/{cert.id}/file"
@@ -138,7 +145,8 @@ async def listing_detail(db: AsyncSession, product_id: uuid.UUID | None) -> Admi
     ]
     return AdminListingDetail(
         listing=read, review_kind=_kind(product),
-        seller=_seller(await db.get(Business, product.business_id), product.business_id), changes=changes,
+        seller=_seller(await db.get(Business, product.business_id), product.business_id, identity.legal_name),
+        changes=changes,
     )
 
 

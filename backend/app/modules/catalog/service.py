@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import (
     BadRequest,
     Conflict,
@@ -32,6 +33,7 @@ from app.models.user import User
 from app.modules.accounts.service import get_owner
 from app.modules.accounts.uniqueness import commit_or_conflict
 from app.modules.catalog.lifecycle import transition
+from app.modules.masking import service as masking
 from app.modules.catalog.queries import hydrate_businesses, public_products_stmt, visible_products_select
 from app.modules.catalog.schemas import (
     LIVE_FIELDS,
@@ -671,7 +673,7 @@ def can_see_prices(viewer: User | None, seller_business_id: uuid.UUID | None = N
 
 def _seller_dto(business: Business | None, business_id: uuid.UUID) -> PublicSeller:
     return PublicSeller(
-        seller_id=str(business_id),
+        company_code=business.company_code if business else None,
         state=business.state if business else None,
     )
 
@@ -830,6 +832,8 @@ async def reveal_contact(db: AsyncSession, user: User, product_id: uuid.UUID | N
     verified, product visible (seller business verified), not own
     business, per-business hourly budget. Idempotent per (buyer business,
     product)."""
+    if not settings.contact_reveal_enabled:
+        raise NotFound("Contact reveal is no longer available. Corridor One X now handles the trade for both sides.")
     buyer = user.business
     if not buyer.is_verified:
         raise Forbidden("Get your business verified before revealing seller contact details.")
@@ -871,17 +875,18 @@ async def reveal_contact(db: AsyncSession, user: User, product_id: uuid.UUID | N
     seller = await db.get(Business, seller_id)
     owner = await get_owner(db, seller_id)
     assert seller is not None  # guarded by visible_products_clause
+    identity = await masking.identity_for_contact_reveal(db, seller_id)
     return RevealedContact(
         seller_id=str(seller.id),
         full_name=owner.full_name if owner else None,
-        business_name=seller.legal_name,
+        business_name=identity.legal_name,
         entity_type=seller.entity_type,
         email=owner.email if owner else None,
-        address_line=seller.address_line,
-        city=seller.city,
+        address_line=identity.address_line,
+        city=identity.city,
         state=seller.state,
-        pincode=seller.pincode,
+        pincode=identity.pincode,
         country=seller.country,
-        website_url=seller.website_url,
+        website_url=identity.website_url,
         revealed_at=revealed_at,
     )

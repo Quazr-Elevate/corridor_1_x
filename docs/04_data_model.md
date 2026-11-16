@@ -748,3 +748,50 @@ Never deleted; retire with `active = false`.
 
 `id`, `certificate_id`, `product_id`, `buyer_business_id`, `user_id`,
 `downloaded_at`.
+
+---
+
+## Identity vault (`0027_identity_vault`)
+
+Build plan section 18 (decisions A-026 to A-029). A company's name, address
+and website live in one table that only `app/modules/masking` reads. Every
+other module holds `businesses.company_code`.
+
+### 19. `business_identities` — the vault row of a business
+
+| Column | Type | Notes |
+|---|---|---|
+| `business_id` | uuid, PK, FK `businesses` (CASCADE) | One row per business |
+| `legal_name` | varchar(200), null | |
+| `legal_name_normalized` | varchar(200), null | UNIQUE `uq_business_identities_legal_name_normalized`; synced by the model |
+| `website_url` | varchar(300), null | |
+| `website_normalized` | varchar(300), null | UNIQUE `uq_business_identities_website_normalized` |
+| `address_line`, `city`, `pincode` | varchar, null | The street address. `state` and `country` stay on `businesses` for the market |
+| `google_business_url`, `facebook_url` | varchar(300), null | |
+| `created_at`, `updated_at` | timestamptz | |
+
+The row is **deleted** when the business is erased, so the two UNIQUE indexes
+are plain (no `WHERE deleted_at IS NULL`) and a name is free again after
+erasure.
+
+### Changes to `businesses`
+
+| Column | Change | Notes |
+|---|---|---|
+| `legal_name`, `legal_name_normalized`, `website_url`, `website_normalized`, `address_line`, `city`, `pincode`, `google_business_url`, `facebook_url` | removed | Moved to `business_identities`, with their two partial indexes |
+| `company_code` | added, varchar(12), null, UNIQUE `uq_businesses_company_code` | `{ISO2}-{6 random digits}`. Issued the first time the business is verified; never changed or reused |
+
+Backfill: every live business gets a vault row with its values; a
+soft-deleted business gets none; every verified business gets a code.
+
+Not moved in M2: `users.full_name`, `users.email` and `users.phone`. Sign-in
+reads the email, so they stay on `users`. They are treated as vault fields
+by the response guard (`tests/test_masking.py`) and by the template lint.
+
+### Audit actions added (in `admin_actions`)
+
+| Action | Written when | Details |
+|---|---|---|
+| `identity.unmasked` | An admin opens an account, a listing under review, or looks a company up by its code | `purpose`, `company_code`; `reason` for a code lookup. Never the name |
+| `identity.bulk_access` | An admin passes 40 unmasks in an hour (once per hour) | `threshold`, `window_sec` |
+

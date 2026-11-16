@@ -30,11 +30,12 @@ interface GateError {
  */
 export function ContactGate({
   productId,
-  sellerId,
+  companyCode,
   sellerPlace,
 }: {
   productId: string;
-  sellerId: string;
+  /** The seller's masked company code. */
+  companyCode: string | null;
   sellerPlace?: string | null;
 }) {
   const { me, loading } = useMe();
@@ -96,6 +97,33 @@ export function ContactGate({
 
   const next = encodeURIComponent(`/products/${productId}`);
 
+  // Corridor One X is the counterparty on both sides, so nobody is handed
+  // the seller's name. The reveal below only runs where the API still has it on.
+  if (!me?.contactRevealEnabled) {
+    return (
+      <Card as="section" className="rounded-[30px] p-6 sm:p-7" aria-labelledby="gate-title">
+        <SellerFrost place={sellerPlace} companyCode={companyCode} />
+        <h2 id="gate-title" className="t-title3 mt-6 text-fg">
+          Trade through Corridor One X
+        </h2>
+        <p className="t-callout mt-1.5 text-fg-2">
+          Corridor One X buys from the seller and sells to you, so the seller&rsquo;s name stays masked on both sides.
+          Requests for quotation are coming to this page.
+        </p>
+        {!me ? (
+          <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+            <LinkButton href={`/login?next=${next}`} variant="primary" size="lg" icon="lock" className="sm:flex-1">
+              Sign in
+            </LinkButton>
+            <LinkButton href={`/signup?next=${next}`} variant="secondary" size="lg" className="sm:flex-1">
+              Get verified
+            </LinkButton>
+          </div>
+        ) : null}
+      </Card>
+    );
+  }
+
   if (!me) {
     return (
       <Card as="section" className="rounded-[30px] p-6 sm:p-7" aria-labelledby="gate-title">
@@ -118,7 +146,7 @@ export function ContactGate({
     );
   }
 
-  if (me.businessId === sellerId) {
+  if (companyCode && me.companyCode === companyCode) {
     return (
       <Notice tone="verified" title="This is your listing">
         Verified buyers can reveal your contact from this page.
@@ -193,12 +221,13 @@ export function ContactGate({
  * Frosted seller identity — the reference's "Exporter · HR-21 [frost] ·
  * Haryana". Decoy glyphs under frost, never the real name.
  */
-function SellerFrost({ place }: { place?: string | null }) {
+function SellerFrost({ place, companyCode }: { place?: string | null; companyCode?: string | null }) {
   return (
     <div>
       <p className="t-label text-fg-3">Listed by</p>
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="t-headline text-fg">Verified seller</span>
+        {companyCode ? <span className="t-code text-fg-2">{companyCode}</span> : null}
         <FrostName
           size="md"
           width={176}

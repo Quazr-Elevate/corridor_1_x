@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import timedelta
+
+import pytest
 
 from conftest import complete_listing, fill_mandatory, publish_listing, set_status, signup_and_login, upload_photo
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.time import utcnow
 from app.models.contact_reveal import ContactReveal
@@ -116,7 +120,8 @@ async def test_market_visibility_needs_a_verified_business_and_a_published_listi
     # the seller stays masked in public: no company name, no contact details
     assert "businessName" not in card["seller"]
     assert "Acme Agro" not in str(listing)
-    assert card["seller"]["sellerId"] == seller["businessId"]
+    assert set(card["seller"]) == {"companyCode", "state", "verified"}
+    assert seller["businessId"] not in str(listing)
     assert "email" not in card["seller"]
     detail = (await anon.get(f"/public/products/{pid}")).json()
     assert detail["photos"] == [url]
@@ -146,7 +151,27 @@ async def _verified_seller_with_product(client, admin_client, email="seller@kave
     return seller, pid
 
 
-async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_client):
+@pytest.fixture
+def reveal_on(monkeypatch):
+    """Contact reveal is off by default (A-030); these tests cover the code
+    that remains until it is removed."""
+    monkeypatch.setattr(settings, "contact_reveal_enabled", True)
+
+
+async def test_contact_reveal_is_off_by_default(client, make_client, admin_client):
+    seller, pid = await _verified_seller_with_product(client, admin_client)
+    buyer = make_client()
+    b = await signup_and_login(buyer, "buyer@othermill.in")
+    await set_status(b["userId"], BusinessStatus.verified)
+    r = await buyer.post(f"/products/{pid}/contact-reveal")
+    assert r.status_code == 404 and r.json()["code"] == "resource.not_found"
+    assert "Kaveri" not in r.text and "seller@kaverifoods.in" not in r.text
+    async with SessionLocal() as db:
+        assert list(await db.scalars(select(ContactReveal))) == []
+    assert (await buyer.get("/me")).json()["contactRevealEnabled"] is False
+
+
+async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_client, reveal_on):
     seller, pid = await _verified_seller_with_product(client, admin_client)
     # Owner contact + business address in the reveal.
     r = await admin_client.patch(
@@ -160,8 +185,10 @@ async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_c
     card = (await guest.get("/public/products")).json()["items"][0]
     detail = (await guest.get(f"/public/products/{pid}")).json()
     for seller_view in (card["seller"], detail["seller"]):
-        assert set(seller_view) == {"sellerId", "state", "verified"}
+        assert set(seller_view) == {"companyCode", "state", "verified"}
         assert seller_view["state"] == "Haryana"
+        assert re.fullmatch(r"IN-\d{6}", seller_view["companyCode"])
+    assert seller["businessId"] not in str(card) + str(detail)
     assert "Karnal" not in str(card) + str(detail)
 
     assert (await make_client().post(f"/products/{pid}/contact-reveal")).status_code == 401
@@ -196,7 +223,7 @@ async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_c
     assert (await buyer.post(f"/products/{pid}/contact-reveal")).status_code == 404
 
 
-async def test_reveal_limit_is_per_business(client, make_client, admin_client):
+async def test_reveal_limit_is_per_business(client, make_client, admin_client, reveal_on):
     seller, pid = await _verified_seller_with_product(client, admin_client)
     buyer = make_client()
     b = await signup_and_login(buyer, "buyer@othermill.in")

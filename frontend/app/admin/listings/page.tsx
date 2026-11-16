@@ -306,6 +306,7 @@ function ListingDetail({
           <p className="t-code text-fg-3">{refId("LST", p.id)}</p>
           <h2 className="t-title2 mt-1 break-words text-fg">{p.name}</h2>
           <p className="t-sub mt-1 text-fg-3">
+            {detail.seller.companyCode ? <span className="t-code mr-2">{detail.seller.companyCode}</span> : null}
             {detail.seller.legalName ?? "Unnamed business"}
             {detail.seller.state ? ` · ${detail.seller.state}` : ""}
             {detail.seller.verified ? "" : " · business not verified"}

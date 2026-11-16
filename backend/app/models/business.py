@@ -5,10 +5,9 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import CHAR, JSON, CheckConstraint, Enum, ForeignKey, Index, String, Text, Uuid, func, text
-from sqlalchemy.orm import Mapped, mapped_column, validates
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UTCDateTime, str_array
-from app.shared.normalize import normalize_legal_name, normalize_website
 
 
 class BusinessStatus(str, enum.Enum):
@@ -31,26 +30,13 @@ ENTITY_TYPES = ("proprietorship", "partnership", "llp", "private_ltd", "public_l
 
 
 class Business(Base):
-    """The company — the main entity. Verification, documents, listings and
-    contact reveals belong to the business; ``users`` are the people who
-    log in on its behalf."""
+    """The company — the main entity. Verification, documents and listings
+    belong to the business; ``users`` are the people who log in on its
+    behalf. Its name and address are in the identity vault."""
 
     __tablename__ = "businesses"
     __table_args__ = (
-        Index(
-            "uq_businesses_legal_name_normalized",
-            "legal_name_normalized",
-            unique=True,
-            sqlite_where=text("deleted_at IS NULL"),
-            postgresql_where=text("deleted_at IS NULL"),
-        ),
-        Index(
-            "uq_businesses_website_normalized",
-            "website_normalized",
-            unique=True,
-            sqlite_where=text("deleted_at IS NULL"),
-            postgresql_where=text("deleted_at IS NULL"),
-        ),
+        Index("uq_businesses_company_code", "company_code", unique=True),
         Index("ix_businesses_verification_queue", "verification_status", "verification_submitted_at"),
         CheckConstraint(
             "trade_position IS NULL OR trade_position IN ('seller', 'buyer', 'both')",
@@ -77,21 +63,17 @@ class Business(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
 
-    # ─── Company identity ──────────────────────────────────────
-    legal_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # Canonical forms backing UNIQUE indexes — synced by the validators below.
-    legal_name_normalized: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ─── Company ───────────────────────────────────────────────
+    # Shown wherever another party would see a name: ``{ISO2}-{6 digits}``,
+    # issued at verification, never changed or reused (A-029). The name,
+    # address and website live in ``business_identities``.
+    company_code: Mapped[str | None] = mapped_column(String(12), nullable=True)
     entity_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     operating_countries: Mapped[list[str] | None] = mapped_column(str_array(CHAR(2)), nullable=True)
-    website_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    website_normalized: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
-    # ─── Company address ───────────────────────────────────────
-    address_line: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # ─── Region (the street address is in the vault) ───────────
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    pincode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     country: Mapped[str] = mapped_column(
         CHAR(2),
         ForeignKey("countries.code", ondelete="RESTRICT", name="fk_businesses_country"),
@@ -103,10 +85,6 @@ class Business(Base):
     # ─── Branding (public images; shown on the dashboard hero) ─
     logo_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
     banner_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
-
-    # ─── Social / trust signals ────────────────────────────────
-    google_business_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    facebook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     # ─── How they trade ────────────────────────────────────────
     trade_position: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -136,16 +114,6 @@ class Business(Base):
         UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-
-    @validates("legal_name")
-    def _sync_legal_name(self, _key: str, value: str | None) -> str | None:
-        self.legal_name_normalized = normalize_legal_name(value)
-        return value
-
-    @validates("website_url")
-    def _sync_website(self, _key: str, value: str | None) -> str | None:
-        self.website_normalized = normalize_website(value)
-        return value
 
     @property
     def is_verified(self) -> bool:

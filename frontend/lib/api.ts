@@ -98,6 +98,10 @@ export interface Me {
   emailVerifiedAt: string | null;
   /** The business legal name. */
   businessName: string | null;
+  /** What other parties see instead of the company name; null until verified. */
+  companyCode: string | null;
+  /** False since Corridor One X became the counterparty; the reveal UI hides itself. */
+  contactRevealEnabled: boolean;
   /** ISO 4217 — converted prices and price filters are shown in this. */
   displayCurrency: string;
   userType: "buyer" | "seller";

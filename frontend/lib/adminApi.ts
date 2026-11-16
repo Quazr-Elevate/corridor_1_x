@@ -188,6 +188,8 @@ export interface VerifyQueueRow {
   email: string;
   fullName: string | null;
   businessName: string | null;
+  /** Masked company code; null until the business is verified. */
+  companyCode: string | null;
   country: string | null;
   industry: string | null;
   tradePosition: string | null;
@@ -209,6 +211,8 @@ export interface UserDetail {
   emailVerifiedAt: string | null;
   /** The business legal name — not patchable on its own. */
   businessName: string | null;
+  /** Masked company code; null until the business is verified. */
+  companyCode: string | null;
   /** The business verification status. */
   status: string;
   createdAt: string;
@@ -298,6 +302,8 @@ export interface UserRow {
   businessId: string;
   email: string;
   businessName: string | null;
+  /** Masked company code; null until the business is verified. */
+  companyCode: string | null;
   fullName: string | null;
   /** The business verification status. */
   status: string;
@@ -370,7 +376,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface ListingSeller {
   businessId: string;
-  legalName: string | null;
+companyCode: string | null;
+    legalName: string | null;
   state: string | null;
   country: string | null;
   verified: boolean;

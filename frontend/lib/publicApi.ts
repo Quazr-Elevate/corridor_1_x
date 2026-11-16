@@ -85,8 +85,8 @@ async function get<T>(
 }
 
 export interface PublicSeller {
-  /** The seller's business id. */
-  sellerId: string;
+  /** The masked company code (`IN-482913`) other parties see instead of a name. */
+  companyCode: string | null;
   /** State or region only. The market never shows the seller's city. */
   state: string | null;
   verified: boolean;

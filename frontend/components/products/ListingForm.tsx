@@ -486,7 +486,7 @@ export function ListingForm({ productId }: { productId?: string }) {
       priceUsdAsOf: null,
       priceValidUntil: form.priceValidUntil || null,
       photo: form.photos[0] ?? null,
-      seller: { sellerId: "", state: me?.business.state ?? null, verified: true },
+      seller: { companyCode: me?.companyCode ?? null, state: me?.business.state ?? null, verified: true },
     }),
     [form, product?.id, me?.business.state],
   );

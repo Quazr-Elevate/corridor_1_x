@@ -30,7 +30,8 @@ from app.integrations.email import EmailRejection, assert_work_email
 from app.models.business import Business, BusinessStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.user import AccountStatus, User, UserRole
-from app.modules.accounts.uniqueness import LEGAL_NAME_TAKEN, ensure_company_available
+from app.modules.masking import service as masking
+from app.modules.masking.service import LEGAL_NAME_TAKEN
 from app.modules.auth import lockout, sessions
 from app.modules.auth.sessions import ClientInfo, record_event
 
@@ -194,7 +195,7 @@ async def complete_signup(
     if await _email_taken(db, email):
         raise Conflict(ACCOUNT_EXISTS)
     company_name = " ".join(company_name.split())
-    await ensure_company_available(db, uuid.uuid4(), legal_name=company_name)
+    await masking.ensure_company_available(db, uuid.uuid4(), legal_name=company_name)
     row = await _latest_code(db, email, EmailCodePurpose.signup)
     if row is None or row.verified_at is None:
         raise BadRequest("Verify your email first.")
@@ -204,7 +205,7 @@ async def complete_signup(
     if ensure_aware(row.verified_at) + VERIFIED_WINDOW < now:
         raise BadRequest("Your email verification expired. Request a new code.")
 
-    business = Business(country="IN", legal_name=company_name, verification_status=BusinessStatus.draft)
+    business = Business(id=uuid.uuid4(), country="IN", verification_status=BusinessStatus.draft)
     user = User(
         business=business,
         role=UserRole.owner,
@@ -220,6 +221,8 @@ async def complete_signup(
         last_login_at=now,
     )
     db.add_all([business, user])
+    await db.flush()  # the vault row's foreign key needs the business first
+    masking.start_identity(db, business.id, legal_name=company_name)
     row.consumed_at = now
     try:
         await db.commit()

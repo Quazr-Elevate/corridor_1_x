@@ -129,6 +129,7 @@ class VerifyQueueRow(CamelModel):
     email: str
     full_name: str | None
     business_name: str | None
+    company_code: str | None = None
     country: str | None
     industry: str | None
     trade_position: str | None
@@ -163,10 +164,25 @@ class DocRejectIn(RequestModel):
 
 
 class AccessReasonIn(RequestModel):
-    """Why an admin is looking at a full KYB number or file; stored on the
-    audit row so the log answers "why", not only "who and when"."""
+    """Why an admin is looking at a full KYB number, a file or the company
+    behind a code; stored on the audit row so the log answers "why", not
+    only "who and when"."""
 
     reason: text(500, 5)  # type: ignore[valid-type]
+
+
+class UnmaskedCompany(CamelModel):
+    """The company behind a code, for the admin who asked."""
+
+    company_code: str
+    business_id: str
+    legal_name: str | None
+    address_line: str | None
+    city: str | None
+    state: str | None
+    pincode: str | None
+    country: str
+    website_url: str | None
 
 
 # ── Users ────────────────────────────────────────────────────────────
@@ -177,6 +193,7 @@ class UserRow(CamelModel):
     business_id: str
     email: str
     business_name: str | None
+    company_code: str | None = None
     full_name: str | None
     status: str  # the business's verification status
     email_verified: bool
@@ -195,6 +212,7 @@ class UserDetail(CamelModel):
     email: str
     email_verified_at: datetime | None
     business_name: str | None
+    company_code: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime

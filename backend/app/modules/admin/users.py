@@ -17,26 +17,31 @@ router = APIRouter()
 
 @router.get("/users", response_model=UserList, response_model_by_alias=True)
 async def list_users(
-    _: CanViewUsers,
+    admin: CanViewUsers,
     db: DbSession,
     q: str | None = Query(None, max_length=200),
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> UserList:
-    return await service.list_users(db, q=q, status=status, limit=limit, offset=offset)
+    return await service.list_users(db, admin, q=q, status=status, limit=limit, offset=offset)
 
 
 @router.get("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
-async def user_detail(user_id: str, _: CanViewUsers, db: DbSession) -> UserDetail:
-    return await service.user_detail(db, parse_uuid(user_id))
+async def user_detail(user_id: str, admin: CanViewUsers, db: DbSession) -> UserDetail:
+    """An account and its company identity (audited as ``identity.unmasked``)."""
+    detail = await service.user_detail(db, admin, parse_uuid(user_id))
+    await db.commit()
+    return detail
 
 
 @router.patch("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
 async def update_user(user_id: str, payload: UserPatchIn, admin: CanEditUsers, db: DbSession) -> UserDetail:
     uid = parse_uuid(user_id)
     await service.update_user(db, admin, uid, payload)
-    return await service.user_detail(db, uid)
+    detail = await service.user_detail(db, admin, uid)
+    await db.commit()
+    return detail
 
 
 @router.post("/users/{user_id}/verify", response_model=StatusChanged, response_model_by_alias=True)

@@ -27,8 +27,8 @@ ADMIN_REVEAL = RateLimitRule("admin.kyb_reveal:admin", limit=200, window_sec=60 
 
 
 @router.get("/docs/pending", response_model=ItemList[PendingDocRow], response_model_by_alias=True)
-async def pending_docs(_: CanReviewKyb, db: DbSession) -> ItemList[PendingDocRow]:
-    return item_list(await service.pending_docs(db))
+async def pending_docs(admin: CanReviewKyb, db: DbSession) -> ItemList[PendingDocRow]:
+    return item_list(await service.pending_docs(db, admin))
 
 
 @router.post("/docs/{doc_id}/file")

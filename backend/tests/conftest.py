@@ -72,6 +72,7 @@ from app.models.base import Base  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.modules.lookups.router import clear_cache as clear_lookup_cache  # noqa: E402
+from app.modules.masking import service as masking  # noqa: E402
 from app.ratelimit import get_limiter  # noqa: E402
 
 
@@ -312,6 +313,8 @@ async def set_status(user_id: str, status: BusinessStatus) -> None:
             values["verification_submitted_at"] = now
         if status == BusinessStatus.verified:
             values["verified_at"] = now
+            business = await db.get(Business, user.business_id)
+            values["company_code"] = business.company_code or masking.new_code(business.country)
         if status == BusinessStatus.rejected:
             values["verification_rejected_reason"] = "test"
         await db.execute(update(Business).where(Business.id == user.business_id).values(**values))

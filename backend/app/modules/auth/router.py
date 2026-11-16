@@ -22,6 +22,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Response
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import notifications
 from app.core.config import settings
@@ -49,6 +50,7 @@ from app.modules.auth.schemas import (
     SignupVerifyRequest,
     SignupVerifyResponse,
 )
+from app.modules.masking import service as masking
 from app.ratelimit import RateLimitRule, get_limiter, ip_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -70,13 +72,14 @@ VISIBLE_EVENTS = (
 )
 
 
-def login_response(user: User) -> LoginResponse:
+async def login_response(db: AsyncSession, user: User) -> LoginResponse:
+    identity = await masking.own_identity(db, user.business_id)
     return LoginResponse(
         user_id=str(user.id),
         business_id=str(user.business_id),
         role=user.role.value,
         email=user.email,
-        business_name=user.business.legal_name,
+        business_name=identity.legal_name,
     )
 
 
@@ -127,7 +130,7 @@ async def signup_complete(
     )
     sessions.record_event(db, subject_type="user", subject_id=user.id, event="login_succeeded", client=client)
     await _start(db, response, user, client)
-    return login_response(user)
+    return await login_response(db, user)
 
 
 @router.post(
@@ -152,7 +155,7 @@ async def login(
             device=sessions.device_label(client.user_agent),
             signed_in_at=utcnow(),
         )
-    return login_response(user)
+    return await login_response(db, user)
 
 
 @router.post("/change-password", response_model=OkResponse, response_model_by_alias=True)

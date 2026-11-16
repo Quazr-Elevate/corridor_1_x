@@ -37,6 +37,7 @@ backend/
 │   │   ├── accounts/           # /me, /onboarding/*, completion predicates, uniqueness rules
 │   │   ├── verification/       # mandatory-field rules, KYB document upload/download
 │   │   ├── catalog/            # /products, /public/*, contact reveal, /uploads/products/<file>
+│   │   ├── masking/            # the identity vault's only reader: company codes, audited staff unmask
 │   │   ├── fx/                 # rates table reads, refresh + price_usd upkeep, /public/fx/rates, background task
 │   │   ├── admin/              # auth.py, dashboard.py, users.py, docs.py (+ audit trail)
 │   │   ├── lookups/            # /pincode/{p}, /ifsc/{code}
@@ -67,7 +68,8 @@ Tables (see `docs/04_data_model.md` for every column, index and CHECK):
 
 | Table | What |
 |---|---|
-| `businesses` | the company: identity, address, how it trades, `verification_status` (`draft` → `pending_verification` → `verified` / `rejected`) |
+| `businesses` | the company: `company_code`, state and country, how it trades, `verification_status` (`draft` → `pending_verification` → `verified` / `rejected`) |
+| `business_identities` | the identity vault: legal name, website, street address. Only `modules/masking` reads it |
 | `users` | people who log in; `business_id` (one business each), `role` (`owner` now), `account_status`, `full_name`, `position`, `phone`, consent, `display_currency` |
 | `email_codes` | hashed 6-digit codes keyed by email (`signup` now; `reset_password` / `invite` later) |
 | `business_documents` | KYB files of a business (`doc_type`, `storage_key`, review state) |

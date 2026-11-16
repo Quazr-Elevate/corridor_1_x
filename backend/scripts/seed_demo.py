@@ -40,6 +40,7 @@ from app.core.db import SessionLocal  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.core.time import utcnow  # noqa: E402
 from app.modules.fx.service import recompute_price_usd  # noqa: E402
+from app.modules.masking import service as masking  # noqa: E402
 from app.main import configure_integrations  # noqa: E402
 from app.integrations.storage import IMAGE_TYPES, detect, get_storage  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
@@ -178,17 +179,20 @@ async def _seller(db, row) -> User:
     user.deleted_at = None
 
     biz = user.business
-    biz.legal_name = company
+    await db.flush()  # the vault row needs the business id
+    identity = await masking.own_identity(db, biz.id)
+    identity.legal_name, identity.city = company, city
     biz.entity_type = "private_ltd" if "Pvt Ltd" in company else "proprietorship"
     biz.industry = "Agri commodities"
     biz.operating_countries = ["IN"]
     biz.trade_position = "seller"
-    biz.city, biz.state, biz.country = city, state, "IN"
+    biz.state, biz.country = state, "IN"
     biz.deleted_at = None
     biz.verification_status = BusinessStatus.verified
     biz.verification_submitted_at = biz.verification_submitted_at or now
     biz.verified_at = biz.verified_at or now
     biz.verification_rejected_reason = None
+    await masking.assign_code(db, biz)
     await db.flush()
     return user
 

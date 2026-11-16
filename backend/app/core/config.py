@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
 
+    # ─── Retired features ────────────────────────────────────────
+    # Contact reveal hands a buyer the seller's name and email, which the
+    # trading-desk model forbids (A-026). Off; the code goes one sprint
+    # after S4 (CX-083).
+    contact_reveal_enabled: bool = False
+
     # ─── KYB field encryption (app/core/crypto.py) ───────────────
     # Comma-separated ``version:base64key`` list of 32-byte AES keys. The
     # highest version encrypts new values; every listed version decrypts.

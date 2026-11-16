@@ -8,12 +8,14 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import BadRequest, NotFound, PayloadTooLarge, UnsupportedMediaType
 from app.core.time import utcnow
 from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
 from app.shared.images import strip_metadata
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument
+from app.models.business_identity import BusinessIdentity
 from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
@@ -34,13 +36,10 @@ from app.modules.accounts.schemas import (
     PrimaryData,
     VerificationState,
 )
-from app.modules.accounts.uniqueness import (
-    commit_or_conflict,
-    ensure_company_available,
-    ensure_phone_available,
-)
+from app.modules.accounts.uniqueness import commit_or_conflict, ensure_phone_available
 from app.modules.auth.sessions import revoke_all, user_policy
 from app.modules.fx.service import ensure_supported
+from app.modules.masking import service as masking
 from app.modules.verification.rules import (
     PROFILE_FIELDS,
     SUBMITTABLE_STATUSES,
@@ -116,20 +115,21 @@ def primary_data(u: User) -> PrimaryData:
     return PrimaryData(full_name=u.full_name, phone=u.phone, position=u.position)
 
 
-def business_data(b: Business) -> BusinessData:
+def business_data(b: Business, identity: BusinessIdentity) -> BusinessData:
+    """The caller's own company profile: the business row plus its vault row."""
     return BusinessData(
-        legal_name=b.legal_name,
+        legal_name=identity.legal_name,
         entity_type=b.entity_type,
         industry=b.industry,
         operating_countries=b.operating_countries,
-        website_url=b.website_url,
-        address_line=b.address_line,
-        city=b.city,
+        website_url=identity.website_url,
+        address_line=identity.address_line,
+        city=identity.city,
         state=b.state,
-        pincode=b.pincode,
+        pincode=identity.pincode,
         country=b.country,
-        google_business_url=b.google_business_url,
-        facebook_url=b.facebook_url,
+        google_business_url=identity.google_business_url,
+        facebook_url=identity.facebook_url,
         trade_position=b.trade_position,
         seller_type=b.seller_type,
         export_status=b.export_status,
@@ -142,6 +142,7 @@ def business_data(b: Business) -> BusinessData:
 async def me_view(db: AsyncSession, user: User) -> MeResponse:
     u = await reload_user(db, user.id)
     b = u.business
+    identity = await masking.own_identity(db, b.id)
     product_count = (
         await db.scalar(
             select(func.count(Product.id)).where(Product.business_id == b.id, Product.deleted_at.is_(None))
@@ -154,13 +155,15 @@ async def me_view(db: AsyncSession, user: User) -> MeResponse:
         role=u.role.value,
         email=u.email,
         email_verified_at=u.email_verified_at,
-        business_name=b.legal_name,
+        business_name=identity.legal_name,
+        company_code=b.company_code,
+        contact_reveal_enabled=settings.contact_reveal_enabled,
         display_currency=u.display_currency,
         user_type="seller" if product_count > 0 else "buyer",
         status=b.verification_status.value,
         verification=await verification_state(db, b),
         primary=primary_data(u),
-        business=business_data(b),
+        business=business_data(b, identity),
         branding=branding_data(b),
         show_tour=u.tour_completed_at is None,
     )
@@ -233,9 +236,10 @@ async def delete_account(db: AsyncSession, user: User) -> None:
     )
     keys: list[str] = []
     if not others:
-        # Partial unique indexes ignore deleted rows, so the company name /
-        # website / phone are free to register again.
+        # The vault row goes with the business, so its name and website are
+        # erased and free to register again.
         u.business.deleted_at = now
+        await masking.erase(db, u.business_id)
         # KYB entries go with the business (data minimisation; frees the
         # GSTIN / PAN for a fresh registration). Files are removed after commit.
         for doc in await db.scalars(select(BusinessDocument).where(BusinessDocument.business_id == u.business_id)):
@@ -250,9 +254,11 @@ async def delete_account(db: AsyncSession, user: User) -> None:
 # ── Passport saves ───────────────────────────────────────────────────
 
 
-def onboarding_status(user: User | None, business: Business | None) -> OnboardingStatus:
+def onboarding_status(
+    user: User | None, business: Business | None, identity: BusinessIdentity | None
+) -> OnboardingStatus:
     return OnboardingStatus(
-        company_info_done=completion.company_info_done(business),
+        company_info_done=completion.company_info_done(business, identity),
         primary_contact_done=completion.primary_contact_done(user),
         business_profile_done=completion.business_profile_done(business),
     )
@@ -260,7 +266,7 @@ def onboarding_status(user: User | None, business: Business | None) -> Onboardin
 
 async def get_onboarding_status(db: AsyncSession, user: User) -> OnboardingStatus:
     u = await reload_user(db, user.id)
-    return onboarding_status(u, u.business)
+    return onboarding_status(u, u.business, await masking.own_identity(db, u.business_id))
 
 
 async def _finish_save(db: AsyncSession, user_id: uuid.UUID) -> OnboardingStatus:
@@ -268,27 +274,30 @@ async def _finish_save(db: AsyncSession, user_id: uuid.UUID) -> OnboardingStatus
     verification status — submission is an explicit user action."""
     await commit_or_conflict(db)
     fresh = await reload_user(db, user_id)
-    return onboarding_status(fresh, fresh.business)
+    return onboarding_status(fresh, fresh.business, await masking.own_identity(db, fresh.business_id))
 
 
 async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn) -> OnboardingStatus:
     website = payload.website_url or None
-    await ensure_company_available(db, user.business_id, legal_name=payload.legal_name, website_url=website)
+    await masking.ensure_company_available(
+        db, user.business_id, legal_name=payload.legal_name, website_url=website
+    )
     u = await reload_user(db, user.id)
     b = u.business
-    before = _kyb_snapshot(b)
-    b.legal_name = payload.legal_name
+    identity = await masking.own_identity(db, b.id)
+    before = _kyb_snapshot(b, identity)
+    identity.legal_name = payload.legal_name
     b.industry = payload.industry
     b.operating_countries = list(payload.operating_countries)
-    b.website_url = website
+    identity.website_url = website
     if "entity_type" in payload.model_fields_set:
         b.entity_type = payload.entity_type
     for field in COMPANY_OPTIONAL_FIELDS:
         if field in payload.model_fields_set:
-            setattr(b, field, getattr(payload, field) or None)
+            masking.set_company_field(b, identity, field, getattr(payload, field) or None)
     if "country" in payload.model_fields_set and payload.country:
         await _change_country(db, b, payload.country)  # NOT NULL column — blank leaves it unchanged
-    if _kyb_snapshot(b) != before:
+    if _kyb_snapshot(b, identity) != before:
         reopen_review(b)
     return await _finish_save(db, u.id)
 
@@ -343,41 +352,42 @@ async def _change_country(db: AsyncSession, business: Business, country: str) ->
 async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSaveIn) -> MeResponse:
     website = payload.website_url or None
     sent = payload.model_fields_set
-    await ensure_company_available(
+    await masking.ensure_company_available(
         db, user.business_id, legal_name=payload.legal_name, website_url=website if "website_url" in sent else None
     )
     u = await reload_user(db, user.id)
     b = u.business
-    before = _kyb_snapshot(b)
-    b.legal_name = " ".join(payload.legal_name.split())
+    identity = await masking.own_identity(db, b.id)
+    before = _kyb_snapshot(b, identity)
+    identity.legal_name = " ".join(payload.legal_name.split())
     await _change_country(db, b, payload.country)
     if "website_url" in sent:
-        b.website_url = website
+        identity.website_url = website
     for field in PROFILE_OPTIONAL_FIELDS:
         if field in sent:
-            setattr(b, field, getattr(payload, field) or None)
-    await _check_postcode(db, b)
-    if _kyb_snapshot(b) != before:
+            masking.set_company_field(b, identity, field, getattr(payload, field) or None)
+    await _check_postcode(db, b, identity)
+    if _kyb_snapshot(b, identity) != before:
         reopen_review(b)
     await commit_or_conflict(db)
     return await me_view(db, u)
 
 
-async def _check_postcode(db: AsyncSession, b: Business) -> None:
+async def _check_postcode(db: AsyncSession, b: Business, identity: BusinessIdentity) -> None:
     """Postcode must match the country's pattern when one is set."""
-    if not b.pincode:
+    if not identity.pincode:
         return
     country = await db.get(Country, b.country)
     if country is not None and country.postal_pattern:
-        if not re.fullmatch(country.postal_pattern, b.pincode.strip().upper()):
+        if not re.fullmatch(country.postal_pattern, identity.pincode.strip().upper()):
             raise BadRequest(f"That doesn’t look like a valid {country.postal_label} for {country.name}.")
 
 
-def _kyb_snapshot(b: Business) -> tuple:
+def _kyb_snapshot(b: Business, identity: BusinessIdentity) -> tuple:
     """The company fields KYB verifies — a change on a verified business
     sends it back to review."""
     norm = lambda v: " ".join((v or "").split()).lower()  # noqa: E731
-    return (norm(b.legal_name), norm(b.address_line), norm(b.city), (b.country or "").upper())
+    return (norm(identity.legal_name), norm(identity.address_line), norm(identity.city), (b.country or "").upper())
 
 
 # ── Branding images (logo / banner) ──────────────────────────────────

@@ -3,6 +3,7 @@ from app.models.admin_user import AdminRole, AdminStatus, AdminUser
 from app.models.auth_session import AdminSession, AuthEvent, UserSession
 from app.models.base import Base
 from app.models.business import ENTITY_TYPES, Business, BusinessStatus
+from app.models.business_identity import VAULT_COLUMNS, BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.contact_reveal import ContactReveal
 from app.models.country import Country
@@ -14,6 +15,7 @@ from app.models.product import INCOTERMS, ListingStatus, Product
 from app.models.user import AccountStatus, User, UserRole
 
 __all__ = [
+    "VAULT_COLUMNS",
     "ENTITY_TYPES",
     "AccountStatus",
     "AdminAction",
@@ -27,6 +29,7 @@ __all__ = [
     "CertificateDownload",
     "CertificateType",
     "BusinessDocument",
+    "BusinessIdentity",
     "BusinessStatus",
     "ContactReveal",
     "Country",

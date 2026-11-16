@@ -85,8 +85,11 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | B2 | Cross-business access (BOLA) | Owner only; no existence leak | ✅ | Live: another business's file → 404; tests: stranger can't list/reveal/edit/delete/download entries |
 | B3 | User session on admin routes | Refused | ✅ | `/admin/verify/queue`, `/admin/docs/{id}/reveal` with user cookie → 401 |
 | B4 | KYB file access | Owner or admin only | ✅ | No session → 401; legacy public path → 404 |
-| B5 | Public market masking | No seller name / contact | ✅ | `/public/products` seller keys = `sellerId, state, verified` (city removed in CX-068); no emails in response |
-| B6 | Contact reveal | Verified buyer ↔ verified seller; limited | ✅ | Tests: gates + 20 new reveals / business / hour |
+| B5 | Public market masking | No seller name, contact or internal id | ✅ | `/public/products` seller keys = `companyCode, state, verified` (M2: the business id is no longer returned); no emails in response |
+| B6 | Contact reveal | Retired: Cor1x is the counterparty (A-026) | ✅ off | `CONTACT_REVEAL_ENABLED=false` by default; the route answers 404 and writes nothing (`test_contact_reveal_is_off_by_default`). Code removed one sprint after S4 (CX-083) |
+| B13 | Identity vault (M2) | Company name, address and website readable only through `modules/masking` | ✅ | `business_identities` (0027); `test_only_the_masking_module_reads_the_vault` |
+| B14 | Response guard (M2) | No identity field in any response outside `/admin`, except a listed own-account route | ✅ | `test_no_external_response_can_carry_an_identity_field` walks every route's response model; a stale exception fails the test |
+| B15 | Audited staff unmask (M2) | Each opening of a company's identity is logged; volume is limited and flagged | ✅ | `identity.unmasked` on account detail, listing review and code lookup; 120 an hour per admin, alert row at 40; lookup by code needs `identity.unmask` and a reason |
 | B7 | Full KYB numbers only on deliberate action | Masked in lists | ✅ | Live: no full GSTIN/PAN in `/me` or the entry list; reveal rate-limited (30/h user, 200/h admin) |
 | B8 | Admin roles (super admin / reviewer) | Least privilege | ❌ → A | All admins can do everything |
 | B9 | Route-permission matrix test | Every admin route declares a permission | ⏳ A | Not present |

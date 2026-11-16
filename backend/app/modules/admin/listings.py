@@ -48,7 +48,7 @@ def _changed(product) -> ListingStatusChanged:
 
 @router.get("", response_model=AdminListingList, response_model_by_alias=True)
 async def list_listings(
-    _: CanReviewListings,
+    admin: CanReviewListings,
     db: DbSession,
     queue: Literal["pending", "all"] = Query("pending"),
     status: str | None = Query(None, max_length=20),
@@ -56,12 +56,15 @@ async def list_listings(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> AdminListingList:
-    return await review.list_listings(db, queue=queue, status=status, q=q, limit=limit, offset=offset)
+    return await review.list_listings(db, admin, queue=queue, status=status, q=q, limit=limit, offset=offset)
 
 
 @router.get("/{listing_id}", response_model=AdminListingDetail, response_model_by_alias=True)
-async def listing_detail(listing_id: str, _: CanReviewListings, db: DbSession) -> AdminListingDetail:
-    return await review.listing_detail(db, parse_uuid(listing_id))
+async def listing_detail(listing_id: str, admin: CanReviewListings, db: DbSession) -> AdminListingDetail:
+    """A listing and its seller's name (audited as ``identity.unmasked``)."""
+    detail = await review.listing_detail(db, admin, parse_uuid(listing_id))
+    await db.commit()
+    return detail
 
 
 @router.post("/{listing_id}/approve", response_model=ListingStatusChanged, response_model_by_alias=True)

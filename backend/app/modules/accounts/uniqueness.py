@@ -1,5 +1,7 @@
-"""Uniqueness of phone (users) / legal company name / website (businesses)
-among LIVE rows (the UNIQUE indexes are partial: WHERE deleted_at IS NULL).
+"""Uniqueness of a phone among LIVE users (the UNIQUE index is partial:
+WHERE deleted_at IS NULL), and the one place a unique-index violation
+becomes a 409. Company name and website uniqueness live with the identity
+vault (``modules/masking``).
 
 Two layers: a friendly pre-check (indexed lookup on the normalized
 column), and the UNIQUE indexes themselves — :func:`commit_or_conflict`
@@ -14,13 +16,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, DomainError
-from app.models.business import Business
 from app.models.user import User
-from app.shared.normalize import normalize_legal_name, normalize_phone, normalize_website
+from app.modules.masking.service import LEGAL_NAME_TAKEN, WEBSITE_TAKEN
+from app.shared.normalize import normalize_phone
 
 PHONE_TAKEN = "This phone number is already registered on Cor1x."
-LEGAL_NAME_TAKEN = "This legal company name is already registered on Cor1x."
-WEBSITE_TAKEN = "This website is already linked to another Cor1x account."
 
 _BY_COLUMN = {
     "phone_normalized": PHONE_TAKEN,
@@ -36,33 +36,6 @@ async def ensure_phone_available(db: AsyncSession, user_id: uuid.UUID, phone: st
     other = await db.scalar(select(User.id).where(User.phone_normalized == key, User.id != user_id, User.deleted_at.is_(None)))
     if other is not None:
         raise Conflict(PHONE_TAKEN)
-
-
-async def ensure_company_available(
-    db: AsyncSession,
-    business_id: uuid.UUID,
-    *,
-    legal_name: str | None = None,
-    website_url: str | None = None,
-) -> None:
-    name_key = normalize_legal_name(legal_name)
-    if name_key is not None:
-        other = await db.scalar(
-            select(Business.id).where(
-                Business.legal_name_normalized == name_key, Business.id != business_id, Business.deleted_at.is_(None)
-            )
-        )
-        if other is not None:
-            raise Conflict(LEGAL_NAME_TAKEN)
-    site_key = normalize_website(website_url)
-    if site_key is not None:
-        other = await db.scalar(
-            select(Business.id).where(
-                Business.website_normalized == site_key, Business.id != business_id, Business.deleted_at.is_(None)
-            )
-        )
-        if other is not None:
-            raise Conflict(WEBSITE_TAKEN)
 
 
 #: CHECK constraints a request can trip (normally caught earlier by the

@@ -85,6 +85,10 @@ class MeResponse(CamelModel):
     email: str
     email_verified_at: datetime | None = None
     business_name: str | None = None
+    #: What other parties see instead of the name; set once verified.
+    company_code: str | None = None
+    #: False since the trading-desk decision; the reveal UI hides itself.
+    contact_reveal_enabled: bool = False
     #: ISO 4217 — converted prices and filter amounts are shown in this.
     display_currency: str = "USD"
     user_type: str

@@ -147,7 +147,7 @@ export default async function ProductDetailPage({ params }: Params) {
           </section>
 
           <div className="animate-rise" style={{ animationDelay: "180ms" }}>
-            <ContactGate productId={p.id} sellerId={p.seller.sellerId} sellerPlace={sellerPlace} />
+            <ContactGate productId={p.id} companyCode={p.seller.companyCode} sellerPlace={sellerPlace} />
           </div>
         </div>
 

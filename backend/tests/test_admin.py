@@ -151,7 +151,11 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
         "Spices", "Pune", "411001", "AE", "llp"
     )
     actions = await _actions()
-    assert actions[-1].action == "business.update"
+    # The PATCH answers with the account detail, so the edit is followed by
+    # the audit row for opening that company's identity.
+    assert [a.action for a in actions[-2:]] == ["business.update", "identity.unmasked"]
+    assert actions[-1].target_id == b["businessId"] and actions[-1].details["purpose"] == "account_detail"
+    actions = actions[:-1]
     assert actions[-1].target_type == "business" and actions[-1].target_id == b["businessId"]
     assert set(actions[-1].details["fields"]) == {
         "profile.position",

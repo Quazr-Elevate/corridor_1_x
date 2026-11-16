@@ -26,6 +26,7 @@ from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
+from app.modules.masking import service as masking
 
 
 @dataclass(frozen=True)
@@ -118,8 +119,11 @@ async def is_configured(db: AsyncSession, country: str) -> bool:
 
 async def requirements(db: AsyncSession, business: Business) -> RequirementsReport:
     """What the business still needs before it can submit for KYB."""
+    identity = await masking.own_identity(db, business.id)
     missing = [
-        Requirement(f.key, f.label) for f in PROFILE_FIELDS if not _is_filled(getattr(business, f.column))
+        Requirement(f.key, f.label)
+        for f in PROFILE_FIELDS
+        if not _is_filled(masking.company_field(business, identity, f.column))
     ]
     types = await mandatory_types(db, business.country)
     if types:
