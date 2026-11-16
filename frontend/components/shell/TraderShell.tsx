@@ -42,6 +42,7 @@ const DOCK: ReadonlyArray<{ href: string; label: string; icon: IconName; match: 
   { href: "/dashboard", label: "Corridor", icon: "corridor", match: (p) => p === "/dashboard" },
   { href: "/products", label: "Market", icon: "grain", match: (p) => p.startsWith("/products") },
   { href: "/dashboard/products", label: "Listings", icon: "sack", match: (p) => p.startsWith("/dashboard/products") },
+  { href: "/dashboard/requests", label: "Requests", icon: "match", match: (p) => p.startsWith("/dashboard/requests") },
   { href: "/dashboard/business", label: "Business", icon: "building", match: (p) => p.startsWith("/dashboard/business") || p.startsWith("/dashboard/account") },
 ];
 

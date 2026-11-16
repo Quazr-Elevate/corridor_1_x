@@ -108,8 +108,13 @@ export function ContactGate({
         </h2>
         <p className="t-callout mt-1.5 text-fg-2">
           Corridor One X buys from the seller and sells to you, so the seller&rsquo;s name stays masked on both sides.
-          Requests for quotation are coming to this page.
+          Ask for a quote and you get a priced offer back.
         </p>
+        {me && !(companyCode && me.companyCode === companyCode) ? (
+          <LinkButton href={`/dashboard/requests/new?listing=${productId}`} variant="primary" size="lg" icon="match" className="mt-5 w-full sm:w-auto">
+            Request a quote
+          </LinkButton>
+        ) : null}
         {!me ? (
           <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
             <LinkButton href={`/login?next=${next}`} variant="primary" size="lg" icon="lock" className="sm:flex-1">

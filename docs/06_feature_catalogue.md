@@ -150,6 +150,7 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
+| Nov 2026 (M3, screens) | Requests page, request editor with checklist and seller preview, offers with unlock, seller's matched requests and quote form, "Request a quote" on a listing, trade desk page |
 | Nov 2026 (M3, sprint S7, API) | Seller quotes, cost sheets with stored FX and margin approval, offers with paid unlock |
 | Nov 2026 (M3, sprint S6, API) | Deals and their state machine, requests for quotation, matching by hard rules, trade desk queue and roles, held countries, automatic refund and expiry |
 | Nov 2026 (M2, sprint S5) | Credit wallet and ledger, free RFQ quota, plans and top-ups with a payment webhook, listing text checked by the leak filter, notification template lint |

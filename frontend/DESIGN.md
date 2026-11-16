@@ -80,6 +80,9 @@ body subtitle.
 - `CreditButton` (`ui/CreditButton.tsx`) — the one button for anything that spends credits. Prints the
   price and the balance before the click ("Unlock offer · 2 credits · you have 18"); turns into a link
   to the wallet when the balance is short. `creditCost(wallet, action)` and `costLine(cost)` for other layouts.
+- `components/trade/parts.tsx` — `RequestSheet` (a request exactly as a seller reads it; the buyer's
+  preview, the seller's view and the desk all render it) and `TrackingChip`. `lib/trade.ts` has the RFQ,
+  quote and offer calls, and `money()` / `toMinor()` for minor-unit prices.
 - `Sheet` (glass dialog / bottom sheet), `ToastProvider` + `useToast()`.
 - `Icon` — drawn set, 24 grid, 1.5 stroke. Product glyphs: corridor, grain, match,
   relay, vault, passport, radar, shield, lock, pen, sack, ship, plane, truck,

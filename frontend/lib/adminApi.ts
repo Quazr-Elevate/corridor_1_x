@@ -16,7 +16,12 @@ export type AdminPermission =
   | "catalog.manage"
   | "listings.review"
   | "accounts.security"
-  | "admins.manage";
+  | "admins.manage"
+  | "rfqs.triage"
+  | "margin.approve"
+  | "trade.configure"
+  | "credits.manage"
+  | "identity.unmask";
 
 export interface AdminMe {
   id: string;
@@ -425,6 +430,105 @@ export type CertificateTypeIn = Pick<CertificateType, "category" | "code" | "nam
   Partial<Pick<CertificateType, "helpText" | "isRequired" | "sortOrder">>;
 export type CertificateTypePatch = Partial<Pick<CertificateType, "name" | "helpText" | "isRequired" | "sortOrder" | "active">>;
 
+// ── Trade desk (RFQs, quotes, cost sheets) ───────────────────────────
+
+export interface DeskRfqRow {
+  id: string;
+  dealCode: string | null;
+  buyerCode: string | null;
+  category: string;
+  productName: string;
+  quantity: string | null;
+  unit: string;
+  deliveryCountry: string | null;
+  status: string;
+  submittedAt: string | null;
+  expiresAt: string | null;
+  proposed: number;
+  confirmed: number;
+}
+
+export interface DeskMatch {
+  id: string;
+  sellerCode: string | null;
+  sellerState: string | null;
+  listingId: string | null;
+  listingName: string | null;
+  status: "proposed" | "confirmed" | "removed";
+  source: "rule" | "desk";
+  reasons: { rule: string; ok: boolean; detail: string }[];
+  viewedAt: string | null;
+}
+
+export interface DeskRfqDetail {
+  rfq: import("@/lib/trade").RfqSellerView;
+  kind: string;
+  status: string;
+  targetPriceMin: number | null;
+  targetPriceMax: number | null;
+  currency: string | null;
+  deskReason: string | null;
+  submittedAt: string | null;
+  matches: DeskMatch[];
+  leakFlags: { field: string; reasons: string[] }[];
+}
+
+export interface CostSheet {
+  id: string;
+  quoteId: string;
+  status: "draft" | "pending_approval" | "ready" | "published";
+  purchaseCurrency: string;
+  purchasePriceMinor: number;
+  inlandFreightMinor: number;
+  oceanFreightMinor: number;
+  freightQuotedOn: string | null;
+  insuranceMinor: number;
+  inspectionMinor: number;
+  documentationMinor: number;
+  financeMinor: number;
+  otherMinor: number;
+  totalCostMinor: number;
+  dealCurrency: string;
+  fxRate: string;
+  fxAsOf: string | null;
+  fxBufferPct: string;
+  marginPct: string;
+  minMarginPct: string;
+  sellPriceMinor: number;
+  needsApproval: boolean;
+  approved: boolean;
+}
+
+export type CostSheetInput = Pick<
+  CostSheet,
+  "inlandFreightMinor" | "oceanFreightMinor" | "freightQuotedOn" | "insuranceMinor" | "inspectionMinor" | "documentationMinor" | "financeMinor" | "otherMinor"
+> & { marginPct: string };
+
+export interface DeskQuote {
+  id: string;
+  sellerCode: string | null;
+  sellerState: string | null;
+  priceMinor: number;
+  currency: string;
+  quantity: string;
+  unit: string;
+  incoterm: string;
+  portOfLoading: string | null;
+  leadTimeDays: number;
+  paymentTerms: string[];
+  validUntil: string;
+  specs: { parameterId: string; name: string; meets: boolean; value: string | null }[];
+  notes: string | null;
+  costSheet: CostSheet | null;
+  offerId: string | null;
+}
+
+export interface DeskStatus {
+  id: string;
+  status: string;
+  dealStatus: string | null;
+}
+
 export const adminApi = {
   login: (email: string, password: string) =>
     req<AdminMe>("/admin/login", {
@@ -577,4 +681,27 @@ export const adminApi = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+
+  // ─── Trade desk ───
+  listRfqs: (queue: "pending" | "all") => req<{ total: number; items: DeskRfqRow[] }>(`/admin/rfqs?queue=${queue}`),
+  getRfq: (id: string) => req<DeskRfqDetail>(`/admin/rfqs/${id}`),
+  rematchRfq: (id: string) => req<DeskRfqDetail>(`/admin/rfqs/${id}/rematch`, { method: "POST" }),
+  addRfqMatch: (id: string, listingId: string) =>
+    req<DeskRfqDetail>(`/admin/rfqs/${id}/matches`, { method: "POST", body: JSON.stringify({ listingId }) }),
+  removeRfqMatch: (id: string, matchId: string) => req<void>(`/admin/rfqs/${id}/matches/${matchId}`, { method: "DELETE" }),
+  confirmRfq: (id: string) => req<DeskStatus>(`/admin/rfqs/${id}/confirm`, { method: "POST" }),
+  rejectRfq: (id: string, reason: string) =>
+    req<DeskStatus>(`/admin/rfqs/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
+  closeRfqUnmatched: (id: string) => req<DeskStatus>(`/admin/rfqs/${id}/no-match`, { method: "POST" }),
+  releaseRfq: (id: string, reason: string) =>
+    req<DeskStatus>(`/admin/rfqs/${id}/release`, { method: "POST", body: JSON.stringify({ reason }) }),
+  listRfqQuotes: (id: string) => req<{ total: number; items: DeskQuote[] }>(`/admin/rfqs/${id}/quotes`).then((r) => r.items),
+  saveCostSheet: (quoteId: string, body: CostSheetInput) =>
+    req<CostSheet>(`/admin/quotes/${quoteId}/cost-sheet`, { method: "PUT", body: JSON.stringify(body) }),
+  approveCostSheet: (sheetId: string) => req<CostSheet>(`/admin/cost-sheets/${sheetId}/approve`, { method: "POST" }),
+  publishOffer: (sheetId: string) =>
+    req<{ id: string; dealCode: string; dealStatus: string; priceMinor: number; currency: string; validUntil: string }>(
+      `/admin/cost-sheets/${sheetId}/publish`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
 };
