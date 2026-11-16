@@ -79,4 +79,5 @@ They're scheduled, but the milestone's design review is where they're confirmed.
 | CX-020 | Collect bank details at KYB, or at the first payout? | Client | Payouts (CX-121) need verified accounts either way |
 | CX-019, CX-024, CX-026 | Trader team accounts, buy/sell mode switch, Google sign-in | Client | Backlog (Phase C); don't build |
 | CX-084, CX-085 | Credit cost per action and plan prices (plan 17.5) | Client | Placeholder values in configuration (A-031) |
+| CX-147 | Tax invoice for plan purchases: GST registration, rate, place of supply, layout | Accountant | An invoice number is stored per paid purchase; the document is not built. No real payments until answered |
 | Plan open questions | 29 questions across 13 plan sections (claim windows, retention %, credit prices, matching hard rules…) | Client, mostly | Make each one configuration with a sensible default, and list it in the milestone's design review |
