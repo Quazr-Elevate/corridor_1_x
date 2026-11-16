@@ -388,6 +388,9 @@ function AccountMenu({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
             <MenuItem icon="passport" onClick={() => go("/dashboard/account")}>
               Passport
             </MenuItem>
+            <MenuItem icon="vault" onClick={() => go("/dashboard/wallet")}>
+              Wallet &amp; credits
+            </MenuItem>
             <MenuItem icon="settings" onClick={() => go("/dashboard/settings")}>
               Settings &amp; security
             </MenuItem>

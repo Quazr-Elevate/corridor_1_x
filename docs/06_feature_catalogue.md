@@ -51,7 +51,14 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ **Display currency** (INR / AED / USD) with indicative conversion from daily exchange rates.
 - ✅ Seller identity is **masked** in the market: a company code such as `IN-482913`, the state and the verified badge. Never the name, the city or a contact.
 - ✅ **Company code (M2):** each business gets its code when it is first verified and keeps it for life.
+- ✅ **Listing text is checked (M2):** a phone number, email, web address or messaging handle in a listing is refused with a message saying what to remove. Text that only looks doubtful is saved and flagged to the reviewer.
 - ⛔ **Contact reveal is retired (M2).** Corridor One X is the counterparty for both sides, so a buyer is no longer handed the seller's name and email.
+
+### 1.5 Credits (M2)
+- ✅ **Wallet:** one credit balance per company, with every movement listed.
+- ✅ **Free RFQs:** ten per verified company, tied to its registration number.
+- ✅ **Plans and top-ups:** bought by card or UPI through Razorpay. Credits arrive when the payment is confirmed. A plan that runs out keeps its benefits for seven days, then the company is on the Free plan; bought credits are kept.
+- ⏳ Prices shown are placeholders until the client sets them. The tax invoice document is not built: it needs the company's GST details.
 
 ---
 
@@ -126,5 +133,6 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
+| Nov 2026 (M2, sprint S5) | Credit wallet and ledger, free RFQ quota, plans and top-ups with a payment webhook, listing text checked by the leak filter, notification template lint |
 | Nov 2026 (M2, sprint S4) | Identity vault, company codes, market shows the code instead of an internal id, contact reveal retired, identity access by staff logged and limited |
 | Earlier | Sign-up with email code, business profile and per-country KYB, combined review, countries, products and market, currency display, contact reveal, admin console |

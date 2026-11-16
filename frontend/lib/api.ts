@@ -116,6 +116,64 @@ export interface Me {
   showTour: boolean;
 }
 
+// ── Credits (wallet) ─────────────────────────────────────────────────
+
+export type SpendAction = "RFQ_POST" | "OFFER_UNLOCK" | "RFQ_VIEW" | "LISTING_BOOST" | "AI_QUERY" | "SAMPLE_FEE";
+
+export interface CreditPrice {
+  action: SpendAction;
+  credits: number;
+  /** True until the client sets the real price. */
+  isPlaceholder: boolean;
+}
+
+export interface Wallet {
+  balance: number;
+  /** null on the Free plan. */
+  plan: { code: string; name: string | null; expiresAt: string; state: "active" | "grace" } | null;
+  /** Free RFQs of this company; null until it is verified. */
+  freeRfqs: { allowance: number; used: number; remaining: number } | null;
+  prices: CreditPrice[];
+  /** False when no payment processor is set up. */
+  checkoutAvailable: boolean;
+}
+
+export interface LedgerLine {
+  id: string;
+  entryType: SpendAction | "PLAN_PURCHASE" | "TOP_UP" | "ADJUSTMENT" | "REVERSAL";
+  amount: number;
+  balanceAfter: number;
+  free: boolean;
+  referenceType: string | null;
+  referenceId: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface CreditPlan {
+  code: string;
+  name: string;
+  kind: "plan" | "top_up";
+  credits: number;
+  /** Price in the currency's minor unit (paise for INR). */
+  priceMinor: number;
+  currency: string;
+  periodDays: number | null;
+  isPlaceholder: boolean;
+}
+
+export interface Purchase {
+  id: string;
+  planCode: string;
+  credits: number;
+  amountMinor: number;
+  currency: string;
+  status: "created" | "paid" | "failed";
+  provider: string;
+  providerOrderId: string;
+  checkoutKey: string;
+}
+
 export interface RevealedContact {
   /** The seller's business id. */
   sellerId: string;
@@ -609,6 +667,19 @@ export const api = {
     jsonFetch<{ id: string; certType: string; value: string }>(`/me/verification-docs/${id}/reveal`, { method: "POST" }),
   deleteVerificationDoc: (id: string) =>
     jsonFetch<void>(`/me/verification-docs/${id}`, { method: "DELETE" }),
+
+  // ─── Credits ───
+  getWallet: () => jsonFetch<Wallet>("/wallet"),
+  getLedger: (limit = 50, offset = 0) =>
+    jsonFetch<{ total: number; items: LedgerLine[] }>(`/wallet/ledger?limit=${limit}&offset=${offset}`),
+  listPlans: () => jsonFetch<ItemList<CreditPlan>>("/wallet/plans").then((r) => r.items),
+  /** `idempotencyKey` must stay the same across retries of one click. */
+  createPurchase: (planCode: string, idempotencyKey: string) =>
+    jsonFetch<Purchase>("/wallet/purchases", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({ planCode }),
+    }),
 
   // ─── Products / reveals ───
   revealContact: (productId: string) =>

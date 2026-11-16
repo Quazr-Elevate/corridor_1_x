@@ -77,6 +77,9 @@ body subtitle.
   scrolls sideways, rows lift on hover, `onRowClick` adds keyboard support,
   `maxHeight` gives a sticky header).
 - `Kbd` — mono key cap: `<Kbd>⌘</Kbd><Kbd>K</Kbd>`.
+- `CreditButton` (`ui/CreditButton.tsx`) — the one button for anything that spends credits. Prints the
+  price and the balance before the click ("Unlock offer · 2 credits · you have 18"); turns into a link
+  to the wallet when the balance is short. `creditCost(wallet, action)` and `costLine(cost)` for other layouts.
 - `Sheet` (glass dialog / bottom sheet), `ToastProvider` + `useToast()`.
 - `Icon` — drawn set, 24 grid, 1.5 stroke. Product glyphs: corridor, grain, match,
   relay, vault, passport, radar, shield, lock, pen, sack, ship, plane, truck,
