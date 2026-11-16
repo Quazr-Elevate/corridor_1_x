@@ -115,6 +115,19 @@ async def send_verification_approved(*, to: str, first_name: str) -> None:
     )
 
 
+async def send_rfq_matched(*, to: str, first_name: str, category: str) -> None:
+    """Tell a seller the desk matched a request to them. Names the category
+    only: the request itself is read in the app."""
+    await _send(
+        to,
+        "A buyer request matches your listing",
+        "rfq_matched",
+        first_name=first_name,
+        category=category,
+        rfq_url=frontend_url("/dashboard/requests"),
+    )
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,

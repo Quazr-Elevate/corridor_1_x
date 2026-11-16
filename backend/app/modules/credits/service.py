@@ -180,6 +180,33 @@ async def spend(
         ) from None
 
 
+async def refund(db: AsyncSession, business_id: uuid.UUID, spend_key: str, *, note: str) -> CreditLedgerEntry | None:
+    """Give back what a spend took, as a REVERSAL line (never by editing the
+    first line): the credits, or the free use. Does not commit. Returns None
+    when there was no such spend; a second call returns the first reversal."""
+    spent = await _line_for_key(db, business_id, spend_key)
+    if spent is None:
+        return None
+    key = f"refund:{spend_key}"
+    done = await _line_for_key(db, business_id, key)
+    if done is not None:
+        return done
+    if spent.free:
+        await db.execute(
+            update(CreditFreeQuota)
+            .where(
+                CreditFreeQuota.business_id == business_id, CreditFreeQuota.action == spent.entry_type,
+                CreditFreeQuota.used > 0,
+            )
+            .values(used=CreditFreeQuota.used - 1)
+            .execution_options(synchronize_session=False)
+        )
+    return await _post(
+        db, business_id, "REVERSAL", -spent.amount, free=spent.free, idempotency_key=key,
+        reference=(spent.reference_type, spent.reference_id) if spent.reference_type else None, note=note,
+    )
+
+
 def _credits(n: int) -> str:
     return "credit" if n == 1 else "credits"
 

@@ -826,3 +826,24 @@ follows the registration number, not the account.
 
 Seeded prices and plans are placeholders (A-031).
 
+---
+
+## Deals and RFQs (`0029_deals_rfqs`)
+
+Build plan sections 05 and 20 (decisions A-033 to A-042).
+
+| # | Table | What | Key rules |
+|---|---|---|---|
+| 28 | `deals` | A trade in progress: `code` (`DL-48291357`), buyer, seller (null until M4), `status`, `cancel_reason`, `version` | UNIQUE `code`; `ck_deals_status` (16 states); a cancelled deal has a reason; buyer ≠ seller. `status` changes only in `modules/deals/machine.py` |
+| 29 | `deal_events` | Append-only trail: `from_status`, `to_status`, `action`, `actor_type` (user / admin / system), `actor_id`, `details` | One row per state change, plus the one that opens the deal |
+| 30 | `rfqs` | A buyer's request: kind, listing, category, product, variety, grade, `specs` (JSON snapshot of the buyer's limits), quantity, unit, packaging, `certificate_type_ids`, target price range (minor units, desk only), currency, incoterms, payment terms, delivery country, port, window, notes; `status`, `expires_at`, `desk_reason` | UNIQUE `deal_id`; `draft` rows have no deal; statuses draft, submitted, held, matched, rejected, unmatched, expired |
+| 31 | `rfq_matches` | A seller proposed or confirmed for an RFQ: `listing_id`, `status` (proposed / confirmed / removed), `source` (rule / desk), `reasons` (each hard rule and how it was met), `viewed_at` | UNIQUE (`rfq_id`, `seller_business_id`) |
+| 32 | `held_countries` | Countries whose RFQs stop for a compliance look | Starts empty; the list is the client's (A-039) |
+| 33 | `trade_settings` | The desk's numbers: `rfq_open_days`, `quote_valid_days`, `min_margin_pct`, `fx_buffer_pct`, `freight_max_age_days` | `is_placeholder` until an admin sets it (A-037, A-040) |
+
+`admin_role` gains `trade_desk` and `desk_manager`.
+
+Prices on an RFQ are integers in the currency's minor unit, per `unit`.
+The deal transition table is `MOVES` in `modules/deals/machine.py`: the 24
+edges of the diagram in `07_development_flow.md` §8.
+

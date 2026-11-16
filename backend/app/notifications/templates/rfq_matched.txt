@@ -1,0 +1,12 @@
+Hi {{ first_name }},
+
+A buyer's request for {{ category }} matches one of your listings. Corridor
+One X has checked it and sent it to you.
+
+Open it to see the quantity, specifications and delivery window, and to
+quote: {{ rfq_url }}
+
+The buyer's name is not shown. Corridor One X is the counterparty for both
+sides of the trade.
+
+-- Cor1x

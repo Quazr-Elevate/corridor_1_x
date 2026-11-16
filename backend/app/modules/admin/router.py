@@ -2,7 +2,19 @@
 requires an admin session with a permission (``deps.require``)."""
 from fastapi import APIRouter
 
-from app.modules.admin import admins, auth, credits, dashboard, docs, identity, kyb_types, listing_templates, listings, users
+from app.modules.admin import (
+    admins,
+    auth,
+    credits,
+    dashboard,
+    docs,
+    identity,
+    kyb_types,
+    listing_templates,
+    listings,
+    rfqs,
+    users,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 router.include_router(auth.router)
@@ -16,3 +28,4 @@ router.include_router(listing_templates.router)
 router.include_router(admins.router)
 router.include_router(identity.router)
 router.include_router(credits.router)
+router.include_router(rfqs.router)

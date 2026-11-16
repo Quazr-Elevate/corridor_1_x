@@ -18,8 +18,8 @@ TEMPLATES = Path(notifications.__file__).resolve().parent / "templates"
 #: recipient's own; nothing here can hold another party's identity. A new
 #: variable is added here on purpose, in review.
 ALLOWED_VARIABLES = {
-    "account_url", "cert_type", "code", "dashboard_url", "device", "email", "first_name", "reason",
-    "reset_url", "subject", "support_email", "valid_minutes", "when",
+    "account_url", "category", "cert_type", "code", "dashboard_url", "device", "email", "first_name", "reason",
+    "reset_url", "rfq_url", "subject", "support_email", "valid_minutes", "when",
 }
 #: Names that would carry a company's or a counterparty's identity.
 FORBIDDEN = set(VAULT_COLUMNS) | {

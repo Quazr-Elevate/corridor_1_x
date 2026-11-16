@@ -34,7 +34,7 @@ class AdminChangePasswordIn(RequestModel):
 
 # ── Admin accounts (super admin) ─────────────────────────────────────
 
-AdminRoleName = Literal["super_admin", "reviewer"]
+AdminRoleName = Literal["super_admin", "reviewer", "trade_desk", "desk_manager"]
 
 
 class AdminAccountOut(CamelModel):

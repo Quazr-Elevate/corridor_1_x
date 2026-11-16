@@ -56,6 +56,7 @@ NO_BODY = {
     ("DELETE", "/me/verification-docs/{doc_id}"),
     ("GET", "/me/verification-docs/{doc_id}/file"),
     ("DELETE", "/products/{product_id}"),
+    ("DELETE", "/rfqs/{rfq_id}"),
     ("DELETE", "/products/{product_id}/certificates/{certificate_id}"),
     ("GET", "/products/{product_id}/certificates/{certificate_id}/file"),
     ("GET", "/uploads/products/{filename}"),

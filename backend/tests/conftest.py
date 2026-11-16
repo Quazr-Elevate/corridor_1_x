@@ -90,7 +90,7 @@ def pytest_sessionfinish(session, exitstatus):
 
 async def _seed(conn) -> None:
     """Default countries, KYB document types and listing templates (what
-    migrations 0021, 0023, 0026 and 0028 seed)."""
+    migrations 0021, 0023, 0026, 0028 and 0029 seed)."""
     from app.models.country import Country
     from app.models.kyb_document_type import KybDocumentType
     from app.modules.verification.seed import default_country_rows, default_rows
@@ -107,6 +107,10 @@ async def _seed(conn) -> None:
 
     await conn.execute(CreditPrice.__table__.insert(), default_price_rows())
     await conn.execute(CreditPlan.__table__.insert(), default_plan_rows())
+    from app.models.rfq import TradeSetting
+    from app.modules.rfq.seed import default_setting_rows
+
+    await conn.execute(TradeSetting.__table__.insert(), default_setting_rows())
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)

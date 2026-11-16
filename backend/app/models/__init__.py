@@ -17,14 +17,24 @@ from app.models.credits import (
     PaymentEvent,
     PlanPurchase,
 )
+from app.models.deal import Deal, DealEvent, DealStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
 from app.models.listing import CertificateDownload, CertificateType, ProductCertificate, ProductSpec, SpecParameter
 from app.models.product import INCOTERMS, ListingStatus, Product
+from app.models.rfq import HeldCountry, Rfq, RfqMatch, RfqStatus, TradeSetting
 from app.models.user import AccountStatus, User, UserRole
 
 __all__ = [
+    "Deal",
+    "DealEvent",
+    "DealStatus",
+    "HeldCountry",
+    "Rfq",
+    "RfqMatch",
+    "RfqStatus",
+    "TradeSetting",
     "VAULT_COLUMNS",
     "ENTITY_TYPES",
     "AccountStatus",

@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p>Hi {{ first_name }},</p>
+<p>A buyer's request for <strong>{{ category }}</strong> matches one of your listings. Corridor One X has checked it and sent it to you.</p>
+<p>Open it to see the quantity, specifications and delivery window, and to quote.</p>
+<p><a href="{{ rfq_url }}" style="display:inline-block;padding:10px 18px;background:#CEE94A;color:#0b0b0b;text-decoration:none;border-radius:8px;font-weight:600;">Open the request</a></p>
+<p>The buyer's name is not shown. Corridor One X is the counterparty for both sides of the trade.</p>
+{% endblock %}

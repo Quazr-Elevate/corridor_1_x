@@ -16,6 +16,8 @@ class AdminRole(str, enum.Enum):
 
     super_admin = "super_admin"
     reviewer = "reviewer"
+    trade_desk = "trade_desk"  # works RFQs, matches and cost sheets
+    desk_manager = "desk_manager"  # trade desk, plus approving a below-floor margin
 
 
 class AdminStatus(str, enum.Enum):

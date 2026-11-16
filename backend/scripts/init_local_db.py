@@ -49,13 +49,15 @@ async def _create_all(url: str) -> None:
     from app.models.listing import CertificateType, SpecParameter
     from app.modules.catalog.seed import default_certificate_rows, default_spec_rows
     from app.models.credits import CreditPlan, CreditPrice
+    from app.models.rfq import TradeSetting
     from app.modules.credits.seed import default_plan_rows, default_price_rows
+    from app.modules.rfq.seed import default_setting_rows
     from app.modules.verification.seed import default_country_rows, default_rows
 
     engine = create_async_engine(url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Migrations 0021, 0023, 0026 and 0028 seed these; create_all does not run them,
+        # Migrations 0021, 0023, 0026, 0028 and 0029 seed these; create_all does not run them,
         # and a business cannot be inserted without its country row.
         await conn.execute(Country.__table__.insert(), default_country_rows())
         await conn.execute(KybDocumentType.__table__.insert(), default_rows())
@@ -63,6 +65,7 @@ async def _create_all(url: str) -> None:
         await conn.execute(CertificateType.__table__.insert(), default_certificate_rows())
         await conn.execute(CreditPrice.__table__.insert(), default_price_rows())
         await conn.execute(CreditPlan.__table__.insert(), default_plan_rows())
+        await conn.execute(TradeSetting.__table__.insert(), default_setting_rows())
     await engine.dispose()
 
 

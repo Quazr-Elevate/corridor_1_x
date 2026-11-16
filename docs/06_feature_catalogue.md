@@ -60,6 +60,13 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ **Plans and top-ups:** bought by card or UPI through Razorpay. Credits arrive when the payment is confirmed. A plan that runs out keeps its benefits for seven days, then the company is on the Free plan; bought credits are kept.
 - ⏳ Prices shown are placeholders until the client sets them. The tax invoice document is not built: it needs the company's GST details.
 
+### 1.6 Requests for quotation (M3)
+- ✅ **Draft a request** from a listing or for the open market: product, grade, specification limits, quantity, packaging, certificates needed, incoterms, payment terms, delivery country, port and window, a target price and notes. A draft is free and can be written before verification.
+- ✅ **Submit** once verified. It takes one of the ten free requests, or credits. The request shows what is still missing before it can be sent.
+- ✅ **Preview** exactly what a seller will read. The target price and the buyer's name are never shown to a seller.
+- ✅ **Matched requests** for sellers: the desk sends a request only to sellers whose listing meets it. Opening one costs credits once.
+- ✅ A request the desk refuses, or that no seller fits, is **refunded** automatically.
+
 ---
 
 ## 2. Corridor operations (admin console — "Control Tower")
@@ -127,12 +134,19 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 
 ---
 
+### 2.7 Trade desk (M3)
+- ✅ **Request queue:** new requests with the sellers the rules propose and why. The desk adds or removes sellers, confirms, rejects with a reason, or closes a request as unmatched.
+- ✅ **Hard rules:** same category, monthly capacity covers the quantity, required specifications within the buyer's limits, lead time inside the delivery window. The desk cannot add a seller who fails one.
+- ✅ **Roles:** trade desk and desk manager. They see company codes, never names.
+- ✅ **Held countries** and the desk's settings (how long a request stays open and others), set by a super admin.
+
 ## Change log
 
 | Date | Added |
 |---|---|
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
+| Nov 2026 (M3, sprint S6, API) | Deals and their state machine, requests for quotation, matching by hard rules, trade desk queue and roles, held countries, automatic refund and expiry |
 | Nov 2026 (M2, sprint S5) | Credit wallet and ledger, free RFQ quota, plans and top-ups with a payment webhook, listing text checked by the leak filter, notification template lint |
 | Nov 2026 (M2, sprint S4) | Identity vault, company codes, market shows the code instead of an internal id, contact reveal retired, identity access by staff logged and limited |
 | Earlier | Sign-up with email code, business profile and per-country KYB, combined review, countries, products and market, currency display, contact reveal, admin console |

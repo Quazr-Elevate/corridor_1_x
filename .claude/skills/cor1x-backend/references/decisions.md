@@ -58,6 +58,9 @@ If it changes the build plan's scope, say so to the user.
 | A-038 | An RFQ the desk rejects, or closes with no match, is **refunded automatically** by a REVERSAL ledger line (credits or the free RFQ) | 16 Nov 2026 | User, M3 design review |
 | A-039 | CX-090 sanctions check: an **admin-managed list of held countries**, empty at first; an RFQ touching one goes to a desk hold with the reason. The list's contents come from the client's compliance contact | 16 Nov 2026 | User, M3 design review |
 | A-040 | An RFQ stays open **14 days** and a quote is valid **7 days** unless the seller sets a date; both are settings marked as placeholders. An RFQ with no offer at expiry becomes CANCELLED with reason `expired` | 16 Nov 2026 | User, M3 design review |
+| A-041 | M3 fields approved as proposed, **plus packaging and required certificates on the RFQ** (16 fields). Quote, cost sheet and offer fields approved as proposed | 16 Nov 2026 | User, M3 design review |
+| A-042 | A locked offer shows lead time, incoterm and specs met; **the price and terms open with OFFER_UNLOCK**. The purchase price never reaches a buyer | 16 Nov 2026 | User, M3 design review |
+| A-043 | CX-149 (user name, email and phone into the vault) is **approved for M3**. It is built after the offer flow, with its own design note, because it changes sign-in | 16 Nov 2026 | User, M3 design review |
 
 ## Proposed: awaiting approval
 
