@@ -21,6 +21,7 @@ from app.modules.catalog.lifecycle import transition
 from app.modules.catalog.queries import _escape_like, hydrate_businesses
 from app.modules.masking import service as masking
 from app.modules.catalog.schemas import ProductRead
+from app.shared import leakfilter
 from app.shared.schemas import CamelModel
 
 S = ListingStatus
@@ -64,11 +65,18 @@ class AdminListingList(CamelModel):
     items: list[AdminListingRow]
 
 
+class LeakFlag(CamelModel):
+    field: str
+    reasons: list[str]
+
+
 class AdminListingDetail(CamelModel):
     listing: ProductRead
     review_kind: str | None = None
     seller: ListingSeller
     changes: list[RevisionChange] = []
+    #: Text the leak filter wants a person to look at, live and proposed.
+    leak_flags: list[LeakFlag] = []
 
 
 def _kind(p: Product) -> str | None:
@@ -82,6 +90,23 @@ def _seller(b: Business | None, business_id: uuid.UUID, legal_name: str | None) 
         business_id=str(business_id), company_code=b.company_code if b else None, legal_name=legal_name,
         state=b.state if b else None, country=b.country if b else None, verified=bool(b and b.is_verified),
     )
+
+
+def _leak_flags(product: Product, legal_name: str | None) -> list[LeakFlag]:
+    """What the filter found in the listing's text and in a pending edit,
+    plus any mention of the seller's own name."""
+    proposed = product.pending_revision or {}
+    flags: list[LeakFlag] = []
+    for field in service.LEAK_CHECKED_FIELDS:
+        texts = [t for t in (getattr(product, field), proposed.get(field)) if isinstance(t, str)]
+        reasons: list[str] = []
+        for text in texts:
+            reasons += [r for r in leakfilter.check(text).reasons if r not in reasons]
+            if leakfilter.mentions(text, legal_name) and "names the seller" not in reasons:
+                reasons.append("names the seller")
+        if reasons:
+            flags.append(LeakFlag(field=field, reasons=reasons))
+    return flags
 
 
 def _waiting(p: Product):
@@ -146,7 +171,7 @@ async def listing_detail(db: AsyncSession, admin: Actor, product_id: uuid.UUID |
     return AdminListingDetail(
         listing=read, review_kind=_kind(product),
         seller=_seller(await db.get(Business, product.business_id), product.business_id, identity.legal_name),
-        changes=changes,
+        changes=changes, leak_flags=_leak_flags(product, identity.legal_name),
     )
 
 

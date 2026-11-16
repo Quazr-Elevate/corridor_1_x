@@ -406,6 +406,8 @@ export interface AdminListingDetail {
   reviewKind: "new" | "revision" | null;
   seller: ListingSeller;
   changes: RevisionChange[];
+  /** Listing text the leak filter wants a person to read. */
+  leakFlags: { field: string; reasons: string[] }[];
 }
 
 export interface ListingStatusChanged {

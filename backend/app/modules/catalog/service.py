@@ -34,6 +34,7 @@ from app.modules.accounts.service import get_owner
 from app.modules.accounts.uniqueness import commit_or_conflict
 from app.modules.catalog.lifecycle import transition
 from app.modules.masking import service as masking
+from app.shared import leakfilter
 from app.modules.catalog.queries import hydrate_businesses, public_products_stmt, visible_products_select
 from app.modules.catalog.schemas import (
     LIVE_FIELDS,
@@ -494,6 +495,7 @@ async def create_product(db: AsyncSession, user: User, payload: ProductCreate) -
     business; it reaches the market only after :func:`submit_product` and a
     reviewer's approval."""
     changes = await _normalise(db, payload.model_dump(exclude_unset=True, exclude={"specs"}))
+    _refuse_leaks(changes)
     product = Product(
         business_id=user.business_id, created_by_user_id=user.id, name=payload.name, category=payload.category,
         unit=payload.unit or "MT", currency=changes.get("currency") or "INR", status=S.draft, photos=[], incoterms=[],
@@ -506,6 +508,28 @@ async def create_product(db: AsyncSession, user: User, payload: ProductCreate) -
     await commit_or_conflict(db)
     await db.refresh(product)
     return product
+
+
+#: Listing text a buyer reads, with the label used in the refusal.
+LEAK_CHECKED_FIELDS = {
+    "name": "product name",
+    "variety": "variety",
+    "grade": "grade",
+    "description": "description",
+    "port_of_loading": "port of loading",
+}
+
+
+def _refuse_leaks(changes: dict[str, Any]) -> None:
+    """Listing text must not carry a way to reach the seller directly
+    (plan 18.5). Text that only looks doubtful is saved for the reviewer."""
+    found = leakfilter.check_all({f: changes.get(f) for f in LEAK_CHECKED_FIELDS if isinstance(changes.get(f), str)})
+    for field, result in found.items():
+        if result.blocked:
+            raise BadRequest(
+                f"Remove the {_join(list(result.reasons))} from the {LEAK_CHECKED_FIELDS[field]}. "
+                "Buyers reach you through Corridor One X."
+            )
 
 
 def _json_safe(value: Any) -> Any:
@@ -526,6 +550,7 @@ async def update_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
         raise Conflict("This listing is with the reviewer. Withdraw it to make changes.")
     sent = payload.model_fields_set
     changes = await _normalise(db, payload.model_dump(include=sent - {"specs"}))
+    _refuse_leaks(changes)
     for field in ("name", "category", "unit", "currency"):
         if field in changes and changes[field] is None:
             raise BadRequest("Name, category, unit and currency can't be empty.")

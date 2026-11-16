@@ -237,7 +237,10 @@ async def test_rejected_revision_keeps_the_published_version(client, make_client
     await publish_listing(client, admin_client, pid)
     anon = make_client()
 
-    assert (await client.patch(f"/products/{pid}", json={"description": "Call me on 98765 43210"})).status_code == 200
+    # A phone number never gets this far (the leak filter refuses it); a
+    # request to be contacted directly is saved for the reviewer to judge.
+    assert (await client.patch(f"/products/{pid}", json={"description": "Call me on 98765 43210"})).status_code == 400
+    assert (await client.patch(f"/products/{pid}", json={"description": "WhatsApp me for samples"})).status_code == 200
     r = await admin_client.post(f"/admin/listings/{pid}/reject", json={"reason": "No contact details in the description."})
     assert r.status_code == 200 and r.json()["status"] == "published"
     mine = (await client.get(f"/products/{pid}")).json()

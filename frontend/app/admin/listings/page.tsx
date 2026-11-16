@@ -317,6 +317,18 @@ function ListingDetail({
         </Chip>
       </div>
 
+      {detail.leakFlags.length ? (
+        <Notice tone="move" title="Check this text before approving" className="mt-6">
+          <ul className="space-y-1">
+            {detail.leakFlags.map((f) => (
+              <li key={f.field}>
+                <span className="t-code">{f.field}</span>: {f.reasons.join(", ")}
+              </li>
+            ))}
+          </ul>
+        </Notice>
+      ) : null}
+
       {detail.reviewKind === "revision" ? (
         <div className="mt-6">
           <p className="t-label text-fg-3">Proposed changes</p>
