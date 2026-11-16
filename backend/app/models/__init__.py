@@ -7,6 +7,16 @@ from app.models.business_identity import VAULT_COLUMNS, BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.contact_reveal import ContactReveal
 from app.models.country import Country
+from app.models.credits import (
+    CreditFreeQuota,
+    CreditLedgerEntry,
+    CreditPlan,
+    CreditPrice,
+    CreditWallet,
+    IdempotencyKey,
+    PaymentEvent,
+    PlanPurchase,
+)
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
@@ -33,6 +43,14 @@ __all__ = [
     "BusinessStatus",
     "ContactReveal",
     "Country",
+    "CreditFreeQuota",
+    "CreditLedgerEntry",
+    "CreditPlan",
+    "CreditPrice",
+    "CreditWallet",
+    "IdempotencyKey",
+    "PaymentEvent",
+    "PlanPurchase",
     "DocStatus",
     "EmailCode",
     "EmailCodePurpose",

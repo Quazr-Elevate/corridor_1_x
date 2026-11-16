@@ -82,6 +82,17 @@ class Settings(BaseSettings):
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
 
+    # ─── Payments for credit plans (app/integrations/payments) ───
+    # none → checkout is off (503). test → no network, development only.
+    # razorpay → live; needs the three values below.
+    payment_provider: str = "none"
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
+    payment_timeout_sec: float = 10.0
+    # Days a lapsed plan keeps its benefits before the company reads as Free.
+    plan_grace_days: int = 7
+
     # ─── Retired features ────────────────────────────────────────
     # Contact reveal hands a buyer the seller's name and email, which the
     # trading-desk model forbids (A-026). Off; the code goes one sprint
@@ -184,6 +195,12 @@ class Settings(BaseSettings):
             problems.append("SESSION_SECRET (set 32+ random characters)")
         if self.lookups_stub:
             problems.append("LOOKUPS_STUB must be false")
+        if self.payment_provider == "test":
+            problems.append("PAYMENT_PROVIDER=test accepts self-signed payments; use razorpay or none")
+        if self.payment_provider == "razorpay" and not (
+            self.razorpay_key_id and self.razorpay_key_secret and len(self.razorpay_webhook_secret) >= 16
+        ):
+            problems.append("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and a 16+ character RAZORPAY_WEBHOOK_SECRET")
         return problems
 
     @property

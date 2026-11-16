@@ -795,3 +795,34 @@ by the response guard (`tests/test_masking.py`) and by the template lint.
 | `identity.unmasked` | An admin opens an account, a listing under review, or looks a company up by its code | `purpose`, `company_code`; `reason` for a code lookup. Never the name |
 | `identity.bulk_access` | An admin passes 40 unmasks in an hour (once per hour) | `threshold`, `window_sec` |
 
+---
+
+## Credits (`0028_credits`)
+
+Build plan section 17 (decisions A-031, A-032). Credits pay for platform
+actions. They are separate from the trade ledger of M5 and never carry trade
+money. Every amount of money here is an integer in the currency's minor unit.
+
+| # | Table | What | Key rules |
+|---|---|---|---|
+| 20 | `credit_wallets` | One row per company: `balance`, `plan_code`, `plan_expires_at` | `ck_credit_wallets_balance` (`balance >= 0`). Created on first read |
+| 21 | `credit_ledger` | Append-only lines: `entry_type`, `amount`, `balance_after`, `free`, `reference_type`/`reference_id`, `idempotency_key` | UNIQUE (`business_id`, `idempotency_key`). A spend type has `amount <= 0`, a top-up type `amount > 0` (`ck_credit_ledger_sign`). Never updated or deleted |
+| 22 | `credit_free_quotas` | Free uses of an action per registration number: `action`, `registration_hash`, `allowance`, `used` | UNIQUE (`action`, `registration_hash`); `used <= allowance`. Outlives the account |
+| 23 | `credit_prices` | Credits per paid action; `is_placeholder` until the client sets it | One row per action |
+| 24 | `credit_plans` | Plans (`period_days`) and top-ups on sale: `credits`, `price_minor`, `currency` | UNIQUE `code`; a plan has a period, a top-up has none |
+| 25 | `plan_purchases` | One checkout, with the plan's terms copied in; `status` created / paid / failed; `invoice_number` | UNIQUE (`provider`, `provider_order_id`); UNIQUE `invoice_number` |
+| 26 | `payment_events` | Webhook deliveries and what was done with each (`outcome`) | UNIQUE (`provider`, `event_id`) makes a redelivery harmless |
+| 27 | `idempotency_keys` | The stored answer to a request that must not run twice | UNIQUE (`business_id`, `route`, `key`) |
+
+Entry types: `RFQ_POST`, `OFFER_UNLOCK`, `RFQ_VIEW`, `LISTING_BOOST`,
+`AI_QUERY`, `SAMPLE_FEE` (spends); `PLAN_PURCHASE`, `TOP_UP`; `ADJUSTMENT`,
+`REVERSAL`.
+
+The balance always equals the sum of the company's ledger lines. A spend is
+one `UPDATE … WHERE balance + amount >= 0` and one ledger insert in the same
+transaction. `registration_hash` is the keyed hash of the company's first
+required KYB number (`business_documents.value_hash`), so the free quota
+follows the registration number, not the account.
+
+Seeded prices and plans are placeholders (A-031).
+

@@ -92,4 +92,5 @@ CanManageCatalog = Annotated[AdminPrincipal, Depends(require(Perm.catalog_manage
 CanReviewListings = Annotated[AdminPrincipal, Depends(require(Perm.listings_review))]
 CanManageAccountSecurity = Annotated[AdminPrincipal, Depends(require(Perm.accounts_security))]
 CanManageAdmins = Annotated[AdminPrincipal, Depends(require(Perm.admins_manage))]
+CanManageCredits = Annotated[AdminPrincipal, Depends(require(Perm.credits_manage))]
 CanUnmaskIdentity = Annotated[AdminPrincipal, Depends(require(Perm.identity_unmask))]

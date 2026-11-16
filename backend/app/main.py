@@ -15,10 +15,12 @@ from app.core.headers import SecurityHeadersMiddleware
 from app.core.errors import register_exception_handlers
 from app.core.logging import RequestContextMiddleware, configure_logging
 from app.integrations import email as email_integration
+from app.integrations import payments as payments_integration
 from app.integrations.fx import FxConfig, configure_fx
 from app.integrations.sms import SmsConfig, configure_sms
 from app.integrations.storage import LocalStorage, S3Config, S3Storage, configure_storage
 from app.modules.accounts.router import branding_router, me_router, onboarding_router
+from app.modules.credits.router import wallet_router, webhooks_router
 from app.modules.admin.router import router as admin_router
 from app.modules.auth.router import router as auth_router
 from app.modules.catalog.router import products_router, public_router, uploads_router
@@ -65,6 +67,15 @@ def configure_integrations(s: Settings) -> None:
             providers=s.fx_provider_list,
             http_timeout_sec=s.fx_timeout_sec,
             max_attempts=s.fx_max_attempts,
+        )
+    )
+    payments_integration.configure(
+        payments_integration.PaymentsConfig(
+            provider=s.payment_provider.strip().lower(),
+            key_id=s.razorpay_key_id,
+            key_secret=s.razorpay_key_secret,
+            webhook_secret=s.razorpay_webhook_secret,
+            http_timeout_sec=s.payment_timeout_sec,
         )
     )
     if s.storage_backend.strip().lower() == "s3":
@@ -169,6 +180,8 @@ def create_app(s: Settings = settings) -> FastAPI:
         uploads_router,
         branding_router,
         lookups_router,
+        wallet_router,
+        webhooks_router,
         admin_router,
     ):
         app.include_router(router, prefix="/v1")

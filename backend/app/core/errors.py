@@ -48,6 +48,13 @@ class Unauthorized(DomainError):
     code = "auth.required"
 
 
+class PaymentRequired(DomainError):
+    """The company's credit balance does not cover the action."""
+
+    status_code = 402
+    code = "credits.insufficient"
+
+
 class Forbidden(DomainError):
     status_code = 403
     code = "auth.forbidden"
