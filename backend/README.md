@@ -46,6 +46,7 @@ backend/
 ├── alembic/                    # migrations (0001–0017 Postgres-only, 0018+ portable)
 ├── scripts/
 │   ├── init_local_db.py        # fresh SQLite DB: create_all + alembic stamp head
+│   ├── seed_reference_data.py  # countries + KYB document types (the stamped-over 0021/0023 inserts)
 │   ├── seed_demo.py            # verified demo sellers + products (with stored placeholder photos)
 │   └── seed_test_users.py      # 5 accounts across every business verification state
 └── tests/                      # pytest + httpx against the ASGI app on a temp SQLite DB
@@ -210,6 +211,9 @@ cp .env.example .env                       # defaults work as-is for dev
 # Revisions 0010–0017 are Postgres-only, so build SQLite from the models and
 # stamp it at head (later migrations then apply normally):
 .venv/bin/python scripts/init_local_db.py           # --force to recreate
+# The stamped-over data migrations never ran, so add the reference rows
+# (onboarding countries + KYB document types). Without them signup fails.
+.venv/bin/python scripts/seed_reference_data.py
 .venv/bin/python scripts/seed_test_users.py         # optional
 .venv/bin/python scripts/seed_demo.py               # optional catalog data
 .venv/bin/python scripts/refresh_rates.py           # optional: today's FX rates now
@@ -277,6 +281,19 @@ Tests run the real app through `httpx.ASGITransport` against a throwaway SQLite
 DB, the console email/SMS providers, the static FX provider (no network,
 no background refresh) and a temp storage dir (see
 `tests/conftest.py`). They never touch `backend/cor1x.db`.
+
+`tests/e2e/` holds journey tests — signup → Passport → KYB → review →
+market → contact reveal, and the security promises around them. They carry
+scenario IDs documented in `docs/testing/SCENARIOS.md` and are marked
+`e2e`:
+
+```bash
+.venv/bin/python -m pytest tests/e2e -q      # journeys only
+.venv/bin/python -m pytest -q -m "not e2e"   # the fast unit/API suite
+```
+
+`../scripts/e2e.sh` runs those plus the browser suite against a real
+frontend build.
 
 ## Endpoints
 

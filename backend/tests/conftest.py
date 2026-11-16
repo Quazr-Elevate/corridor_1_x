@@ -80,6 +80,10 @@ def pytest_collection_modifyitems(items):
     for item in items:
         if pytest_asyncio.is_async_test(item):
             item.add_marker(marker, append=False)
+        # Everything under tests/e2e is a journey test: `-m e2e` runs only
+        # those, `-m "not e2e"` runs the fast unit/API suite.
+        if "tests/e2e/" in item.nodeid.replace("\\", "/"):
+            item.add_marker(pytest.mark.e2e)
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -146,6 +150,24 @@ async def admin_client(make_client):
     r = await c.post("/admin/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200, r.text
     return c
+
+
+class Counter:
+    """Hands out the ``n`` that keeps legal names / phones / GSTINs unique
+    inside one test (see :func:`fill_mandatory`)."""
+
+    def __init__(self) -> None:
+        self._n = 0
+
+    def next(self) -> int:
+        self._n += 1
+        return self._n
+
+
+@pytest.fixture
+def counter() -> Counter:
+    """Per-test source of unique business numbers, for the E2E journeys."""
+    return Counter()
 
 
 # ── helpers ──────────────────────────────────────────────────────────

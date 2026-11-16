@@ -40,6 +40,12 @@ backend/uploads
 coverage
 htmlcov
 
+# End-to-end runs (scripts/e2e.sh): throwaway stack + Playwright output
+.e2e-run/
+frontend/e2e-results/
+frontend/playwright-report/
+frontend/test-results/
+
 # OS
 .DS_Store
 Thumbs.db
