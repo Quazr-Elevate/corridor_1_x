@@ -1,8 +1,12 @@
 """Provider registry + the single ``send_email`` entry point."""
 from __future__ import annotations
 
+import logging
+
 from app.integrations.email.base import EmailConfig, EmailMessage, EmailProvider
 from app.integrations.email.providers import BrevoProvider, ConsoleProvider, ResendProvider
+
+log = logging.getLogger("app.integrations.email")
 
 PROVIDERS: dict[str, type[EmailProvider]] = {
     "console": ConsoleProvider,
@@ -35,7 +39,14 @@ def configure(config: EmailConfig) -> None:
 def get_provider() -> EmailProvider:
     global _provider
     if _provider is None:
-        _provider = build_provider(_config or EmailConfig())
+        config = _config or EmailConfig()
+        try:
+            _provider = build_provider(config)
+        except (RuntimeError, ValueError) as exc:
+            if not config.fallback_to_console:
+                raise
+            log.warning("email_provider_fallback provider=%s reason=%s using=console", config.provider, exc)
+            _provider = ConsoleProvider(config)
     return _provider
 
 

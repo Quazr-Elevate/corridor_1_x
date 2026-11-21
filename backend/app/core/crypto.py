@@ -63,13 +63,14 @@ def _b64key(raw: str, what: str) -> bytes:
 
 
 def load_keys(s: Settings) -> _Keys:
-    """Parse key settings. Dev keys are used only while DEBUG is on and the
-    settings are empty."""
+    """Parse key settings. With both settings empty, the development keys
+    are used while DEBUG is on or STRICT_STARTUP is off (A-069); malformed
+    keys are always refused, since data written with them couldn't be read."""
     enc_raw, hash_raw = s.kyb_enc_keys.strip(), s.kyb_hash_key.strip()
-    if not enc_raw and not hash_raw and s.debug:
+    if not enc_raw and not hash_raw and (s.debug or not s.strict_startup):
         return _Keys(enc={1: _DEV_ENC_KEY}, current=1, hash_key=_DEV_HASH_KEY, is_dev=True)
     if not enc_raw or not hash_raw:
-        raise CryptoConfigError("KYB_ENC_KEYS and KYB_HASH_KEY must both be set when DEBUG=false.")
+        raise CryptoConfigError("KYB_ENC_KEYS and KYB_HASH_KEY must both be set when DEBUG=false and STRICT_STARTUP=true.")
     enc: dict[int, bytes] = {}
     for part in enc_raw.split(","):
         version, sep, key = part.strip().partition(":")

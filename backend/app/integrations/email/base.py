@@ -21,6 +21,9 @@ class EmailConfig:
     # Total tries for hosted providers on transient failures (network,
     # 429, 5xx). 4xx responses are never retried.
     max_attempts: int = 3
+    # A hosted provider that can't be built (no API key, no sender) falls
+    # back to the console mailer with a warning instead of failing every send.
+    fallback_to_console: bool = False
 
 
 @dataclass(frozen=True)
