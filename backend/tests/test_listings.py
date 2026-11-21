@@ -17,7 +17,7 @@ from conftest import (
     signup_and_login,
     upload_photo,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from test_migration_0020 import _alembic, _build_0019
 
@@ -97,8 +97,16 @@ async def test_submit_checklist_names_what_to_add(client):
     assert r.status_code == 400
     assert "a description" in r.json()["detail"] and "at least one incoterm" in r.json()["detail"]
 
-    # A price validity date in the past doesn't count.
-    listing = await complete_listing(client, priceValidUntil=(utcnow().date() - timedelta(days=1)).isoformat())
+    # A past date is refused when saved (Book1 #14); one that passes after
+    # saving still keeps the listing from being submitted.
+    yesterday = (utcnow().date() - timedelta(days=1)).isoformat()
+    r = await client.patch(f"/products/{draft['id']}", json={"priceValidUntil": yesterday})
+    assert r.status_code == 400 and "has passed" in r.json()["detail"]
+    listing = await complete_listing(client)
+    async with SessionLocal() as db:
+        await db.execute(update(Product).where(Product.id == uuid.UUID(listing["id"])).values(
+            price_valid_until=utcnow().date() - timedelta(days=1)))
+        await db.commit()
     r = await client.post(f"/products/{listing['id']}/submit")
     assert r.status_code == 400 and "hasn't passed" in r.json()["detail"]
 

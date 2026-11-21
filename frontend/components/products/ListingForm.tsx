@@ -25,10 +25,25 @@ export const PRODUCT_CATEGORIES = [
 export const PRODUCT_UNITS = ["MT", "kg", "quintal"] as const;
 export const PRODUCT_PACKAGING = ["Jute", "PP woven", "HDPE", "Bulk", "Other"] as const;
 export const INCOTERMS = ["EXW", "FOB", "CIF", "CFR", "DAP", "DDP"] as const;
-const ORIGIN_COUNTRIES = [
-  { value: "IN", label: "India" },
-  { value: "AE", label: "United Arab Emirates" },
-] as const;
+/** Shown until the onboarded list arrives (the API checks the same list). */
+const ORIGIN_FALLBACK = [{ value: "IN", label: "India" }];
+
+/** Countries of origin a listing may name: the ones Corridor onboards. */
+function useOriginCountries(current: string): { value: string; label: string }[] {
+  const [opts, setOpts] = useState<{ value: string; label: string }[]>(ORIGIN_FALLBACK);
+  useEffect(() => {
+    let live = true;
+    api
+      .kybCountries()
+      .then((cs) => live && cs.length && setOpts(cs.map((c) => ({ value: c.code, label: c.name }))))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  // A saved value that is no longer offered stays visible so the seller sees what to change.
+  return !current || opts.some((o) => o.value === current) ? opts : [...opts, { value: current, label: `${current} (not offered)` }];
+}
 const OPERATORS: ReadonlyArray<{ value: SpecOperator; label: string }> = [
   { value: "MAX", label: "Max" },
   { value: "MIN", label: "Min" },
@@ -229,6 +244,7 @@ export function ListingForm({ productId }: { productId?: string }) {
   const [product, setProduct] = useState<ProductRead | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
+  const originCountries = useOriginCountries(form.originCountry);
   const [baseline, setBaseline] = useState(() => JSON.stringify(EMPTY));
   const [template, setTemplate] = useState<CategoryTemplate | null>(null);
   const [errors, setErrors] = useState<Errors>({});
@@ -567,7 +583,7 @@ export function ListingForm({ productId }: { productId?: string }) {
               label="Country of origin"
               value={form.originCountry}
               onChange={(e) => setForm((f) => ({ ...f, originCountry: e.target.value, originState: "" }))}
-              options={ORIGIN_COUNTRIES}
+              options={originCountries}
             />
             {form.originCountry === "IN" ? (
               <Select

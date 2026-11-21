@@ -1,9 +1,10 @@
 """Shared Pydantic building blocks."""
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Generic, TypeVar
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, StringConstraints
 from pydantic.alias_generators import to_camel
 
 from app.shared.countries import to_alpha2
@@ -57,7 +58,7 @@ def _to_alpha2(v: Any) -> Any:
         return v
     code = to_alpha2(v) if len(v.strip()) <= 3 else None
     if code is None:
-        raise ValueError(f"Unknown country code: {v.strip()[:12]!r} (use ISO 3166-1 alpha-2, e.g. IN).")
+        raise ValueError(f"{v.strip()[:12]!r} isn't a country we recognise. Choose a country from the list.")
     return code
 
 
@@ -72,6 +73,24 @@ TagList = Annotated[
 ]
 
 
+# An HTML tag: "<script>", "</b>", "<img src=x onerror=…>", "<!-- … -->".
+# A comparison such as "moisture < 12% and > 5%" is not one.
+_MARKUP = re.compile(r"<\s*/?\s*[a-z!][^<>]*>", re.I)
+
+
+def _no_markup(v: str) -> str:
+    """Plain text only. The SPA escapes, but these values also reach
+    emails, PDFs, CSV exports and the audit log, where nothing escapes them."""
+    if _MARKUP.search(v):
+        raise ValueError("Use plain text: remove the < > tags.")
+    return v
+
+
 def text(max_length: int, min_length: int = 0) -> Any:
-    """Trimmed string with length bounds (``Annotated`` alias factory)."""
-    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=min_length, max_length=max_length)]
+    """Trimmed plain text with length bounds; HTML tags are refused
+    (``Annotated`` alias factory)."""
+    return Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=min_length, max_length=max_length),
+        AfterValidator(_no_markup),
+    ]

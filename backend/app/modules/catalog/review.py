@@ -3,7 +3,6 @@ certificates buyers may download. No FastAPI imports."""
 from __future__ import annotations
 
 import uuid
-from decimal import Decimal
 from typing import Any
 
 from pydantic.alias_generators import to_camel
@@ -238,11 +237,7 @@ async def approve(
     elif product.pending_revision:
         revision = dict(product.pending_revision)
         specs = revision.pop("specs", None)
-        fields = {
-            f: Decimal(v) if f == "capacity_per_month" and v is not None else v for f, v in revision.items()
-        }
-        for field, value in fields.items():
-            setattr(product, field, value)
+        await service.apply_revision(db, product, revision)
         if specs is not None:
             await service.replace_specs(db, product, specs)
         product.pending_revision = None

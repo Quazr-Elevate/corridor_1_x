@@ -40,14 +40,17 @@ from app.modules.verification.rules import (
     ADMIN_VERIFIABLE_STATUSES,
     PROFILE_FIELDS,
     document_rule_problems,
+    reopen_review,
     requirements,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
-from app.modules.accounts.service import get_owner, owner_contact
+from app.modules.accounts.service import change_country, get_owner, kyb_snapshot, owner_contact
 from app.modules.auth.lockout import lock_state
 from app.modules.auth.sessions import live_sessions, user_policy
 
 MAX_REASON = 500
+#: A reason the business can act on; "x" is not one.
+MIN_REASON = 10
 STUCK_AFTER = timedelta(hours=24)
 
 
@@ -95,6 +98,11 @@ def clean_reason(raw: str) -> str:
     reason = (raw or "").strip()
     if not reason:
         raise BadRequest("A rejection reason is required so the business knows what to fix.")
+    if len(reason) < MIN_REASON:
+        raise BadRequest(
+            f"Write at least {MIN_REASON} characters so the business knows what to fix, e.g. "
+            "“The address doesn't match the GST certificate.”"
+        )
     if len(reason) > MAX_REASON:
         raise BadRequest(f"Rejection reason is too long ({MAX_REASON} chars max).")
     return reason
@@ -455,17 +463,26 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
         )
     if "full_name" in profile_changes and not profile_changes["full_name"]:
         raise BadRequest("Full name can't be empty.")
+    # The fields the Verified badge rests on can be corrected, not blanked.
+    for field in PROFILE_FIELDS:
+        if field.column in business_changes and not business_changes[field.column]:
+            raise BadRequest(f"{field.label} is required. Enter the corrected value instead of clearing it.")
 
     person = await masking.own_person(db, user.id) if profile_changes else None
     for key, val in profile_changes.items():
         masking.set_person_field(user, person, key, _blank_to_none(val))
         changed.append(f"profile.{key}")
     identity = await masking.own_identity(db, business.id)
+    before = kyb_snapshot(business, identity)
     for key, val in business_changes.items():
-        if key == "country" and not val:
-            continue  # NOT NULL (defaults to IN)
-        masking.set_company_field(business, identity, key, _blank_to_none(val))
+        if key == "country":
+            await change_country(db, business, val, by_staff=True)
+        else:
+            masking.set_company_field(business, identity, key, _blank_to_none(val))
         changed.append(f"businessProfile.{key}")
+    # As when the business edits these itself: a verified business goes back
+    # to review, and its listings leave the market until it is approved.
+    reopened = kyb_snapshot(business, identity) != before and reopen_review(business)
 
     if changed:
         record_action(
@@ -474,7 +491,7 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
             action="business.update",
             target_type="business",
             target_id=business.id,
-            details={"fields": changed, "userId": str(user.id)},
+            details={"fields": changed, "userId": str(user.id), **({"reopenedReview": True} if reopened else {})},
         )
     await commit_or_conflict(db)
 

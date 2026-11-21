@@ -67,7 +67,7 @@ async def test_code_upper_case_is_lowercased(admin_client):
 # QA-200.4 — unknown country code
 async def test_unknown_country_rejected(admin_client):
     r = await admin_client.post("/admin/kyb/document-types", json=_body(country="XX"))
-    assert r.status_code == 422 and "Unknown country code" in r.text
+    assert r.status_code == 422 and "isn't a country we recognise" in r.text
 
 
 # QA-200.5 (main) — guards: no Aadhaar, valid format pattern

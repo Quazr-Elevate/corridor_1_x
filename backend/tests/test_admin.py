@@ -1,10 +1,19 @@
 from __future__ import annotations
 
-from conftest import ADMIN_EMAIL, fill_mandatory, sent_emails, signup_and_login, verify_business
+import uuid
+
+from conftest import (
+    ADMIN_EMAIL,
+    fill_mandatory,
+    sent_emails,
+    signup_and_login,
+    verify_business,
+)
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
 from app.models.admin_action import AdminAction
+from app.modules.masking import service as masking
 
 
 async def _actions():
@@ -93,10 +102,14 @@ async def test_verify_requires_mandatory_fields(client, admin_client):
     body = await signup_and_login(client, "v2@kaverifoods.in")
     await fill_mandatory(client)
     await client.post("/me/submit-verification")
-    # Admin blanks a required profile field, then tries to approve.
+    # The console can't blank a required field (Book1 #7)...
     r = await admin_client.patch(f"/admin/users/{body['userId']}", json={"businessProfile": {"addressLine": ""}})
-    assert r.status_code == 200, r.text
-    assert r.json()["missingMandatoryFields"] == ["addressLine"]
+    assert r.status_code == 400 and "Registered address is required" in r.json()["detail"]
+    # ...but one missing for any other reason still blocks approval.
+    async with SessionLocal() as db:
+        identity = await masking.own_identity(db, uuid.UUID(body["businessId"]))
+        identity.address_line = None
+        await db.commit()
     r = await verify_business(admin_client, body['userId'])
     assert r.status_code == 400
     assert "Registered address" in r.json()["detail"]
@@ -144,7 +157,6 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
                 "industry": "Spices",
                 "city": "Pune",
                 "pincode": "411001",
-                "country": "ae",
                 "entityType": "llp",
             },
         },
@@ -155,7 +167,7 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     assert d["profile"] == {"fullName": "Asha Rao", "phone": "+91 98765 00002", "position": "CEO"}
     bp = d["businessProfile"]
     assert (bp["industry"], bp["city"], bp["pincode"], bp["country"], bp["entityType"]) == (
-        "Spices", "Pune", "411001", "AE", "llp"
+        "Spices", "Pune", "411001", "IN", "llp"
     )
     actions = await _actions()
     # The PATCH answers with the account detail, so the edit is followed by
@@ -169,7 +181,6 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
         "businessProfile.industry",
         "businessProfile.city",
         "businessProfile.pincode",
-        "businessProfile.country",
         "businessProfile.entity_type",
     }
 

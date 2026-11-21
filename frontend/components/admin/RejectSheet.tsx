@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { errorMessage } from "@/lib/adminApi";
+import { errorMessage, type VerifyDoc } from "@/lib/adminApi";
+import { MANDATORY_FIELDS, fieldByKey, isDocumentKey } from "@/lib/verification";
 import { Button } from "@/components/ui/Button";
 import { HoldButton } from "@/components/ui/Controls";
 import { Textarea } from "@/components/ui/Field";
 import { Sheet } from "@/components/ui/Sheet";
 
 export const REJECT_MAX = 500;
+/** Mirrors the backend's MIN_REASON: "x" isn't something a seller can act on. */
+export const REJECT_MIN = 10;
 
 export const DOC_REJECT_REASONS = [
   "Image is blurry — please re-upload a clearer scan.",
@@ -25,6 +28,29 @@ export const USER_REJECT_REASONS = [
   "A document is blurry, expired or only partly visible — upload a clear, current copy.",
   "Documents are for a different country than the one on your profile.",
 ] as const;
+
+/** Key of a KYB entry in failed items — mirrors the backend. */
+export function entryKey(doc: VerifyDoc): string {
+  return doc.documentTypeCode ? `kyb:${doc.documentTypeCode}` : `doc:${doc.id}`;
+}
+
+/** What the admin can tick when rejecting a business: the mandatory profile
+ * fields, its documents, and required documents it hasn't added. The same
+ * list in the review queue and the directory, so a reject never goes out
+ * without at least one item. */
+export function businessRejectItems(docs: ReadonlyArray<VerifyDoc>, missing: ReadonlyArray<string>): RejectItem[] {
+  return [
+    ...MANDATORY_FIELDS.map((f) => ({ key: f.key, label: f.label, sub: "Company profile" })),
+    ...docs.map((d) => ({
+      key: entryKey(d),
+      label: d.certType,
+      sub: `Document · ${d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "to check"}`,
+    })),
+    ...missing
+      .filter(isDocumentKey)
+      .map((k) => ({ key: k, label: fieldByKey(k)?.label ?? k, sub: "Required document · not added" })),
+  ];
+}
 
 export interface RejectItem {
   key: string;
@@ -90,6 +116,10 @@ export function RejectSheet({
     }
     if (!trimmed) {
       setError("Write a reason. They'll see it as written.");
+      return;
+    }
+    if (trimmed.length < REJECT_MIN) {
+      setError(`Write at least ${REJECT_MIN} characters so they know what to fix.`);
       return;
     }
     setBusy(true);

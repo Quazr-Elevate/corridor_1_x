@@ -44,8 +44,8 @@ from app.modules.masking import service as masking
 from app.modules.verification.rules import (
     PROFILE_FIELDS,
     SUBMITTABLE_STATUSES,
+    configured_countries,
     document_rule_problems,
-    is_configured,
     reopen_review,
     requirements,
 )
@@ -302,7 +302,7 @@ async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn
     u = await reload_user(db, user.id)
     b = u.business
     identity = await masking.own_identity(db, b.id)
-    before = _kyb_snapshot(b, identity)
+    before = kyb_snapshot(b, identity)
     identity.legal_name = payload.legal_name
     b.industry = payload.industry
     b.operating_countries = list(payload.operating_countries)
@@ -313,8 +313,8 @@ async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn
         if field in payload.model_fields_set:
             masking.set_company_field(b, identity, field, getattr(payload, field) or None)
     if "country" in payload.model_fields_set and payload.country:
-        await _change_country(db, b, payload.country)  # NOT NULL column — blank leaves it unchanged
-    if _kyb_snapshot(b, identity) != before:
+        await change_country(db, b, payload.country)  # NOT NULL column — blank leaves it unchanged
+    if kyb_snapshot(b, identity) != before:
         reopen_review(b)
     return await _finish_save(db, u.id)
 
@@ -345,14 +345,17 @@ async def save_business_profile(db: AsyncSession, user: User, payload: BusinessP
 # ── Business profile (company name, address, country) ───────────────
 
 
-async def _change_country(db: AsyncSession, business: Business, country: str) -> None:
+async def change_country(db: AsyncSession, business: Business, country: str, *, by_staff: bool = False) -> None:
     """KYB document types are per country, so the country can only change
-    while the business has no entries of another country's types."""
+    to one Corridor onboards, and only while the business has no entries of
+    another country's types (a verified Indian business can't keep its GSTIN
+    as a Thai one). Used by the trader's own save and the console's edit."""
     country = country.upper()
     if country == business.country:
         return
-    if not await is_configured(db, country):
-        raise BadRequest("Corridor One X doesn’t onboard businesses from that country yet.")
+    onboarded = await configured_countries(db)
+    if country not in onboarded:
+        raise BadRequest(f"That country isn't onboarded yet. Choose one of: {', '.join(onboarded)}.")
     foreign = await db.scalar(
         select(KybDocumentType.name)
         .join(BusinessDocument, BusinessDocument.document_type_id == KybDocumentType.id)
@@ -360,6 +363,11 @@ async def _change_country(db: AsyncSession, business: Business, country: str) ->
         .limit(1)
     )
     if foreign is not None:
+        if by_staff:
+            raise BadRequest(
+                f"This business has a {foreign} entry, which belongs to its current country. "
+                "Reject or remove its documents of that country before changing the country."
+            )
         raise BadRequest(
             f"Remove your {foreign} entry under Business verification before changing the country — "
             "documents differ by country."
@@ -376,16 +384,16 @@ async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSav
     u = await reload_user(db, user.id)
     b = u.business
     identity = await masking.own_identity(db, b.id)
-    before = _kyb_snapshot(b, identity)
+    before = kyb_snapshot(b, identity)
     identity.legal_name = " ".join(payload.legal_name.split())
-    await _change_country(db, b, payload.country)
+    await change_country(db, b, payload.country)
     if "website_url" in sent:
         identity.website_url = website
     for field in PROFILE_OPTIONAL_FIELDS:
         if field in sent:
             masking.set_company_field(b, identity, field, getattr(payload, field) or None)
     await _check_postcode(db, b, identity)
-    if _kyb_snapshot(b, identity) != before:
+    if kyb_snapshot(b, identity) != before:
         reopen_review(b)
     await commit_or_conflict(db)
     return await me_view(db, u)
@@ -401,7 +409,7 @@ async def _check_postcode(db: AsyncSession, b: Business, identity: BusinessIdent
             raise BadRequest(f"That doesn’t look like a valid {country.postal_label} for {country.name}.")
 
 
-def _kyb_snapshot(b: Business, identity: BusinessIdentity) -> tuple:
+def kyb_snapshot(b: Business, identity: BusinessIdentity) -> tuple:
     """The company fields KYB verifies — a change on a verified business
     sends it back to review."""
     norm = lambda v: " ".join((v or "").split()).lower()  # noqa: E731

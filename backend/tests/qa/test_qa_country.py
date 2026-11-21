@@ -22,7 +22,7 @@ async def test_signup_defaults_country_to_india(client):
 async def test_profile_country_invalid_rejected(client):
     await signup_and_login(client, f"{uniq('qa100')}@test.cor1x.co")
     r = await set_country(client, "XX")
-    assert r.status_code == 422 and "Unknown country code" in r.text
+    assert r.status_code == 422 and "isn't a country we recognise" in r.text
 
 
 # QA-100.3 — lower-case normalised
@@ -45,4 +45,4 @@ async def test_profile_country_alpha3_normalized(client):
 async def test_profile_country_not_set_up_rejected(client):
     await signup_and_login(client, f"{uniq('qa100')}@test.cor1x.co")
     r = await set_country(client, "US")
-    assert r.status_code == 400 and "doesn’t onboard" in r.json()["detail"]
+    assert r.status_code == 400 and "isn't onboarded yet" in r.json()["detail"]
