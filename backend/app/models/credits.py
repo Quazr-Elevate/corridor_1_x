@@ -30,7 +30,9 @@ SPEND_TYPES = ("RFQ_POST", "OFFER_UNLOCK", "RFQ_VIEW", "LISTING_BOOST", "AI_QUER
 TOP_UP_TYPES = ("PLAN_PURCHASE", "TOP_UP")
 #: A correction is a new line, never an edit.
 CORRECTION_TYPES = ("ADJUSTMENT", "REVERSAL")
-ENTRY_TYPES = SPEND_TYPES + TOP_UP_TYPES + CORRECTION_TYPES
+#: Plan credits left when the plan ends are written off (A-051).
+EXPIRY_TYPES = ("EXPIRY",)
+ENTRY_TYPES = SPEND_TYPES + TOP_UP_TYPES + CORRECTION_TYPES + EXPIRY_TYPES
 
 PURCHASE_STATUSES = ("created", "paid", "failed")
 
@@ -44,7 +46,10 @@ class CreditWallet(Base):
     company's ledger lines; it is kept here so a spend is one guarded UPDATE."""
 
     __tablename__ = "credit_wallets"
-    __table_args__ = (CheckConstraint("balance >= 0", name="ck_credit_wallets_balance"),)
+    __table_args__ = (
+        CheckConstraint("balance >= 0", name="ck_credit_wallets_balance"),
+        CheckConstraint("plan_credits >= 0", name="ck_credit_wallets_plan_credits"),
+    )
 
     business_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("businesses.id", ondelete="CASCADE", name="fk_credit_wallets_business_id"), primary_key=True
@@ -54,6 +59,9 @@ class CreditWallet(Base):
     # company reads as on the Free plan.
     plan_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     plan_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # How much of ``balance`` came from plans and runs out at ``plan_expires_at``
+    # (A-051). Spends use these first; top-up credits don't expire.
+    plan_credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -70,7 +78,7 @@ class CreditLedgerEntry(Base):
         CheckConstraint(_in("entry_type", ENTRY_TYPES), name="ck_credit_ledger_entry_type"),
         # A spend takes credits (or none, on the free quota); a top-up adds them.
         CheckConstraint(
-            f"(NOT {_in('entry_type', SPEND_TYPES)} OR amount <= 0) AND "
+            f"(NOT {_in('entry_type', SPEND_TYPES + EXPIRY_TYPES)} OR amount <= 0) AND "
             f"(NOT {_in('entry_type', TOP_UP_TYPES)} OR amount > 0)",
             name="ck_credit_ledger_sign",
         ),
@@ -179,7 +187,8 @@ class PlanPurchase(Base):
     __tablename__ = "plan_purchases"
     __table_args__ = (
         UniqueConstraint("provider", "provider_order_id", name="uq_plan_purchases_order"),
-        UniqueConstraint("invoice_number", name="uq_plan_purchases_invoice_number"),
+        # Numbered from 1 in each Indian financial year (A-065): C1X/2026-27/0001.
+        UniqueConstraint("invoice_fy", "invoice_number", name="uq_plan_purchases_invoice"),
         Index("ix_plan_purchases_business_time", "business_id", text("created_at DESC")),
         CheckConstraint(_in("status", PURCHASE_STATUSES), name="ck_plan_purchases_status"),
         CheckConstraint("status <> 'paid' OR paid_at IS NOT NULL", name="ck_plan_purchases_paid_has_date"),
@@ -202,7 +211,9 @@ class PlanPurchase(Base):
     provider: Mapped[str] = mapped_column(String(20), nullable=False)
     provider_order_id: Mapped[str] = mapped_column(String(80), nullable=False)
     provider_payment_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    # Sequential per paid purchase; the number the tax invoice will carry.
+    # Sequential per paid purchase within ``invoice_fy`` ("2026-27"); the tax
+    # invoice carries C1X/{invoice_fy}/{invoice_number:04d}.
+    invoice_fy: Mapped[str | None] = mapped_column(String(7), nullable=True)
     invoice_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_plan_purchases_created_by"), nullable=True
@@ -246,3 +257,14 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     response: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+
+
+class InvoiceCounter(Base):
+    """The last invoice number issued in one financial year. Taken with a
+    single UPDATE, so two payments at once never get the same number."""
+
+    __tablename__ = "invoice_counters"
+    __table_args__ = (CheckConstraint("last_number >= 0", name="ck_invoice_counters_last_number"),)
+
+    fy: Mapped[str] = mapped_column(String(7), primary_key=True)
+    last_number: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

@@ -15,6 +15,7 @@ export type AdminPermission =
   | "catalog.view"
   | "catalog.manage"
   | "listings.review"
+  | "listings.override"
   | "accounts.security"
   | "admins.manage"
   | "rfqs.triage"
@@ -218,6 +219,12 @@ export interface UserDetail {
   businessName: string | null;
   /** Masked company code; null until the business is verified. */
   companyCode: string | null;
+  /** Other businesses with the same legal name, as codes (A-046). */
+  sameNameAs: string[];
+  /** Other businesses sharing the country's group document (India: PAN), as codes (A-052). */
+  relatedTo: string[];
+  /** Required documents this admin hasn't opened yet; approval waits for them (A-054). */
+  unopenedDocIds: string[];
   /** The business verification status. */
   status: string;
   createdAt: string;
@@ -394,7 +401,8 @@ export interface AdminListingRow {
   category: string;
   status: ProductRead["status"];
   /** "new" — a submitted listing; "revision" — edits to a published one. */
-  reviewKind: "new" | "revision" | null;
+  /** "documents": a document added to a live listing, not decided yet. */
+  reviewKind: "new" | "revision" | "documents" | null;
   waitingSince: string | null;
   photo: string | null;
   seller: ListingSeller;
@@ -408,7 +416,8 @@ export interface RevisionChange {
 
 export interface AdminListingDetail {
   listing: ProductRead;
-  reviewKind: "new" | "revision" | null;
+  /** "documents": a document added to a live listing, not decided yet. */
+  reviewKind: "new" | "revision" | "documents" | null;
   seller: ListingSeller;
   changes: RevisionChange[];
   /** Listing text the leak filter wants a person to read. */
@@ -494,8 +503,11 @@ export interface CostSheet {
   fxBufferPct: string;
   marginPct: string;
   minMarginPct: string;
+  maxMarginPct: string | null;
   sellPriceMinor: number;
   needsApproval: boolean;
+  /** What a desk manager has to accept: under the floor, over the ceiling, an old rate. */
+  approvalReasons: string[];
   approved: boolean;
 }
 
@@ -521,6 +533,8 @@ export interface DeskQuote {
   notes: string | null;
   costSheet: CostSheet | null;
   offerId: string | null;
+  /** The seller quoted less than the buyer asked for. */
+  partQuote: boolean;
 }
 
 export interface DeskStatus {
@@ -598,7 +612,9 @@ export const adminApi = {
     req<AdminKybDocType>("/admin/kyb/document-types", { method: "POST", body: JSON.stringify(payload) }),
   updateKybType: (id: string, patch: Partial<Omit<AdminKybDocTypeIn, "country" | "code">>) =>
     req<AdminKybDocType>(`/admin/kyb/document-types/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  user: (id: string) => req<UserDetail>(`/admin/users/${id}`),
+  /** Opening an account shows the company's identity, so it needs a reason (audited). */
+  user: (id: string, reason: string) =>
+    req<UserDetail>(`/admin/users/${id}/open`, { method: "POST", body: JSON.stringify({ reason }) }),
   patchUser: (id: string, patch: UserPatch) =>
     req<UserDetail>(`/admin/users/${id}`, {
       method: "PATCH",
@@ -646,13 +662,24 @@ export const adminApi = {
     return req<ItemList<AdminListingRow>>(`/admin/listings${qs.size ? `?${qs}` : ""}`);
   },
   listing: (id: string) => req<AdminListingDetail>(`/admin/listings/${id}`),
-  approveListing: (id: string) => req<ListingStatusChanged>(`/admin/listings/${id}/approve`, { method: "POST" }),
+  /** A listing the leak filter flagged needs ``overrideReason`` and the listings.override permission. */
+  approveListing: (id: string, overrideReason?: string) =>
+    req<ListingStatusChanged>(`/admin/listings/${id}/approve`, {
+      method: "POST",
+      ...(overrideReason ? { body: JSON.stringify({ overrideReason }) } : {}),
+    }),
   rejectListing: (id: string, reason: string) =>
     req<ListingStatusChanged>(`/admin/listings/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
-  setCertificateVisibility: (listingId: string, certificateId: string, visibility: "internal" | "downloadable") =>
+  /** "downloadable" needs checkedNoIdentity: the reviewer opened the file and it shows no name, logo or address. */
+  setCertificateVisibility: (
+    listingId: string,
+    certificateId: string,
+    visibility: "internal" | "downloadable",
+    checkedNoIdentity = false,
+  ) =>
     req<{ id: string; visibility: string }>(`/admin/listings/${listingId}/certificates/${certificateId}/visibility`, {
       method: "POST",
-      body: JSON.stringify({ visibility }),
+      body: JSON.stringify({ visibility, checkedNoIdentity }),
     }),
 
   // ─── Listing templates ───
@@ -699,6 +726,11 @@ export const adminApi = {
   saveCostSheet: (quoteId: string, body: CostSheetInput) =>
     req<CostSheet>(`/admin/quotes/${quoteId}/cost-sheet`, { method: "PUT", body: JSON.stringify(body) }),
   approveCostSheet: (sheetId: string) => req<CostSheet>(`/admin/cost-sheets/${sheetId}/approve`, { method: "POST" }),
+  withdrawOffer: (offerId: string, reason: string) =>
+    req<{ id: string; status: string }>(`/admin/offers/${offerId}/withdraw`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   publishOffer: (sheetId: string) =>
     req<{ id: string; dealCode: string; dealStatus: string; priceMinor: number; currency: string; validUntil: string }>(
       `/admin/cost-sheets/${sheetId}/publish`,

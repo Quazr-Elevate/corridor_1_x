@@ -644,7 +644,7 @@ while it is empty creates the first super admin.
 | `user_agent` | varchar(200) | yes | |
 
 Partial unique index `uq_*_one_active` on the owner where `revoked_at IS NULL`
-→ **one active session per account**; a new sign-in revokes the old one
+→ **one active session per admin**; a trader keeps up to five (0032, A-044), the next sign-in revoking the oldest
 (`replaced`). Timeouts: traders 12 h idle / 7 days absolute; admins 30 min /
 8 h (`USER_SESSION_*`, `ADMIN_SESSION_*`).
 
@@ -870,3 +870,53 @@ deals are in the seller's currency. That holds for domestic deals only.)
 Selling price = total cost × `fx_rate` × (1 + buffer %) × (1 + margin %),
 rounded up to the minor unit.
 
+
+---
+
+## Desk limits (`0031_desk_limits`)
+
+CX-181, CX-182, CX-183 and CX-186, from the M0–M3 walkthrough review.
+
+| Table | Change | Why |
+|---|---|---|
+| `trade_settings` | Two rows, placeholders until the client sets them: `max_margin_pct` (25) and `fx_max_age_days` (3) | A margin over the ceiling, or a rate older than the limit, needs a desk manager |
+| `cost_sheets` | `max_margin_pct` (the ceiling when the sheet was saved; null on older sheets) and `approval_reasons` (JSON list: under the floor, over the ceiling, an old rate) | `status` is `pending_approval` exactly when the list is not empty |
+| `offers` | `expiry_reminded_at` | The buyer is reminded once, the day before an offer ends |
+| `offers` | `uq_offers_cost_sheet_id` becomes the partial unique index `uq_offers_cost_sheet_live` (`status <> 'withdrawn'`) | One live offer per sheet. Withdrawing an offer reopens its sheet as `draft`, so a corrected offer can follow |
+
+**`fx_as_of`** is now the older of the two rates behind a conversion (for a
+cross-rate such as INR to AED), since that is the one whose age matters.
+
+**Scheduled job.** `scripts/expire_rfqs.py` closes overdue RFQs (refunding
+the buyer when no seller quoted, A-053), expires overdue offers and sends
+the day-before reminders. Run it hourly in production (a Railway cron
+service with the backend's variables).
+
+
+---
+
+## Trader sessions and company names (`0032_trader_sessions`)
+
+| Table | Change | Why |
+|---|---|---|
+| `user_sessions` | `uq_user_sessions_one_active` becomes the plain partial index `ix_user_sessions_active` | A trader keeps up to five live sessions (A-044); `app/modules/auth/sessions.py` signs out the oldest. Admins keep their unique index |
+| `business_identities` | `uq_business_identities_legal_name_normalized` becomes `ix_business_identities_legal_name_normalized` | Two firms may share a name (A-046); the KYB review shows `sameNameAs` |
+
+## Country rules and category requirements (`0033_country_rules`)
+
+| Table | Columns | Rules |
+|---|---|---|
+| `country_document_rules` | `country`, `kind` (`slice_equals`), `source_type_id`, `source_start`, `source_end`, `target_type_id`, `active` | Characters `source_start`..`source_end` (1-based) of the source number must equal the target number. Checked at submission and approval. India: GSTIN 3–12 = PAN (A-047) |
+| `countries` | `quota_document_type_id`, `group_document_type_id` | The free-RFQ quota keys on the first; businesses sharing the second are flagged `relatedTo` in review. India: GSTIN and PAN (A-052) |
+| `kyb_document_types` | India's `pan.is_unique` → false | One PAN may stand behind several GSTINs, each its own business |
+| `category_certificate_requirements` | `category`, `certificate_type_id` | The documents a listing in a category must carry (A-049) |
+| `spec_parameters` | Templates for Sugar, Wheat, Oilseeds, Cotton, Millets, Tea, Coffee and Other; Spices and Pulses rows made required | As approved in the walkthrough review |
+
+## Plan credit expiry and invoice numbers (`0034_credit_expiry_invoices`)
+
+| Table | Change | Why |
+|---|---|---|
+| `credit_wallets` | `plan_credits` (≥ 0) | The part of the balance that came from plans. Spends use it first; when the plan ends the rest is written off (A-051). Wallets start at 0, so credits bought before this migration don't expire |
+| `credit_ledger` | Entry type `EXPIRY` (amount ≤ 0) | The write-off line |
+| `plan_purchases` | `invoice_fy`; unique (`invoice_fy`, `invoice_number`) | Invoice numbers restart each Indian financial year: `C1X/2026-27/0001` (A-065) |
+| `invoice_counters` | `fy` (PK), `last_number` | Taken with one guarded UPDATE, so two payments can't share a number |

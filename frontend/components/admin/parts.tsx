@@ -389,6 +389,31 @@ export function PaperOpenLink({ doc, label = "Open original" }: { doc: VerifyDoc
   );
 }
 
+/** Fired when this admin opens a KYB file or number; approval waits for every required one (A-054). */
+export const DOC_OPENED_EVENT = "cor1x:kyb-doc-opened";
+
+function announceDocOpened(docId: string) {
+  window.dispatchEvent(new CustomEvent(DOC_OPENED_EVENT, { detail: docId }));
+}
+
+/**
+ * The required documents this admin still has to open before approving,
+ * kept current as they are opened on the page.
+ */
+export function useUnopenedDocs(initial: string[] | undefined): string[] {
+  const [left, setLeft] = useState<string[]>(initial ?? []);
+  const key = (initial ?? []).join(",");
+  useEffect(() => {
+    setLeft(key ? key.split(",") : []);
+  }, [key]);
+  useEffect(() => {
+    const onOpened = (e: Event) => setLeft((ids) => ids.filter((id) => id !== (e as CustomEvent<string>).detail));
+    window.addEventListener(DOC_OPENED_EVENT, onOpened);
+    return () => window.removeEventListener(DOC_OPENED_EVENT, onOpened);
+  }, []);
+  return left;
+}
+
 /**
  * Fetch a KYB file with the admin's reason and hand back a local blob URL.
  * The URL is released when the document changes or the component unmounts.
@@ -416,6 +441,7 @@ function useDocBlob(doc: Pick<VerifyDoc, "id" | "url">) {
     setError(null);
     try {
       const blob = await adminApi.docFile(doc.url, await access.ask());
+      announceDocOpened(doc.id);
       const url = URL.createObjectURL(blob);
       urlRef.current = url;
       setBlobUrl(url);
@@ -619,6 +645,7 @@ export function RevealValue({ doc, onDark }: { doc: Pick<VerifyDoc, "id" | "valu
     setError(null);
     try {
       setValue((await adminApi.revealDocValue(doc.id, await access.ask())).value);
+      announceDocOpened(doc.id);
     } catch (e) {
       if (!(e instanceof AccessReasonCancelled)) setError(errorMessage(e, "Couldn’t show it."));
     } finally {
@@ -718,5 +745,26 @@ export function DocCard({ doc, actions }: { doc: VerifyDoc; actions?: ReactNode 
         {actions}
       </div>
     </article>
+  );
+}
+
+
+/**
+ * Other businesses that share this one's legal name, or its group document
+ * (India: the PAN behind several GSTINs). For the reviewer only (A-046, A-052).
+ */
+export function TwinFlags({ sameNameAs, relatedTo }: { sameNameAs: string[]; relatedTo: string[] }) {
+  if (!sameNameAs.length && !relatedTo.length) return null;
+  return (
+    <div className="mb-3 space-y-1">
+      {sameNameAs.length ? (
+        <p className="t-foot text-[color:var(--move,#b7791f)]">
+          Same company name as {sameNameAs.join(", ")}. Check it is a different firm.
+        </p>
+      ) : null}
+      {relatedTo.length ? (
+        <p className="t-foot text-fg-2">Related by PAN to {relatedTo.join(", ")}.</p>
+      ) : null}
+    </div>
   );
 }

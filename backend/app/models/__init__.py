@@ -6,7 +6,7 @@ from app.models.business import ENTITY_TYPES, Business, BusinessStatus
 from app.models.business_identity import VAULT_COLUMNS, BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.contact_reveal import ContactReveal
-from app.models.country import Country
+from app.models.country import Country, CountryDocumentRule
 from app.models.credits import (
     CreditFreeQuota,
     CreditLedgerEntry,
@@ -14,6 +14,7 @@ from app.models.credits import (
     CreditPrice,
     CreditWallet,
     IdempotencyKey,
+    InvoiceCounter,
     PaymentEvent,
     PlanPurchase,
 )
@@ -21,7 +22,7 @@ from app.models.deal import Deal, DealEvent, DealStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
-from app.models.listing import CertificateDownload, CertificateType, ProductCertificate, ProductSpec, SpecParameter
+from app.models.listing import CategoryCertificateRequirement, CertificateDownload, CertificateType, ProductCertificate, ProductSpec, SpecParameter
 from app.models.product import INCOTERMS, ListingStatus, Product
 from app.models.quote import CostSheet, Offer, OfferUnlock, Quote
 from app.models.rfq import HeldCountry, Rfq, RfqMatch, RfqStatus, TradeSetting
@@ -57,13 +58,16 @@ __all__ = [
     "BusinessIdentity",
     "BusinessStatus",
     "ContactReveal",
+    "CategoryCertificateRequirement",
     "Country",
+    "CountryDocumentRule",
     "CreditFreeQuota",
     "CreditLedgerEntry",
     "CreditPlan",
     "CreditPrice",
     "CreditWallet",
     "IdempotencyKey",
+    "InvoiceCounter",
     "PaymentEvent",
     "PlanPurchase",
     "DocStatus",

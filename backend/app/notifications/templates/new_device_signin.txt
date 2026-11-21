@@ -5,7 +5,8 @@ Your Cor1x account was signed in to from a browser we haven't seen before.
     When:    {{ when }}
     Browser: {{ device }}
 
-Signing in on a new device signs out the previous one.
+You can be signed in on up to five devices. Settings > Sign-in and security
+lists them and signs any of them out.
 
 If this was you, you don't need to do anything.
 

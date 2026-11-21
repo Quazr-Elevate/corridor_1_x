@@ -11,6 +11,7 @@ from conftest import (
     PDF_BYTES,
     complete_listing,
     fill_mandatory,
+    force_published,
     publish_listing,
     set_status,
     signup_and_login,
@@ -142,7 +143,7 @@ async def test_review_flow_reject_fix_resubmit_approve(client, make_client, admi
     assert (await admin_client.post(f"/admin/listings/{pid}/approve")).status_code == 409
 
     async with SessionLocal() as db:
-        actions = list(await db.scalars(select(AdminAction).order_by(AdminAction.created_at)))
+        actions = list(await db.scalars(select(AdminAction).where(AdminAction.action != "identity.listed").order_by(AdminAction.created_at)))
     assert [a.action for a in actions] == ["listing.reject", "listing.approve"]
     assert actions[0].reason == "Photo shows a company logo." and actions[0].target_id == pid
 
@@ -349,7 +350,8 @@ async def test_admin_manages_listing_templates(admin_client, client):
     assert (await admin_client.post("/admin/listing-templates/spec-parameters", json={"category": "Gold", "code": "x1", "name": "X one"})).status_code == 422
 
     listed = (await admin_client.get("/admin/listing-templates/spec-parameters", params={"category": "Tea"})).json()
-    assert listed["total"] == 1 and listed["items"][0]["id"] == created["id"]
+    tea = [i["id"] for i in listed["items"]]
+    assert created["id"] in tea and len(tea) == 6  # the five approved Tea rows (A-049) and the new one
 
     # A text parameter takes text; retiring it removes it from the template.
     await _seller(client)
@@ -357,7 +359,7 @@ async def test_admin_manages_listing_templates(admin_client, client):
     assert r.status_code == 201 and r.json()["specs"][0]["value"] == "BOP"
     r = await admin_client.patch(f"/admin/listing-templates/spec-parameters/{created['id']}", json={"active": False})
     assert r.json()["active"] is False
-    assert (await _template(client, "Tea"))["specParameters"] == []
+    assert created["id"] not in [p["id"] for p in (await _template(client, "Tea"))["specParameters"]]
     assert (await admin_client.patch(f"/admin/listing-templates/spec-parameters/{uuid.uuid4()}", json={"active": True})).status_code == 404
 
     r = await admin_client.post(
@@ -402,7 +404,11 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
 
     r = await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "public"})
     assert r.status_code == 422
-    r = await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "downloadable"})
+    vis = f"/admin/listings/{pid}/certificates/{cert['id']}/visibility"
+    # The reviewer has to say the file shows no name, logo or address (C20).
+    r = await admin_client.post(vis, json={"visibility": "downloadable"})
+    assert r.status_code == 400 and "no company name" in r.json()["detail"]
+    r = await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
     assert r.status_code == 200 and r.json()["visibility"] == "downloadable"
 
     # Downloadable: listed by type name only (the filename can name the seller).
@@ -413,6 +419,10 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     assert (await unverified.get(cert["url"])).status_code == 404
     r = await buyer.get(cert["url"])
     assert r.status_code == 200 and r.content == PDF_BYTES and r.headers["cache-control"] == "private, no-store"
+    # The buyer's copy is named for the seller's code, never the seller's own file name.
+    code = (await guest.get(f"/public/products/{pid}")).json()["seller"]["companyCode"]
+    assert f'filename="{code}-coa.pdf"' in r.headers["content-disposition"]
+    assert "Kaveri" not in r.headers["content-disposition"]
 
     async with SessionLocal() as db:
         downloads = list(await db.scalars(select(CertificateDownload)))
@@ -432,25 +442,42 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     assert actions[-2:] == ["listing.certificate_visibility", "listing.certificate_viewed"]
 
     # A paused listing's certificate is out of reach again.
-    await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "downloadable"})
+    await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
     await client.post(f"/products/{pid}/pause")
     assert (await buyer.get(cert["url"])).status_code == 404
 
-    assert (await client.delete(f"/products/{pid}/certificates/{cert['id']}")).status_code == 204
-    assert (await client.get(cert["url"])).status_code == 404
+    # Rice requires a COA (A-049): on a listing that isn't a draft it is
+    # replaced, never removed.
+    r = await client.delete(f"/products/{pid}/certificates/{cert['id']}")
+    assert r.status_code == 409 and "required for the category" in r.json()["detail"]
 
 
 async def test_a_required_certificate_blocks_submit(client, admin_client):
     await _seller(client)
-    coa = await _cert_type(client)
-    assert (await admin_client.patch(f"/admin/listing-templates/certificate-types/{coa}", json={"isRequired": True})).status_code == 200
-    pid = (await complete_listing(client))["id"]
+    pid = (await complete_listing(client))["id"]  # carries Rice's required COA
+    # Made required for every category after the listing was drafted.
+    other = await _cert_type(client, "product_certificate")
+    r = await admin_client.patch(f"/admin/listing-templates/certificate-types/{other}", json={"isRequired": True})
+    assert r.status_code == 200
     r = await client.post(f"/products/{pid}/submit")
-    assert r.status_code == 400 and "the document “Certificate of analysis (COA)”" in r.json()["detail"]
-    assert (await _add_cert(client, pid, coa)).status_code == 201
+    assert r.status_code == 400 and "the document “Product certificate”" in r.json()["detail"]
+    assert (await _add_cert(client, pid, other)).status_code == 201
     assert (await client.post(f"/products/{pid}/submit")).status_code == 200
     # Documents are frozen while the reviewer has the listing.
-    assert (await _add_cert(client, pid, coa)).status_code == 409
+    assert (await _add_cert(client, pid, other)).status_code == 409
+
+
+async def test_each_category_requires_its_own_documents(client):
+    rice = {t["code"]: t["isRequired"] for t in (await _template(client, "Rice"))["certificateTypes"]}
+    cotton = {t["code"]: t["isRequired"] for t in (await _template(client, "Cotton"))["certificateTypes"]}
+    other = {t["code"]: t["isRequired"] for t in (await _template(client, "Other"))["certificateTypes"]}
+    assert rice == {"coa": True, "quality_test_report": False, "product_certificate": False}
+    assert cotton == {"coa": False, "quality_test_report": True, "product_certificate": False}
+    assert not any(other.values())
+    await _seller(client)
+    r = await client.post("/products", json={"name": "Shankar-6 cotton", "category": "Cotton"})
+    r = await client.post(f"/products/{r.json()['id']}/submit")
+    assert "the document “Quality test report”" in r.json()["detail"]
 
 
 # ── Admin access ─────────────────────────────────────────────────────
@@ -536,3 +563,62 @@ def test_0026_publishes_listings_that_were_already_live(tmp_path):
     assert "status" not in {r[1] for r in con.execute("PRAGMA table_info(products)")}
     assert con.execute("SELECT count(*) FROM products").fetchone()[0] == before  # no listing lost
     con.close()
+
+
+async def test_an_inconsistent_price_or_moq_names_the_field_to_fix(client):
+    await _seller(client, "fields@kaverifoods.in", verified=False)
+    pid = (await client.post("/products", json={"name": "1121 Steam Basmati", "category": "Rice"})).json()["id"]
+    r = await client.patch(f"/products/{pid}", json={"priceMin": "90", "priceMax": "80"})
+    assert r.status_code == 422
+    assert r.json()["fields"] == [{"field": "priceMax", "message": "The maximum price can't be lower than the minimum price."}]
+    r = await client.patch(f"/products/{pid}", json={"quantity": "10", "moq": "25"})
+    assert r.json()["fields"] == [{"field": "moq", "message": "MOQ can't be larger than the available quantity."}]
+    assert r.json()["detail"] == "moq: MOQ can't be larger than the available quantity."
+
+
+async def test_a_flagged_listing_needs_a_super_admins_reason_to_go_out(client, admin_client, make_client):
+    from test_admin_accounts import _new_admin
+
+    await _seller(client, "flagged@kaverifoods.in")
+    p = await complete_listing(client, description="Steam basmati. WhatsApp for samples.")
+    assert (await client.post(f"/products/{p['id']}/submit")).status_code == 200
+    url = f"/admin/listings/{p['id']}/approve"
+
+    _, reviewer = await _new_admin(admin_client, make_client)
+    r = await reviewer.post(url)
+    assert r.status_code == 409 and "may reveal the seller" in r.json()["detail"]
+    assert "description: asks to be contacted directly" in r.json()["detail"]
+    r = await reviewer.post(url, json={"overrideReason": "Checked: samples go through the desk"})
+    assert r.status_code == 403
+    assert (await admin_client.post(url, json={"overrideReason": "short"})).status_code == 422
+
+    r = await admin_client.post(url, json={"overrideReason": "Checked: samples go through the desk"})
+    assert r.status_code == 200 and r.json()["status"] == "published"
+    async with SessionLocal() as db:
+        row = await db.scalar(select(AdminAction).where(AdminAction.action == "listing.approve"))
+    assert row.details["leakOverride"] == "Checked: samples go through the desk"
+    assert row.details["leakFlags"] == ["description"]
+
+
+async def test_a_document_added_to_a_live_listing_waits_in_the_queue(client, admin_client):
+    await _seller(client)
+    pid = (await complete_listing(client))["id"]
+    await force_published(pid)
+    assert [r["id"] for r in (await admin_client.get("/admin/listings")).json()["items"]] == []
+    qtr = await _cert_type(client, "quality_test_report")
+    cert = (await _add_cert(client, pid, qtr)).json()
+    (row,) = (await admin_client.get("/admin/listings")).json()["items"]
+    assert (row["id"], row["reviewKind"]) == (pid, "documents") and row["waitingSince"]
+    # A decision either way takes it off the queue.
+    vis = f"/admin/listings/{pid}/certificates/{cert['id']}/visibility"
+    assert (await admin_client.post(vis, json={"visibility": "internal"})).status_code == 200
+    assert (await admin_client.get("/admin/listings")).json()["items"] == []
+
+
+async def test_the_market_filters_by_the_quantity_a_buyer_wants(client, make_client):
+    await _seller(client)
+    pid = (await complete_listing(client))["id"]  # MOQ 25 MT
+    await force_published(pid)
+    guest = make_client()
+    assert (await guest.get("/public/products", params={"orderQuantity": "10"})).json()["total"] == 0
+    assert (await guest.get("/public/products", params={"orderQuantity": "50"})).json()["total"] == 1

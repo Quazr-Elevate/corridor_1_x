@@ -394,7 +394,8 @@ const EVENT_LABEL: Record<string, string> = {
   locked: "Locked after failed attempts",
   locked_support: "Locked — support must unlock",
   unlocked: "Unlocked by support",
-  session_replaced: "Signed out by a sign-in elsewhere",
+  session_replaced: "Oldest device signed out by a new sign-in",
+  session_signed_out: "A device signed out from here",
   sessions_revoked: "Signed out everywhere",
   password_changed: "Password changed",
   password_reset: "Password reset",
@@ -419,6 +420,7 @@ function SessionSection() {
   const [busy, setBusy] = useState(false);
   const [overview, setOverview] = useState<SecurityOverview | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [otherBusy, setOtherBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -442,7 +444,19 @@ function SessionSection() {
     }
   }
 
-  const device = overview?.device;
+  async function signOutOther(id: string) {
+    setOtherBusy(id);
+    try {
+      await api.signOutDevice(id);
+      setOverview((o) => (o ? { ...o, devices: o.devices.filter((d) => d.id !== id) } : o));
+    } catch {
+      setLoadError(true);
+    } finally {
+      setOtherBusy(null);
+    }
+  }
+
+  const devices = overview?.devices ?? [];
   return (
     <SectionCard
       id="session"
@@ -451,28 +465,48 @@ function SessionSection() {
       title="Sign-in & security"
       description={
         <>
-          One device at a time: signing in somewhere else signs this device out. Sessions end after{" "}
+          You can be signed in on up to {overview?.maxDevices ?? 5} devices; signing in on one more signs out the
+          one you used least recently. Sessions end after{" "}
           {overview ? Math.round(overview.idleTimeoutMinutes / 60) : 12} hours without activity, and after{" "}
           {overview?.maxSessionDays ?? 7} days in any case.
         </>
       }
     >
       <div className="space-y-6">
-        {device ? (
-          <div className="well flex items-start gap-4 rounded-[22px] p-4">
-            <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-lime-soft text-accent">
-              <Icon name="globe" size={18} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="t-body font-medium text-fg">
-                {deviceName(device.userAgent)} <Chip tone="verified" size="sm" noIcon>This device</Chip>
-              </p>
-              <p className="t-sub mt-1 text-fg-3">
-                Signed in {when(device.createdAt)} · last active {when(device.lastSeenAt)}
-                {device.ipPrefix ? <> · network {device.ipPrefix}</> : null}
-              </p>
-            </div>
-          </div>
+        {overview ? (
+          <ul className="space-y-3">
+            {devices.map((device) => (
+              <li key={device.id ?? device.createdAt} className="well flex items-start gap-4 rounded-[22px] p-4">
+                <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-full bg-lime-soft text-accent">
+                  <Icon name="globe" size={18} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="t-body font-medium text-fg">
+                    {deviceName(device.userAgent)}{" "}
+                    {device.current ? (
+                      <Chip tone="verified" size="sm" noIcon>
+                        This device
+                      </Chip>
+                    ) : null}
+                  </p>
+                  <p className="t-sub mt-1 text-fg-3">
+                    Signed in {when(device.createdAt)} · last active {when(device.lastSeenAt)}
+                    {device.ipPrefix ? <> · network {device.ipPrefix}</> : null}
+                  </p>
+                </div>
+                {!device.current && device.id ? (
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    loading={otherBusy === device.id}
+                    onClick={() => void signOutOther(device.id as string)}
+                  >
+                    Sign out
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         ) : loadError ? (
           <Notice tone="frozen">Couldn’t load your sign-in activity.</Notice>
         ) : (

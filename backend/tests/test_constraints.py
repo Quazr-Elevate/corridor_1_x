@@ -99,8 +99,8 @@ async def test_business_consistent_states_are_accepted():
     await _business(trade_position="both", entity_type="llp")
 
 
-@pytest.mark.parametrize("column", ["legal_name_normalized", "website_normalized"])
-async def test_company_name_and_website_are_unique_in_the_vault(column):
+@pytest.mark.parametrize("column", ["website_normalized"])
+async def test_the_website_is_unique_in_the_vault(column):
     first = await _business()
     await _insert(BusinessIdentity.__table__, business_id=first, **{column: "acme"})
     second = await _business()
@@ -236,22 +236,14 @@ async def test_reveal_unique_and_not_self():
 # ── services map violations to friendly errors ───────────────────────
 
 
-async def test_unique_index_race_on_company_name_maps_to_409(client, make_client, monkeypatch):
-    from app.modules.masking import service as masking
-
+async def test_two_businesses_may_share_a_company_name(client, make_client):
+    """Names are not unique (A-046): the KYB review flags a shared one."""
     await signup_and_login(client, "n1@kaverifoods.in")
     body = {"legalName": "Kaveri Foods", "industry": "Rice", "operatingCountries": ["IN"]}
     assert (await client.post("/onboarding/company", json=body)).status_code == 200
-
-    async def no_check(*_a, **_k):
-        return None
-
-    monkeypatch.setattr(masking, "ensure_company_available", no_check)
     other = make_client()
     await signup_and_login(other, "n2@othermill.in")
-    r = await other.post("/onboarding/company", json=body)
-    assert r.status_code == 409
-    assert r.json()["detail"] == "This legal company name is already registered on Cor1x."
+    assert (await other.post("/onboarding/company", json=body)).status_code == 200
 
 
 async def test_check_violation_maps_to_400():

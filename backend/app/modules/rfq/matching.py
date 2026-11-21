@@ -1,11 +1,11 @@
-"""The matcher's hard rules (CX-092, decision A-035). Pure functions: given
-an RFQ and a listing, say for each rule whether it is met and why. A listing
-is proposed only when every rule is met; the desk confirms before anyone is
-told."""
+"""The matcher's hard rules (CX-092, decision A-035; CX-175 and CX-176).
+Pure functions: given an RFQ and a listing, say for each rule whether it is
+met and why. A listing is proposed only when every rule is met; the desk
+confirms before anyone is told."""
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import Any
 
 from app.models.product import Product
@@ -23,19 +23,57 @@ def check_category(rfq: Rfq, listing: Product) -> dict[str, Any]:
     return {"rule": "category", "ok": ok, "detail": f"Listing is {listing.category}; the request is for {rfq.category}."}
 
 
-def check_capacity(rfq: Rfq, listing: Product) -> dict[str, Any]:
-    """Monthly capacity must cover the quantity asked for."""
+#: A month, for turning the days left into production months.
+_MONTH_DAYS = Decimal(30)
+
+
+def check_capacity(rfq: Rfq, listing: Product, today: date | None = None) -> dict[str, Any]:
+    """The seller can supply the quantity: from stock, or from monthly
+    capacity over the months left until the delivery window closes (at
+    least one). One month's capacity against the whole order turned away
+    sellers who could fill a long window (CX-175)."""
     need = _in_kg(rfq.quantity, rfq.unit)
-    have = _in_kg(listing.capacity_per_month, listing.capacity_unit)
+    rate = _in_kg(listing.capacity_per_month, listing.capacity_unit)
+    stock = _in_kg(listing.quantity, listing.unit)
     if need is None:
         return {"rule": "capacity", "ok": False, "detail": "The request has no quantity."}
-    if have is None:
+    if rate is None and stock is None:
         return {"rule": "capacity", "ok": False, "detail": "The listing states no monthly capacity."}
+    months = Decimal(1)
+    if today is not None and rfq.delivery_to is not None:
+        months = max(Decimal(1), (Decimal((rfq.delivery_to - today).days) / _MONTH_DAYS).quantize(Decimal("0.1"), ROUND_DOWN))
+    can_make = rate * months if rate is not None else None
+    from_stock = stock is not None and stock >= need
+    ok = from_stock or (can_make is not None and can_make >= need)
+    parts = []
+    if rate is not None:
+        parts.append(f"Capacity {_plain(listing.capacity_per_month)} {listing.capacity_unit} a month"
+                     + (f" over {_plain(months)} months" if months != 1 else ""))
+    if from_stock:
+        parts.append(f"{_plain(listing.quantity)} {listing.unit} in stock")
+    return {"rule": "capacity", "ok": ok, "detail": f"{' and '.join(parts)} against {_plain(rfq.quantity)} {rfq.unit} asked."}
+
+
+def check_incoterms(rfq: Rfq, listing: Product) -> dict[str, Any]:
+    """The listing offers at least one incoterm the buyer accepts."""
+    wanted, offered = list(rfq.incoterms or []), list(listing.incoterms or [])
+    both = [t for t in wanted if t in offered]
+    if not offered:
+        return {"rule": "incoterms", "ok": False, "detail": "The listing states no incoterm."}
     return {
-        "rule": "capacity", "ok": have >= need,
-        "detail": f"Capacity {_plain(listing.capacity_per_month)} {listing.capacity_unit} a month against "
-                  f"{_plain(rfq.quantity)} {rfq.unit} asked.",
+        "rule": "incoterms", "ok": bool(both),
+        "detail": f"Buyer accepts {', '.join(wanted) or 'none'}; listing offers {', '.join(offered)}.",
     }
+
+
+def check_certificates(rfq: Rfq, on_file: dict[str, str], needed: dict[str, str]) -> dict[str, Any]:
+    """Every document the buyer asked for is on the listing. ``on_file`` and
+    ``needed`` map certificate type id to its name."""
+    missing = [needed.get(t, "a document") for t in rfq.certificate_type_ids or [] if t not in on_file]
+    if missing:
+        return {"rule": "certificates", "ok": False, "detail": "Not on the listing: " + ", ".join(missing) + "."}
+    asked = len(rfq.certificate_type_ids or [])
+    return {"rule": "certificates", "ok": True, "detail": f"{asked} requested document(s) on the listing."}
 
 
 def check_lead_time(rfq: Rfq, listing: Product, today: date) -> dict[str, Any]:
@@ -88,14 +126,17 @@ def within(value: str, limit: str, operator: str) -> bool:
 
 
 def evaluate(
-    rfq: Rfq, listing: Product, listing_specs: list[dict[str, Any]], required: dict[str, str], today: date
+    rfq: Rfq, listing: Product, listing_specs: list[dict[str, Any]], required: dict[str, str], today: date,
+    *, on_file: dict[str, str] | None = None, needed: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Every hard rule against one listing, in a fixed order."""
     return [
         check_category(rfq, listing),
-        check_capacity(rfq, listing),
+        check_capacity(rfq, listing, today),
         check_specs(rfq, listing_specs, required),
         check_lead_time(rfq, listing, today),
+        check_incoterms(rfq, listing),
+        check_certificates(rfq, on_file or {}, needed or {}),
     ]
 
 

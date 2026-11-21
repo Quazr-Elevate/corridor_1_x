@@ -8,7 +8,7 @@ profile fields). Contact person and trade position no longer reopen review
 """
 from __future__ import annotations
 
-from conftest import fill_mandatory, signup_and_login
+from conftest import fill_mandatory, signup_and_login, verify_business
 from qa_helpers import admin_add_doc_type, uniq, uniq_code, upload_entry, user_id_for
 
 
@@ -20,7 +20,7 @@ async def _verified_business(client, admin_client) -> str:
     await upload_entry(client, type_id=t["id"])
     assert (await client.post("/me/submit-verification")).status_code == 200
     uid = await user_id_for(admin_client, email)
-    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    r = await verify_business(admin_client, uid)
     assert r.status_code == 200 and r.json()["status"] == "verified"
     return email
 

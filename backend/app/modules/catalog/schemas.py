@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationInfo, field_validator
 
 from pydantic import StringConstraints
 
@@ -86,13 +86,23 @@ class ProductUpdate(RequestModel):
     # Replaces the listing's specification rows.
     specs: list[SpecIn] | None = Field(None, max_length=60)
 
-    @model_validator(mode="after")
-    def _consistent(self) -> "ProductUpdate":
-        if self.moq is not None and self.quantity is not None and self.moq > self.quantity:
+    # Field validators, not a model validator, so the error names the box to
+    # fix (``moq``, ``priceMax``); each reads the field declared before it.
+    @field_validator("moq")
+    @classmethod
+    def _moq_within_quantity(cls, moq: Decimal | None, info: ValidationInfo) -> Decimal | None:
+        quantity = info.data.get("quantity")
+        if moq is not None and quantity is not None and moq > quantity:
             raise ValueError("MOQ can't be larger than the available quantity.")
-        if self.price_min is not None and self.price_max is not None and self.price_max < self.price_min:
+        return moq
+
+    @field_validator("price_max")
+    @classmethod
+    def _max_not_below_min(cls, price_max: Decimal | None, info: ValidationInfo) -> Decimal | None:
+        price_min = info.data.get("price_min")
+        if price_max is not None and price_min is not None and price_max < price_min:
             raise ValueError("The maximum price can't be lower than the minimum price.")
-        return self
+        return price_max
 
 
 class ProductCreate(ProductUpdate):

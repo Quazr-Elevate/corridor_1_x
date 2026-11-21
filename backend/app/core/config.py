@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     session_secret: str = "dev-only-session-secret-change-me"
     user_session_idle_hours: int = 12
     user_session_max_days: int = 7
+    # Traders may be signed in on this many devices at once; the oldest is
+    # signed out by the next sign-in (A-044). Admins always have one.
+    user_max_sessions: int = 5
 
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
@@ -172,6 +175,11 @@ class Settings(BaseSettings):
     # upstream APIs (offline dev). Never enable in production.
     lookups_stub: bool = False
 
+    # ─── Test suite ──────────────────────────────────────────────
+    # Set by tests/conftest.py only. Lets the suite run with DEBUG off on
+    # SQLite, the console mailer and plain-HTTP cookies. Never set it on a server.
+    test_harness: bool = False
+
     # ─── Derived ─────────────────────────────────────────────────
 
     @property
@@ -195,13 +203,34 @@ class Settings(BaseSettings):
             problems.append("SESSION_SECRET (set 32+ random characters)")
         if self.lookups_stub:
             problems.append("LOOKUPS_STUB must be false")
-        if self.payment_provider == "test":
+        # The test suite runs with DEBUG off on SQLite, plain-HTTP cookies and
+        # the console mailer; nothing else is exempt.
+        if not self.test_harness:
+            if self.is_sqlite:
+                problems.append("DATABASE_URL points at SQLite; use Postgres")
+            if self.cookie_secure is False and not self.cross_site_cookies:
+                problems.append("COOKIE_SECURE=false sends the session cookie over plain HTTP")
+        if not self.rate_limit_enabled:
+            problems.append("RATE_LIMIT_ENABLED must be true")
+        provider = self.payment_provider.strip().lower()
+        if provider == "test":
             problems.append("PAYMENT_PROVIDER=test accepts self-signed payments; use razorpay or none")
-        if self.payment_provider == "razorpay" and not (
+        if provider == "razorpay" and not (
             self.razorpay_key_id and self.razorpay_key_secret and len(self.razorpay_webhook_secret) >= 16
         ):
             problems.append("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and a 16+ character RAZORPAY_WEBHOOK_SECRET")
         return problems
+
+    def startup_warnings(self) -> list[str]:
+        """Settings a non-debug server may run with for now, but shouldn't
+        for long (A-068): logged at startup instead of refused."""
+        warnings = []
+        if self.email_provider.strip().lower() == "console":
+            warnings.append(
+                "EMAIL_PROVIDER=console writes every email, sign-in codes included, to the log; "
+                "set resend or brevo before real users sign up"
+            )
+        return warnings
 
     @property
     def frontend_base(self) -> str:

@@ -21,7 +21,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { DOC_REJECT_REASONS, RejectSheet, USER_REJECT_REASONS, type RejectItem } from "@/components/admin/RejectSheet";
-import { AccessScope } from "@/components/admin/AccessReason";
+import { AccessScope, useAccessReason } from "@/components/admin/AccessReason";
 import { ClearQueue } from "@/components/admin/ClearQueue";
 import { LaneHeader } from "@/components/admin/tower";
 import {
@@ -37,6 +37,8 @@ import {
   type PillDot,
   type PillTab,
   type QueueItem,
+  TwinFlags,
+  useUnopenedDocs,
 } from "@/components/admin/parts";
 import {
   displayValue,
@@ -135,17 +137,26 @@ export default function KybReviewsPage() {
   const detail = selectedId ? details[selectedId] : undefined;
 
   // Pull the full account for the selected company (contact, business, docs).
+  // Opening an account needs a reason; one given for the queue covers each
+  // account opened from it, and that company's files.
+  const access = useAccessReason("kyb-queue");
   useEffect(() => {
     if (!selectedId || details[selectedId]) return;
     let cancelled = false;
-    adminApi
-      .user(selectedId)
+    access
+      .ask()
+      .then((reason) =>
+        adminApi.user(selectedId, reason).then((u) => {
+          access.remember(u.businessId, reason);
+          return u;
+        }),
+      )
       .then((u) => !cancelled && setDetails((d) => ({ ...d, [selectedId]: u })))
       .catch(() => !cancelled && setDetails((d) => ({ ...d, [selectedId]: "error" })));
     return () => {
       cancelled = true;
     };
-  }, [selectedId, details]);
+  }, [selectedId, details, access]);
 
   useEffect(() => setActionErr(null), [selectedId]);
   // A document tab belongs to one company — fall back to its profile.
@@ -477,6 +488,7 @@ function DetailPanel({
 }) {
   const docsOnly = row.reviewKind === "documents";
   const d = typeof detail === "object" ? detail : null;
+  const unopened = useUnopenedDocs(d?.unopenedDocIds);
   const p = d?.profile ?? {};
   const b = d?.businessProfile ?? {};
   const docs = d?.docs ?? row.docs;
@@ -761,8 +773,11 @@ function DetailPanel({
                 <p className="t-foot mb-3 text-fg-3">
                   {missing.length
                     ? `${plural(missing.length, "required item")} missing — approval needs the profile and required documents.`
-                    : "Profile and required documents are in."}
+                    : unopened.length
+                      ? `Open each required document first: ${plural(unopened.length, "document")} not opened yet.`
+                      : "Profile and required documents are in, and you have opened each one."}
                 </p>
+                <TwinFlags sameNameAs={d?.sameNameAs ?? []} relatedTo={d?.relatedTo ?? []} />
                 <div className="grid grid-cols-2 gap-2">
                   <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">
                     Open account
@@ -778,7 +793,7 @@ function DetailPanel({
                   className="mt-2 rounded-[18px]"
                   onCommit={onApprove}
                   loading={busy}
-                  disabled={missing.length > 0}
+                  disabled={missing.length > 0 || unopened.length > 0 || loadingDetail}
                 >
                   Approve company
                 </HoldButton>

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
-from sqlalchemy import CHAR, Boolean, CheckConstraint, Index, String, func, true
+from sqlalchemy import CHAR, Boolean, CheckConstraint, ForeignKey, Index, SmallInteger, String, Uuid, func, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UTCDateTime
@@ -49,8 +50,57 @@ class Country(Base):
     postal_pattern: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Open for onboarding. False = paused (existing businesses unaffected).
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    # The KYB document whose number keys the free-RFQ quota (A-052): India's
+    # GSTIN. Unset → the first required document with a number.
+    quota_document_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("kyb_document_types.id", ondelete="SET NULL", name="fk_countries_quota_document_type_id", use_alter=True),
+        nullable=True,
+    )
+    # The KYB document that several businesses may share and that marks them
+    # as related in review (India's PAN behind several GSTINs). Unset → none.
+    group_document_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("kyb_document_types.id", ondelete="SET NULL", name="fk_countries_group_document_type_id", use_alter=True),
+        nullable=True,
+    )
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)
     updated_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CountryDocumentRule(Base):
+    """A cross-check between two KYB documents of one country (A-047):
+    characters ``source_start``..``source_end`` (1-based, inclusive) of the
+    source document's number must equal the target document's number. India:
+    GSTIN 3–12 = PAN. Admin-managed; checked when a business submits for
+    review and again at approval."""
+
+    __tablename__ = "country_document_rules"
+    __table_args__ = (
+        Index("ix_country_document_rules_country", "country"),
+        CheckConstraint("kind IN ('slice_equals')", name="ck_country_document_rules_kind"),
+        CheckConstraint("source_start >= 1 AND source_end >= source_start", name="ck_country_document_rules_range"),
+        CheckConstraint("source_type_id <> target_type_id", name="ck_country_document_rules_two_documents"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    country: Mapped[str] = mapped_column(
+        CHAR(2), ForeignKey("countries.code", ondelete="CASCADE", name="fk_country_document_rules_country"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False, default="slice_equals", server_default="slice_equals")
+    source_type_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("kyb_document_types.id", ondelete="CASCADE", name="fk_country_document_rules_source"),
+        nullable=False,
+    )
+    source_start: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    source_end: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    target_type_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("kyb_document_types.id", ondelete="CASCADE", name="fk_country_document_rules_target"),
+        nullable=False,
+    )
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()

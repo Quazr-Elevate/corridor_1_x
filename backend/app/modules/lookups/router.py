@@ -24,6 +24,7 @@ from app.integrations.lookups import (
     IfscNotFound,
     IfscServiceError,
     PincodeError,
+    PincodeInvalid,
     PincodeLookup,
     PincodeServiceError,
 )
@@ -120,6 +121,8 @@ async def get_pincode(
         return hit
     try:
         r = await lookup.lookup(key)
+    except PincodeInvalid as e:
+        raise BadRequest(str(e)) from e
     except PincodeError as e:
         raise NotFound(str(e)) from e
     except PincodeServiceError as e:

@@ -180,7 +180,7 @@ export interface CatalogFilters {
   maxPrice?: string;
   /** Currency minPrice/maxPrice are typed in (backend default USD). */
   priceCurrency?: string;
-  minMoq?: string;
+  orderQuantity?: string;
   q?: string;
   offset?: number;
   limit?: number;

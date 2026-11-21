@@ -8,7 +8,7 @@ import typing
 import uuid
 from pathlib import Path
 
-from conftest import fill_mandatory, set_status, signup_and_login
+from conftest import fill_mandatory, set_status, signup_and_login, verify_business
 from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -57,6 +57,7 @@ NO_BODY = {
     ("GET", "/me/verification-docs/{doc_id}/file"),
     ("DELETE", "/products/{product_id}"),
     ("DELETE", "/rfqs/{rfq_id}"),
+    ("DELETE", "/auth/sessions/{session_id}"),
     ("DELETE", "/products/{product_id}/certificates/{certificate_id}"),
     ("GET", "/products/{product_id}/certificates/{certificate_id}/file"),
     ("GET", "/uploads/products/{filename}"),
@@ -147,7 +148,7 @@ async def test_a_code_is_issued_at_verification_and_kept_for_life(client, admin_
     await fill_mandatory(client)
     assert (await client.get("/me")).json()["companyCode"] is None
     assert (await client.post("/me/submit-verification")).status_code == 200
-    assert (await admin_client.post(f"/admin/users/{me['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, me['userId'])).status_code == 200
     code = (await client.get("/me")).json()["companyCode"]
     assert re.fullmatch(r"IN-\d{6}", code)
 
@@ -156,7 +157,7 @@ async def test_a_code_is_issued_at_verification_and_kept_for_life(client, admin_
     r = await client.put("/me/business-profile", json={"legalName": "Kaveri Foods Renamed", "country": "IN", "city": "Pune"})
     assert r.status_code == 200, r.text
     await set_status(me["userId"], BusinessStatus.pending_verification)
-    assert (await admin_client.post(f"/admin/users/{me['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, me['userId'])).status_code == 200
     assert (await client.get("/me")).json()["companyCode"] == code
 
 
@@ -179,7 +180,9 @@ async def _unmask_rows() -> list[AdminAction]:
     async with SessionLocal() as db:
         return list(
             await db.scalars(
-                select(AdminAction).where(AdminAction.action.like("identity.%")).order_by(AdminAction.created_at)
+                select(AdminAction)
+                .where(AdminAction.action.like("identity.%"), AdminAction.action != "identity.listed")
+                .order_by(AdminAction.created_at)
             )
         )
 
@@ -190,12 +193,22 @@ async def test_opening_an_account_writes_identity_unmasked(client, admin_client)
     listed = (await admin_client.get("/admin/users")).json()["items"]
     assert listed[0]["businessName"] == "Kaveri Foods Pvt Ltd"
     assert await _unmask_rows() == []
+    # ...but the page leaves a trace of how many names it showed (C21).
+    async with SessionLocal() as db:
+        (page,) = list(await db.scalars(select(AdminAction).where(AdminAction.action == "identity.listed")))
+    assert (page.target_type, page.details) == ("admin_user", {"purpose": "directory", "count": 1})
+    assert "Kaveri" not in str(page.details)
 
-    detail = await admin_client.get(f"/admin/users/{me['userId']}")
+    # Opening the account needs a reason (C22), and the old GET is gone.
+    assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={})).status_code == 422
+    assert (await admin_client.get(f"/admin/users/{me['userId']}")).status_code == 405
+    assert await _unmask_rows() == []
+    detail = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
     assert detail.status_code == 200 and detail.json()["businessProfile"]["legalName"] == "Kaveri Foods Pvt Ltd"
     (row,) = await _unmask_rows()
     assert (row.action, row.target_type, row.target_id) == ("identity.unmasked", "business", me["businessId"])
     assert row.details == {"purpose": "account_detail", "company_code": None}
+    assert row.reason == "KYB review of this business"
     assert "Kaveri" not in str(row.details)  # the log says who was opened, never the name
 
 
@@ -230,8 +243,8 @@ async def test_unmask_volume_is_flagged_once_then_stopped(client, admin_client, 
     monkeypatch.setattr(masking, "STAFF_UNMASK", masking.RateLimitRule("identity.unmask:admin", 6, 3600))
 
     for _ in range(6):
-        assert (await admin_client.get(f"/admin/users/{me['userId']}")).status_code == 200
-    blocked = await admin_client.get(f"/admin/users/{me['userId']}")
+        assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})).status_code == 200
+    blocked = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
     assert blocked.status_code == 429 and "retry-after" in blocked.headers
 
     actions = [r.action for r in await _unmask_rows()]
@@ -243,16 +256,24 @@ async def test_unmask_volume_is_flagged_once_then_stopped(client, admin_client, 
 # ── Erasure ──────────────────────────────────────────────────────────
 
 
-async def test_deleting_the_account_erases_the_vault_row_and_frees_the_name(client, make_client):
+async def test_deleting_the_account_erases_the_vault_row(client, make_client):
     me = await signup_and_login(client, "owner@kaverifoods.in", company_name="Kaveri Foods Pvt Ltd")
-    taken = make_client()
-    await signup_and_login(taken, "second@othermill.in")
-    r = await taken.put("/me/business-profile", json={"legalName": "kaveri foods pvt ltd", "country": "IN"})
-    assert r.status_code == 409
-
     assert (await client.delete("/me")).status_code == 204
     async with SessionLocal() as db:
         assert await db.get(BusinessIdentity, uuid.UUID(me["businessId"])) is None
         assert (await db.get(Business, uuid.UUID(me["businessId"]))).deleted_at is not None
-    r = await taken.put("/me/business-profile", json={"legalName": "Kaveri Foods Pvt Ltd", "country": "IN"})
-    assert r.status_code == 200, r.text
+
+
+async def test_a_shared_company_name_is_flagged_to_the_reviewer_only(client, make_client, admin_client):
+    first = await signup_and_login(client, "owner@kaverifoods.in", company_name="Kaveri Foods Pvt Ltd")
+    await set_status(first["userId"], BusinessStatus.verified)
+    code = (await client.get("/me")).json()["companyCode"]
+    twin = make_client()
+    # Sign-up doesn't say the name is taken (A-046).
+    second = await signup_and_login(twin, "owner@kaverifoods2.in", company_name="KAVERI FOODS PVT LTD")
+    reason = {"reason": "KYB review of this business"}
+    detail = (await admin_client.post(f"/admin/users/{second['userId']}/open", json=reason)).json()
+    assert detail["sameNameAs"] == [code]
+    first_detail = (await admin_client.post(f"/admin/users/{first['userId']}/open", json=reason)).json()
+    assert first_detail["sameNameAs"] == ["unverified"]
+    assert "sameNameAs" not in str((await twin.get("/me")).json())

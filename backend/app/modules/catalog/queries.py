@@ -39,7 +39,7 @@ def public_products_stmt(
     origin_state: str | None = None,
     min_price_usd: Decimal | None = None,
     max_price_usd: Decimal | None = None,
-    min_moq: Decimal | None = None,
+    order_quantity: Decimal | None = None,
     q: str | None = None,
 ) -> Select[tuple[Product]]:
     """SELECT of market-visible products; callers add order/offset/limit.
@@ -56,8 +56,8 @@ def public_products_stmt(
         stmt = stmt.where(func.coalesce(Product.price_usd_max, Product.price_usd) >= min_price_usd)
     if max_price_usd is not None:
         stmt = stmt.where(Product.price_usd <= max_price_usd)
-    if min_moq is not None:
-        stmt = stmt.where(Product.moq <= min_moq)
+    if order_quantity is not None:
+        stmt = stmt.where(Product.moq <= order_quantity)
     if q and q.strip():
         # Cheap free-text; move to tsvector / FTS5 past ~10k products.
         pattern = f"%{_escape_like(q.strip())}%"

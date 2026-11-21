@@ -28,6 +28,8 @@ interface AccessReasonApi {
   ask: (scope: string) => Promise<string>;
   /** The remembered reason, if the admin already gave one for this scope. */
   known: (scope: string) => string | null;
+  /** Reuse a reason the admin already gave for another scope of the same business. */
+  remember: (scope: string, reason: string) => void;
 }
 
 const ReasonContext = createContext<AccessReasonApi | null>(null);
@@ -53,6 +55,9 @@ export function AccessReasonProvider({ children }: { children: ReactNode }) {
   const api = useMemo<AccessReasonApi>(
     () => ({
       known: (scope) => reasons.current.get(scope) ?? null,
+      remember: (scope, reason) => {
+        reasons.current.set(scope, reason);
+      },
       ask: (scope) => {
         const have = reasons.current.get(scope);
         if (have) return Promise.resolve(have);
@@ -158,9 +163,18 @@ export function AccessScope({ id, children }: { id: string; children: ReactNode 
   return <ScopeContext.Provider value={id}>{children}</ScopeContext.Provider>;
 }
 
-export function useAccessReason(): { ask: () => Promise<string>; known: () => string | null } {
+/** ``scope`` overrides the surrounding AccessScope, for code above it (a page opening an account). */
+export function useAccessReason(scope?: string): {
+  ask: () => Promise<string>;
+  known: () => string | null;
+  remember: (otherScope: string, reason: string) => void;
+} {
   const api = useContext(ReasonContext);
-  const scope = useContext(ScopeContext);
+  const inherited = useContext(ScopeContext);
   if (!api) throw new Error("useAccessReason needs an AccessReasonProvider above it.");
-  return useMemo(() => ({ ask: () => api.ask(scope), known: () => api.known(scope) }), [api, scope]);
+  const which = scope ?? inherited;
+  return useMemo(
+    () => ({ ask: () => api.ask(which), known: () => api.known(which), remember: api.remember }),
+    [api, which],
+  );
 }

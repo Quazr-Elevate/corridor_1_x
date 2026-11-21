@@ -129,18 +129,20 @@ export interface CreditPrice {
 
 export interface Wallet {
   balance: number;
+  /** How much of the balance came from the plan and ends with it (A-051). */
+  planCredits: number;
   /** null on the Free plan. */
   plan: { code: string; name: string | null; expiresAt: string; state: "active" | "grace" } | null;
   /** Free RFQs of this company; null until it is verified. */
   freeRfqs: { allowance: number; used: number; remaining: number } | null;
   prices: CreditPrice[];
-  /** False when no payment processor is set up. */
+  /** False when no payment processor is set up, or the company isn't verified yet (A-050). */
   checkoutAvailable: boolean;
 }
 
 export interface LedgerLine {
   id: string;
-  entryType: SpendAction | "PLAN_PURCHASE" | "TOP_UP" | "ADJUSTMENT" | "REVERSAL";
+  entryType: SpendAction | "PLAN_PURCHASE" | "TOP_UP" | "ADJUSTMENT" | "REVERSAL" | "EXPIRY";
   amount: number;
   balanceAfter: number;
   free: boolean;
@@ -470,6 +472,7 @@ export interface BusinessProfileIn {
 export const API_BASE = versioned(process.env.NEXT_PUBLIC_API_BASE_URL || "/api");
 
 export interface SecurityDevice {
+  id: string | null;
   createdAt: string;
   lastSeenAt: string;
   expiresAt: string;
@@ -488,6 +491,9 @@ export interface AuthEventRow {
 /** GET /auth/security — the one signed-in device + recent sign-in activity. */
 export interface SecurityOverview {
   device: SecurityDevice | null;
+  /** Every device signed in, most recently used first (up to maxDevices, A-044). */
+  devices: SecurityDevice[];
+  maxDevices: number;
   recent: AuthEventRow[];
   idleTimeoutMinutes: number;
   maxSessionDays: number;
@@ -592,6 +598,8 @@ export const api = {
   session: () => jsonFetch<{ userId: string | null }>("/auth/session"),
   logout: () => jsonFetch<{ ok: boolean }>("/auth/logout", { method: "POST" }),
   logoutAll: () => jsonFetch<{ ok: boolean }>("/auth/logout-all", { method: "POST" }),
+  /** Sign one of your other devices out. */
+  signOutDevice: (sessionId: string) => jsonFetch<void>(`/auth/sessions/${sessionId}`, { method: "DELETE" }),
 
   // ─── Onboarding wizard ───
   onboardingStatus: () => jsonFetch<OnboardingStatus>("/onboarding/status"),

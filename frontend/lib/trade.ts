@@ -171,7 +171,8 @@ export interface QuoteInput {
   leadTimeDays: number;
   paymentTerms: PaymentTerms[];
   validUntil: string | null;
-  specs: { parameterId: string; meets: boolean; value: string | null }[];
+  /** The value only: whether it meets the buyer's limit is worked out by the server. */
+  specs: { parameterId: string; value: string | null }[];
   notes: string | null;
 }
 

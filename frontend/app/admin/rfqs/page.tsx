@@ -10,6 +10,7 @@ import { HoldButton, Segmented } from "@/components/ui/Controls";
 import { Input, Textarea } from "@/components/ui/Field";
 import { EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
+import { RejectSheet } from "@/components/admin/RejectSheet";
 import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo } from "@/components/admin/format";
 import { RequestSheet } from "@/components/trade/parts";
@@ -22,7 +23,14 @@ const STATUS: Record<string, { label: string; tone: ChipTone }> = {
   unmatched: { label: "No match", tone: "neutral" },
   expired: { label: "Expired", tone: "neutral" },
 };
-const RULE = { category: "Category", capacity: "Capacity", specs: "Specifications", lead_time: "Lead time" } as Record<string, string>;
+const RULE = {
+  category: "Category",
+  capacity: "Capacity",
+  specs: "Specifications",
+  lead_time: "Lead time",
+  incoterms: "Incoterms",
+  certificates: "Documents",
+} as Record<string, string>;
 const LINES = [
   ["inlandFreightMinor", "Inland freight"],
   ["oceanFreightMinor", "Ocean freight"],
@@ -292,7 +300,13 @@ function sheetForm(sheet: CostSheet | null): Record<string, string> {
 }
 
 /** One seller's quote with its cost sheet: cost it, get it approved, publish the offer. */
+const WITHDRAW_REASONS = [
+  "A cost on the sheet was wrong. A corrected offer follows.",
+  "The seller can no longer supply at this price.",
+] as const;
+
 function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act: (fn: () => Promise<unknown>, done: string) => Promise<void> }) {
+  const [withdrawing, setWithdrawing] = useState(false);
   const [form, setForm] = useState(() => sheetForm(quote.costSheet));
   const [problem, setProblem] = useState<string | null>(null);
   const sheet = quote.costSheet;
@@ -326,6 +340,11 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
       <p className="t-sub mt-1 text-fg-3">
         {Number(quote.quantity)} {quote.unit} · valid until {quote.validUntil} · {quote.paymentTerms.map(paymentLabel).join(", ")} ·{" "}
         {quote.specs.filter((s) => s.meets).length} of {quote.specs.length} specifications met
+        {quote.partQuote ? (
+          <Chip tone="move" size="sm" noIcon className="ml-2">
+            Part quote
+          </Chip>
+        ) : null}
       </p>
       {quote.notes ? <p className="t-sub mt-1 text-fg-2">{quote.notes}</p> : null}
 
@@ -344,25 +363,37 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
         <p className="t-sub mt-3 text-fg-2">
           Cost {money(sheet.totalCostMinor, sheet.purchaseCurrency)}
           {sheet.dealCurrency !== sheet.purchaseCurrency ? ` · rate ${Number(sheet.fxRate)} of ${sheet.fxAsOf ?? "today"} + ${Number(sheet.fxBufferPct)}% buffer` : ""} · margin{" "}
-          {Number(sheet.marginPct)}% (floor {Number(sheet.minMarginPct)}%) ·{" "}
+          {Number(sheet.marginPct)}% (floor {Number(sheet.minMarginPct)}%
+          {sheet.maxMarginPct ? `, ceiling ${Number(sheet.maxMarginPct)}%` : ""}) ·{" "}
           <span className="font-medium text-fg">sells at {money(sheet.sellPriceMinor, sheet.dealCurrency)}</span>
         </p>
       ) : null}
+      {sheet?.needsApproval && sheet.approvalReasons.length ? (
+        <Notice tone="move" title="Needs a desk manager" className="mt-3">
+          <ul className="space-y-1">
+            {sheet.approvalReasons.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </Notice>
+      ) : null}
       <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
         {sheet?.needsApproval ? (
-          <>
-            <Chip tone="move" size="sm" noIcon>
-              Margin under the floor
-            </Chip>
-            <Button variant="secondary" disabled={busy} onClick={() => void act(() => adminApi.approveCostSheet(sheet.id), "Margin approved")}>
-              Approve margin
-            </Button>
-          </>
+          <Button variant="secondary" disabled={busy} onClick={() => void act(() => adminApi.approveCostSheet(sheet.id), "Sheet approved")}>
+            Approve sheet
+          </Button>
         ) : null}
         {published ? (
-          <Chip tone="verified" size="sm" noIcon>
-            Offer with the buyer
-          </Chip>
+          <>
+            <Chip tone="verified" size="sm" noIcon>
+              Offer with the buyer
+            </Chip>
+            {quote.offerId ? (
+              <Button variant="danger" disabled={busy} onClick={() => setWithdrawing(true)}>
+                Withdraw offer…
+              </Button>
+            ) : null}
+          </>
         ) : (
           <>
             <Button variant="secondary" disabled={busy} onClick={save}>
@@ -376,6 +407,18 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
           </>
         )}
       </div>
+      <RejectSheet
+        open={withdrawing}
+        onClose={() => setWithdrawing(false)}
+        title="Withdraw this offer"
+        description="The buyer no longer sees it. If they paid to unlock it, the credits go back to them. Your reason is kept in the audit log."
+        quickReasons={WITHDRAW_REASONS}
+        submitLabel="Withdraw"
+        onSubmit={async (reason) => {
+          if (!quote.offerId) return;
+          await act(() => adminApi.withdrawOffer(quote.offerId as string, reason), "Offer withdrawn");
+        }}
+      />
     </li>
   );
 }

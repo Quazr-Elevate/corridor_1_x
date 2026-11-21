@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from conftest import signup_and_login
 
-from app.integrations.lookups import IfscResult, PincodeError, PincodeResult
+from app.integrations.lookups import IfscResult, PincodeError, PincodeInvalid, PincodeResult
 from app.main import app
 from app.modules.lookups.router import LOOKUP_PER_PRINCIPAL, get_ifsc_lookup, get_pincode_lookup
 
@@ -15,6 +15,8 @@ class _Pincodes:
 
     async def lookup(self, pincode: str) -> PincodeResult:
         self.calls.append(pincode)
+        if not pincode.isdigit() or len(pincode) != 6:
+            raise PincodeInvalid("Enter a valid 6-digit pincode.")
         if pincode == "999999":
             raise PincodeError("No location found for this pincode")
         return PincodeResult(pincode=pincode, city="Mysuru", district="Mysuru", state="Karnataka")
@@ -88,3 +90,10 @@ async def test_lookups_are_rate_limited_per_principal(client, make_client, looku
     other = make_client()
     await signup_and_login(other, "lookup4@kaverifoods.in")
     assert (await other.get("/pincode/570001")).status_code == 200
+
+
+async def test_a_malformed_pincode_is_a_bad_request_not_a_missing_one(client, lookups):
+    await signup_and_login(client, "lookup3@kaverifoods.in")
+    r = await client.get("/pincode/12AB")
+    assert r.status_code == 400 and r.json()["code"] == "request.invalid"
+    assert (await client.get("/pincode/999999")).status_code == 404

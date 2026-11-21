@@ -76,10 +76,43 @@ async def test_orientation_is_baked_into_the_pixels():
         assert image.size == (20, 40) and ORIENTATION not in image.getexif()
 
 
-async def test_pdfs_pass_through_and_broken_images_are_refused():
-    assert await strip_metadata(PDF_BYTES, PDF) == PDF_BYTES
+def _pdf_with_metadata() -> bytes:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(72, 72)
+    writer.add_metadata({"/Author": "Kaveri Foods Pvt Ltd", "/Title": "COA Kaveri Foods", "/Creator": "Kaveri Word"})
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+async def test_pdf_metadata_is_removed_and_the_pages_are_kept():
+    from pypdf import PdfReader
+
+    raw = _pdf_with_metadata()
+    assert b"Kaveri" in raw
+    clean = await strip_metadata(raw, PDF)
+    assert b"Kaveri" not in clean
+    reader = PdfReader(io.BytesIO(clean))
+    assert reader.metadata is None and len(reader.pages) == 1 and "/Metadata" not in reader.trailer["/Root"]
+    assert await strip_metadata(PDF_BYTES, PDF) == PDF_BYTES  # a clean PDF comes back as it went in
+
+
+async def test_broken_or_locked_files_are_refused():
+    from pypdf import PdfWriter
+
     with pytest.raises(UnsupportedMediaType):
         await strip_metadata(b"\xff\xd8\xff" + b"not really a jpeg", JPEG)
+    with pytest.raises(UnsupportedMediaType):
+        await strip_metadata(b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n", PDF)
+    locked = PdfWriter()
+    locked.add_blank_page(72, 72)
+    locked.encrypt("secret")
+    out = io.BytesIO()
+    locked.write(out)
+    with pytest.raises(UnsupportedMediaType, match="without a password"):
+        await strip_metadata(out.getvalue(), PDF)
 
 
 async def test_product_photo_is_stored_without_metadata(client):
