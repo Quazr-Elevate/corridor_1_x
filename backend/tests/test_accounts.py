@@ -74,17 +74,17 @@ async def test_uniqueness_conflicts(client, make_client):
         "/onboarding/company",
         json={"legalName": "kaveri foods pvt ltd", "industry": "Rice", "operatingCountries": ["IN"]},
     )
-    assert r.status_code == 409
-    assert r.json()["detail"] == "This legal company name is already registered on Cor1x."
+    # Two firms may share a name (A-046); the KYB reviewer sees the flag.
+    assert r.status_code == 200
     r = await other.post(
         "/onboarding/company",
         json={"legalName": "Other Mill", "industry": "Rice", "operatingCountries": ["IN"], "websiteUrl": "kaverifoods.in"},
     )
     assert r.status_code == 409
-    assert r.json()["detail"] == "This website is already linked to another Cor1x account."
+    assert r.json()["detail"] == "This website can't be used for this account. If it is yours, contact support."
     r = await other.post("/onboarding/contact", json={"fullName": "Bo", "phone": "+91-98765-43210"})
     assert r.status_code == 409
-    assert r.json()["detail"] == "This phone number is already registered on Cor1x."
+    assert r.json()["detail"] == "This phone number can't be used for this account. If it is yours, contact support."
 
 
 async def test_unique_index_race_maps_to_409(client, make_client, monkeypatch):
@@ -103,7 +103,7 @@ async def test_unique_index_race_maps_to_409(client, make_client, monkeypatch):
     await signup_and_login(other, "r2@othermill.in")
     r = await other.post("/onboarding/contact", json={"fullName": "Bo", "phone": "+919000011111"})
     assert r.status_code == 409
-    assert r.json()["detail"] == "This phone number is already registered on Cor1x."
+    assert r.json()["detail"] == "This phone number can't be used for this account. If it is yours, contact support."
 
 
 async def test_submit_verification(client):

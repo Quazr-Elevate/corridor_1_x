@@ -85,6 +85,8 @@ class AccountSecurityOut(CamelModel):
     locked_until: datetime | None = None
     failed_login_count: int
     active_session: SessionOut | None = None
+    #: How many devices the trader is signed in on (up to five, A-044).
+    active_session_count: int = 0
     last_login_at: datetime | None = None
 
 
@@ -130,6 +132,8 @@ class VerifyQueueRow(CamelModel):
     full_name: str | None
     business_name: str | None
     company_code: str | None = None
+    #: Other businesses with the same legal name, as codes (A-046).
+    same_name_as: list[str] = []
     country: str | None
     industry: str | None
     trade_position: str | None
@@ -212,6 +216,12 @@ class UserDetail(CamelModel):
     email: str
     email_verified_at: datetime | None
     business_name: str | None
+    #: Other businesses with the same legal name, as codes (A-046).
+    same_name_as: list[str] = []
+    #: Other businesses sharing the country's group document (India: PAN), as codes (A-052).
+    related_to: list[str] = []
+    #: Required documents this admin hasn't opened yet; approval waits for them (A-054).
+    unopened_doc_ids: list[str] = []
     company_code: str | None = None
     status: str
     created_at: datetime

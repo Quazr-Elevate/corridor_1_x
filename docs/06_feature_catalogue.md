@@ -125,7 +125,7 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 | Passwords | Stored only as slow salted hashes (bcrypt); never visible to anyone |
 | KYB numbers | Encrypted (AES-256-GCM) with keys kept outside the database; masked by default |
 | Access between businesses | A business can never see or change another business's documents (tested) |
-| Sessions | Server-side, revocable instantly; one device per account; idle and absolute timeouts |
+| Sessions | Server-side, revocable instantly; traders on up to five devices (each can be signed out from Settings), admins on one; idle and absolute timeouts |
 | Brute force | Lockout after repeated wrong passwords; rate limits on sign-in, sign-up and reset |
 | Web protections | Cross-site request blocking, strict CORS, security headers, no caching of personal data, Secure cookies on HTTPS |
 | Logs | No passwords, numbers or document contents in logs; who-did-what recorded |

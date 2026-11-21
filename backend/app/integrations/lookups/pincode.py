@@ -21,6 +21,10 @@ class PincodeError(ValueError):
     """Invalid or unknown pincode (user error)."""
 
 
+class PincodeInvalid(PincodeError):
+    """Not six digits: the caller's input, refused before any network call."""
+
+
 class PincodeServiceError(Exception):
     """Upstream unreachable / misbehaving."""
 
@@ -48,7 +52,7 @@ class PincodeLookup:
     async def lookup(self, pincode: str) -> PincodeResult:
         pincode = pincode.strip()
         if not pincode.isdigit() or len(pincode) != 6 or pincode[0] == "0":
-            raise PincodeError("Enter a valid 6-digit pincode")
+            raise PincodeInvalid("Enter a valid 6-digit pincode.")
         if self.stub:
             return PincodeResult(pincode=pincode, city="Mumbai", district="Mumbai", state="Maharashtra")
 

@@ -216,9 +216,9 @@ async def test_change_password_and_revocation(client, make_client):
     fresh = make_client()
     assert (await fresh.post("/auth/login", json={"email": email, "password": "Sup3r-secret!"})).status_code == 401
     assert (await fresh.post("/auth/login", json={"email": email, "password": "N3w-password!"})).status_code == 200
-    # One device: the new sign-in ended the first browser's session.
-    assert (await client.get("/me")).status_code == 401
-    client.cookies.set(SESSION_COOKIE, fresh.cookies.get(SESSION_COOKIE))
+    # Several devices may be signed in (A-044): both browsers stay signed in.
+    assert (await client.get("/me")).status_code == 200
+    assert (await fresh.post("/auth/logout")).status_code == 200
 
     assert (await client.post("/auth/logout")).status_code == 200
     assert (await client.get("/me")).status_code == 401

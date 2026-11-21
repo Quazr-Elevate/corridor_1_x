@@ -8,6 +8,7 @@ from app.integrations.lookups.ifsc import (
 )
 from app.integrations.lookups.pincode import (
     PincodeError,
+    PincodeInvalid,
     PincodeLookup,
     PincodeResult,
     PincodeServiceError,
@@ -20,6 +21,7 @@ __all__ = [
     "IfscResult",
     "IfscServiceError",
     "PincodeError",
+    "PincodeInvalid",
     "PincodeLookup",
     "PincodeResult",
     "PincodeServiceError",

@@ -69,12 +69,43 @@ DEFAULT_TYPES = (
 )
 
 
+#: Numbers several businesses may share: one PAN stands behind a company's
+#: GSTIN in each state, and each GSTIN is its own business (A-052).
+SHARED = {("IN", "pan")}
+
+#: Per country: (quota document, group document) codes (A-052).
+COUNTRY_LINKS = {"IN": ("gstin", "pan")}
+
+#: Per country: (source code, start, end, target code) cross-checks (A-047).
+DEFAULT_RULES = (("IN", "gstin", 3, 12, "pan"),)
+
+
 def default_rows() -> list[dict]:
     return [
         {
             "id": uuid.uuid4(), "country": c, "code": code, "name": name, "input_kind": kind,
             "value_pattern": pattern, "value_placeholder": placeholder, "help_text": help_,
-            "is_mandatory": mandatory, "is_unique": True, "sort_order": sort, "active": True,
+            "is_mandatory": mandatory, "is_unique": (c, code) not in SHARED, "sort_order": sort, "active": True,
         }
         for c, code, name, kind, pattern, placeholder, help_, mandatory, sort in DEFAULT_TYPES
     ]
+
+
+def default_rule_rows(type_rows: list[dict]) -> list[dict]:
+    ids = {(r["country"], r["code"]): r["id"] for r in type_rows}
+    return [
+        {
+            "id": uuid.uuid4(), "country": c, "kind": "slice_equals", "source_type_id": ids[(c, src)],
+            "source_start": start, "source_end": end, "target_type_id": ids[(c, dst)], "active": True,
+        }
+        for c, src, start, end, dst in DEFAULT_RULES
+    ]
+
+
+def default_country_links(type_rows: list[dict]) -> dict[str, dict]:
+    """``{country: {"quota_document_type_id": …, "group_document_type_id": …}}``."""
+    ids = {(r["country"], r["code"]): r["id"] for r in type_rows}
+    return {
+        c: {"quota_document_type_id": ids[(c, quota)], "group_document_type_id": ids[(c, group)]}
+        for c, (quota, group) in COUNTRY_LINKS.items()
+    }

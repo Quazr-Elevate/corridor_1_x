@@ -128,6 +128,49 @@ async def send_rfq_matched(*, to: str, first_name: str, category: str) -> None:
     )
 
 
+def _day(d) -> str:
+    return d.strftime("%d %b %Y").lstrip("0")
+
+
+async def send_offer_published(*, to: str, first_name: str, category: str, rfq_id: str, valid_until) -> None:
+    """Tell a buyer an offer is waiting (CX-183). No price, no seller: those
+    are read in the app."""
+    await _send(
+        to,
+        f"You have an offer on your {category} request",
+        "offer_published",
+        first_name=first_name,
+        category=category,
+        when=_day(valid_until),
+        rfq_url=frontend_url(f"/dashboard/requests/{rfq_id}"),
+    )
+
+
+async def send_offer_expiring(*, to: str, first_name: str, category: str, rfq_id: str, valid_until) -> None:
+    await _send(
+        to,
+        f"Your {category} offer ends {_day(valid_until)}",
+        "offer_expiring",
+        first_name=first_name,
+        category=category,
+        when=_day(valid_until),
+        rfq_url=frontend_url(f"/dashboard/requests/{rfq_id}"),
+    )
+
+
+async def send_quote_forwarded(*, to: str, first_name: str, category: str, rfq_id: str) -> None:
+    """Tell a seller their quote went to the buyer as an offer. Not the
+    selling price: that is the desk's."""
+    await _send(
+        to,
+        f"Your {category} quote has gone to the buyer",
+        "quote_forwarded",
+        first_name=first_name,
+        category=category,
+        rfq_url=frontend_url(f"/dashboard/requests/matched/{rfq_id}"),
+    )
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,

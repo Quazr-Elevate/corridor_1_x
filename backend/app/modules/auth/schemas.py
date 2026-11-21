@@ -143,6 +143,7 @@ class ResetPasswordRequest(RequestModel):
 
 
 class DeviceOut(CamelModel):
+    id: str | None = None
     created_at: datetime
     last_seen_at: datetime
     expires_at: datetime
@@ -159,9 +160,12 @@ class AuthEventOut(CamelModel):
 
 
 class SecurityOverview(CamelModel):
-    """The one signed-in device + recent sign-in activity."""
+    """This device, every device signed in (up to five, A-044) and recent
+    sign-in activity."""
 
     device: DeviceOut | None = None
+    devices: list[DeviceOut] = []
+    max_devices: int = 1
     recent: list[AuthEventOut]
     idle_timeout_minutes: int
     max_session_days: int

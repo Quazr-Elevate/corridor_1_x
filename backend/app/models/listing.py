@@ -105,6 +105,21 @@ class CertificateType(Base):
     )
 
 
+class CategoryCertificateRequirement(Base):
+    """A document type that listings in one category must carry (A-049). A
+    type shared by every category (``*``) can be required for some of them
+    without being required for all."""
+
+    __tablename__ = "category_certificate_requirements"
+
+    category: Mapped[str] = mapped_column(String(50), primary_key=True)
+    certificate_type_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("certificate_types.id", ondelete="CASCADE", name="fk_category_cert_req_type_id"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+
+
 class ProductCertificate(Base):
     """A certificate file on a listing. Internal until an admin marks it
     downloadable; only then can a verified buyer fetch it."""

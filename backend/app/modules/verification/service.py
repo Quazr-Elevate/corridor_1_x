@@ -40,7 +40,8 @@ from app.shared.images import strip_metadata
 MAX_DOC_BYTES = 10 * 1024 * 1024
 MAX_VALUE_LEN = 100
 STORAGE_PREFIX = "verification"
-VALUE_TAKEN = "This {name} is already registered to another business on Corridor One X."
+#: Neutral on purpose (A-048): it must not confirm that another business holds the number.
+VALUE_TAKEN = "This {name} can't be used for this account. If it is yours, contact support."
 _AADHAAR = re.compile(r"aadh?aa?r", re.IGNORECASE)
 NO_AADHAAR = "Aadhaar can't be submitted on Corridor One X. Use your business documents instead."
 

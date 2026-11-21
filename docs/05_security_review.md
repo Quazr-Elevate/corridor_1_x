@@ -26,10 +26,10 @@ Status: ✅ meets policy · ⚠️ partial · ❌ gap · ⏳ planned (agreed pha
 | Finding / control | Now |
 |---|---|
 | F1 / A12 / B8 / B9 / B12 — shared admin password, no roles | ✅ Named `admin_users` (super_admin, reviewer); every `/admin` route declares one permission, enforced by a route-matrix test; countries, document types, admins and trader unlocks are super-admin only; temporary passwords must be changed at first sign-in |
-| F7 / A7 / A8 — sessions | ✅ Server-side sessions (opaque token, SHA-256 stored), **one device per account** (a new sign-in signs the old device out), traders 12 h idle / 7 days, admins 30 min / 8 h; logout, password change/reset, deletion, disabling and admin "sign out" revoke immediately |
+| F7 / A7 / A8 — sessions | ✅ Server-side sessions (opaque token, SHA-256 stored); a trader keeps **up to five devices** (the sixth sign-in signs out the oldest; each device can be signed out from Settings, A-044) and an admin **one**; traders 12 h idle / 7 days, admins 30 min / 8 h; logout, password change/reset, deletion, disabling and admin "sign out" revoke immediately |
 | F7 / A9 — lockout | ✅ 5 wrong passwords → 15 min, then 30 min, then locked until support unlocks (users and admins); every step logged in `auth_events` |
 | F7 / A10 — password reset | ✅ Emailed 6-digit code, same answer for unknown emails, signs out every device, does not lift a support lock |
-| F4 / D6 — insecure defaults | ✅ `DEBUG` now defaults to off; the API refuses to start with a dev/short `SESSION_SECRET` or `LOOKUPS_STUB` when DEBUG is off |
+| F4 / D6 — insecure defaults | ✅ `DEBUG` now defaults to off; with DEBUG off the API refuses to start with a dev/short `SESSION_SECRET`, `LOOKUPS_STUB`, the console mailer (it logs sign-in codes), SQLite, `COOKIE_SECURE=false`, rate limiting off, or `PAYMENT_PROVIDER=test` in any letter case (CX-151, 21 Nov 2026) |
 | F5 / A6 — Secure cookie | ✅ Secure whenever DEBUG is off (overridable with `COOKIE_SECURE`) |
 | F6 / D4 / D5 — headers, caching | ✅ nosniff, Referrer-Policy, Permissions-Policy, CSP `frame-ancestors` (frontend origins), COOP, HSTS on HTTPS, `Cache-Control: no-store` by default |
 | F11 / C8 — actor in logs | ✅ Access log carries `actor=user:<id>` / `admin:<id>`; sign-in events store a truncated IP (/24, /48) only |
@@ -68,7 +68,7 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | A4 | Signup email proof | Work email, one-time code | ✅ | Personal/disposable domains refused; codes HMAC-hashed (64-char), 10-min TTL, 5 attempts, single use |
 | A5 | Session cookie | HttpOnly, signed, revocable | ✅ | `HttpOnly; SameSite=lax`; tampered cookie → 401; "log out everywhere" revoked a second device (401) |
 | A6 | Session cookie `Secure` in production | Always over HTTPS | ❌ | `Secure` only when `CROSS_SITE_COOKIES=true` (`core/security.py`) — **new finding** |
-| A7 | One active device per user | Agreed rule (new login replaces old) | ⏳ A | Today two devices were signed in at once (both 200) |
+| A7 | Device limit per user | Traders up to five devices (A-044), admins one | ✅ | `test_a_trader_keeps_five_devices_and_the_sixth_signs_out_the_oldest`, `test_an_admin_still_has_one_session` |
 | A8 | Session lifetime / idle timeout | 12h idle · 7d max (users); 30m / 8h (admins) | ⏳ A | Today fixed 24h (users), 12h (admins) |
 | A9 | Account lockout | 5 fails → 15 min, doubling | ⏳ A | Not present; only rate limits |
 | A10 | Password reset | Email code; revoke all sessions | ⏳ A | Not present (CX-005) |
@@ -106,6 +106,8 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | B8 | Admin roles (super admin / reviewer) | Least privilege | ❌ → A | All admins can do everything |
 | B9 | Route-permission matrix test | Every admin route declares a permission | ⏳ A | Not present |
 | B10 | Reason required for admin reveal/download | Purpose-bound access | ✅ | `POST /admin/docs/{id}/reveal` and `/file` refuse a request without a reason (422) and store it on `admin_actions.reason` |
+| B10a | Reason required to open an account; name lists traced | Purpose-bound access | ✅ | `POST /admin/users/{id}/open` needs a reason, stored on `identity.unmasked`; every staff list page that shows names writes `identity.listed` with the count (CX-168, CX-169, 21 Nov 2026) |
+| B10b | Seller identity kept out of listing text and files | Masking | ✅ | Leak flags block approval unless a super admin gives a reason; the writer's own name is refused on listings, RFQs and quotes; PDFs stored without metadata; buyer downloads named by company code; a reviewer confirms a certificate shows no identity before it is downloadable (CX-165–CX-167, CX-170) |
 | B11 | Tenant isolation at database level | Row-level security | ⏳ C | App-level checks only |
 | B12 | Super admin only: countries & admin users | Agreed | ⏳ A | Today any admin can manage countries/doc types |
 

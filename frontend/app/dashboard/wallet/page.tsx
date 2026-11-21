@@ -24,6 +24,7 @@ const LINE_LABEL: Record<LedgerLine["entryType"], string> = {
   TOP_UP: "Top-up",
   ADJUSTMENT: "Adjustment by Corridor One X",
   REVERSAL: "Reversal",
+  EXPIRY: "Plan credits ended with the plan",
 };
 
 const RAZORPAY_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js";
@@ -150,6 +151,9 @@ export default function WalletPage() {
                     {wallet.plan ? (
                       <dd className="t-sub mt-0.5 text-fg-3">
                         {wallet.plan.state === "active" ? "Until" : "Ended"} {formatDay(wallet.plan.expiresAt)}
+                        {wallet.plan.state === "active" && wallet.planCredits
+                          ? ` · ${wallet.planCredits} plan credits end then`
+                          : ""}
                       </dd>
                     ) : null}
                   </div>
@@ -172,9 +176,14 @@ export default function WalletPage() {
             </h2>
             {wallet && !wallet.checkoutAvailable ? (
               <Notice tone="info" className="mt-3">
-                Buying credits opens soon. Your free requests work in the meantime.
+                {wallet.freeRfqs === null
+                  ? "Credits can be bought once your business is verified."
+                  : "Buying credits opens soon. Your free requests work in the meantime."}
               </Notice>
             ) : null}
+            <p className="t-sub mt-2 text-fg-3">
+              Credits from a plan end when the plan does; top-up credits don’t expire.
+            </p>
             {pending && pending.status === "created" ? (
               <Notice tone="move" title="Order opened" className="mt-3">
                 {pending.credits} credits for {money(pending.amountMinor, pending.currency)}. They are added as soon

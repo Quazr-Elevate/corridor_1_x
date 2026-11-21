@@ -3,14 +3,19 @@
 plan 6.3–6.4). The cost sheet never leaves these routes."""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
+
+from app import notifications
 
 from app.core.security import parse_uuid
+from app.models.rfq import Rfq
+from app.modules.accounts.service import get_owner
 from app.modules.admin import service as audit
 from app.modules.admin.deps import CanApproveMargin, CanTriageRfqs
 from app.modules.auth.deps import DbSession
 from app.modules.quotes import service
-from app.modules.quotes.schemas import CostSheetIn, CostSheetRead, DeskQuote, PublishedOffer, PublishIn
+from app.modules.admin.schemas import AccessReasonIn
+from app.modules.quotes.schemas import CostSheetIn, CostSheetRead, DeskQuote, OfferWithdrawn, PublishedOffer, PublishIn
 from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
@@ -48,15 +53,44 @@ async def approve_cost_sheet(sheet_id: str, admin: CanApproveMargin, db: DbSessi
 
 
 @router.post("/cost-sheets/{sheet_id}/publish", response_model=PublishedOffer, response_model_by_alias=True, status_code=201)
-async def publish_offer(sheet_id: str, payload: PublishIn, admin: CanTriageRfqs, db: DbSession) -> PublishedOffer:
-    """Send the offer to the buyer. The first offer moves the deal to QUOTED."""
+async def publish_offer(
+    sheet_id: str, payload: PublishIn, admin: CanTriageRfqs, db: DbSession, background: BackgroundTasks
+) -> PublishedOffer:
+    """Send the offer to the buyer. The first offer moves the deal to QUOTED.
+    The buyer is told an offer is waiting; the seller that their quote went
+    forward (CX-183)."""
     offer, deal = await service.publish_offer(db, admin.id, parse_uuid(sheet_id), payload.valid_until)
     audit.record_action(
         db, admin=admin, action="offer.publish", target_type="offer", target_id=offer.id,
         details={"deal": deal.code},
     )
+    rfq = await db.get(Rfq, offer.rfq_id)
+    buyer, seller = await get_owner(db, offer.buyer_business_id), await get_owner(db, offer.seller_business_id)
     await db.commit()
+    if buyer is not None:
+        background.add_task(
+            notifications.deliver_safely, notifications.send_offer_published, to=buyer.email,
+            first_name=notifications.first_name_of(buyer.full_name), category=rfq.category, rfq_id=str(rfq.id),
+            valid_until=offer.valid_until,
+        )
+    if seller is not None:
+        background.add_task(
+            notifications.deliver_safely, notifications.send_quote_forwarded, to=seller.email,
+            first_name=notifications.first_name_of(seller.full_name), category=rfq.category, rfq_id=str(rfq.id),
+        )
     return PublishedOffer(
         id=str(offer.id), deal_code=deal.code, deal_status=deal.status, price_minor=offer.price_minor,
         currency=offer.currency, valid_until=offer.valid_until,
     )
+
+
+@router.post("/offers/{offer_id}/withdraw", response_model=OfferWithdrawn, response_model_by_alias=True)
+async def withdraw_offer(offer_id: str, payload: AccessReasonIn, admin: CanTriageRfqs, db: DbSession) -> OfferWithdrawn:
+    """Take a published offer back from the buyer, with a reason (audited)."""
+    offer = await service.withdraw_offer(db, parse_uuid(offer_id))
+    audit.record_action(
+        db, admin=admin, action="offer.withdraw", target_type="offer", target_id=offer.id, reason=payload.reason,
+        details={"rfqId": str(offer.rfq_id)},
+    )
+    await db.commit()
+    return OfferWithdrawn(id=str(offer.id), status=offer.status)

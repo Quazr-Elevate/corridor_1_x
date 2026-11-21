@@ -29,7 +29,8 @@ class BusinessIdentity(Base):
 
     __tablename__ = "business_identities"
     __table_args__ = (
-        Index("uq_business_identities_legal_name_normalized", "legal_name_normalized", unique=True),
+        # Not unique (A-046): two firms can share a name; the KYB review flags it.
+        Index("ix_business_identities_legal_name_normalized", "legal_name_normalized"),
         Index("uq_business_identities_website_normalized", "website_normalized", unique=True),
     )
 

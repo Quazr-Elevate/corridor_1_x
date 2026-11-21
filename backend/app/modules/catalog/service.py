@@ -27,7 +27,14 @@ from app.core.time import utcnow
 from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
 from app.models.business import Business
 from app.models.contact_reveal import ContactReveal
-from app.models.listing import ALL_CATEGORIES, CertificateType, ProductCertificate, ProductSpec, SpecParameter
+from app.models.listing import (
+    ALL_CATEGORIES,
+    CategoryCertificateRequirement,
+    CertificateType,
+    ProductCertificate,
+    ProductSpec,
+    SpecParameter,
+)
 from app.models.product import ListingStatus, Product
 from app.models.user import User
 from app.modules.accounts.service import get_owner
@@ -140,10 +147,12 @@ def spec_parameter_out(p: SpecParameter) -> SpecParameterOut:
     )
 
 
-def certificate_type_out(t: CertificateType) -> CertificateTypeOut:
+def certificate_type_out(t: CertificateType, *, required: bool | None = None) -> CertificateTypeOut:
+    """``required`` is the answer for one category (see
+    :func:`required_certificate_ids`); without it, the type's own flag."""
     return CertificateTypeOut(
         id=str(t.id), category=t.category, code=t.code, name=t.name, help_text=t.help_text,
-        is_required=t.is_required, sort_order=t.sort_order, active=t.active,
+        is_required=t.is_required if required is None else required, sort_order=t.sort_order, active=t.active,
     )
 
 
@@ -170,11 +179,28 @@ async def _certificate_types(db: AsyncSession, category: str) -> list[Certificat
     )
 
 
+async def required_certificate_ids(db: AsyncSession, category: str) -> set[uuid.UUID]:
+    """The document types a listing in ``category`` must carry: those
+    required everywhere, and those required for this category (A-049)."""
+    everywhere = await db.scalars(
+        select(CertificateType.id).where(
+            CertificateType.category.in_((category, ALL_CATEGORIES)), CertificateType.is_required.is_(True)
+        )
+    )
+    here = await db.scalars(
+        select(CategoryCertificateRequirement.certificate_type_id).where(CategoryCertificateRequirement.category == category)
+    )
+    return set(everywhere) | set(here)
+
+
 async def category_template(db: AsyncSession, category: str) -> CategoryTemplate:
+    required = await required_certificate_ids(db, category)
     return CategoryTemplate(
         category=category,
         spec_parameters=[spec_parameter_out(p) for p in await _spec_parameters(db, category)],
-        certificate_types=[certificate_type_out(t) for t in await _certificate_types(db, category)],
+        certificate_types=[
+            certificate_type_out(t, required=t.id in required) for t in await _certificate_types(db, category)
+        ],
     )
 
 
@@ -360,10 +386,11 @@ async def missing_to_submit(
         for p in await _spec_parameters(db, values["category"])
         if p.is_required and str(p.id) not in filled
     ]
+    required = await required_certificate_ids(db, values["category"])
     missing += [
         f"the document “{t.name}”"
         for t in await _certificate_types(db, values["category"])
-        if t.is_required and t.id not in certificate_type_ids
+        if t.id in required and t.id not in certificate_type_ids
     ]
     return missing
 
@@ -495,7 +522,7 @@ async def create_product(db: AsyncSession, user: User, payload: ProductCreate) -
     business; it reaches the market only after :func:`submit_product` and a
     reviewer's approval."""
     changes = await _normalise(db, payload.model_dump(exclude_unset=True, exclude={"specs"}))
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, user.business_id, changes)
     product = Product(
         business_id=user.business_id, created_by_user_id=user.id, name=payload.name, category=payload.category,
         unit=payload.unit or "MT", currency=changes.get("currency") or "INR", status=S.draft, photos=[], incoterms=[],
@@ -520,10 +547,14 @@ LEAK_CHECKED_FIELDS = {
 }
 
 
-def _refuse_leaks(changes: dict[str, Any]) -> None:
-    """Listing text must not carry a way to reach the seller directly
-    (plan 18.5). Text that only looks doubtful is saved for the reviewer."""
-    found = leakfilter.check_all({f: changes.get(f) for f in LEAK_CHECKED_FIELDS if isinstance(changes.get(f), str)})
+async def _refuse_leaks(db: AsyncSession, business_id: uuid.UUID, changes: dict[str, Any]) -> None:
+    """Listing text must not carry a way to reach the seller directly, or
+    the seller's own name (plan 18.5). Text that only looks doubtful is saved
+    for the reviewer."""
+    texts = {f: changes.get(f) for f in LEAK_CHECKED_FIELDS if isinstance(changes.get(f), str)}
+    if not texts:
+        return
+    found = leakfilter.check_all(texts, await masking.legal_name_for_text_check(db, business_id))
     for field, result in found.items():
         if result.blocked:
             raise BadRequest(
@@ -550,7 +581,7 @@ async def update_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
         raise Conflict("This listing is with the reviewer. Withdraw it to make changes.")
     sent = payload.model_fields_set
     changes = await _normalise(db, payload.model_dump(include=sent - {"specs"}))
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, user.business_id, changes)
     for field in ("name", "category", "unit", "currency"):
         if field in changes and changes[field] is None:
             raise BadRequest("Name, category, unit and currency can't be empty.")
@@ -742,7 +773,7 @@ async def public_list(
     origin_state: str | None,
     min_price: Decimal | None,
     max_price: Decimal | None,
-    min_moq: Decimal | None,
+    order_quantity: Decimal | None,
     q: str | None,
     limit: int,
     offset: int,
@@ -761,7 +792,7 @@ async def public_list(
         origin_state=origin_state,
         min_price_usd=min_usd,
         max_price_usd=max_usd,
-        min_moq=min_moq,
+        order_quantity=order_quantity,
         q=q,
     )
     total = await db.scalar(select(func.count()).select_from(base.subquery())) or 0

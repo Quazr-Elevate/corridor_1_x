@@ -31,6 +31,7 @@ os.environ.update(
     {
         "DATABASE_URL": f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
         "DEBUG": "false",
+        "TEST_HARNESS": "true",
         "CROSS_SITE_COOKIES": "false",
         "SESSION_SECRET": "test-session-secret-0123456789abcdef",
         # Tests talk plain http to http://testserver, so no Secure cookies.
@@ -95,13 +96,22 @@ async def _seed(conn) -> None:
     from app.models.kyb_document_type import KybDocumentType
     from app.modules.verification.seed import default_country_rows, default_rows
 
-    await conn.execute(Country.__table__.insert(), default_country_rows())
-    await conn.execute(KybDocumentType.__table__.insert(), default_rows())
-    from app.models.listing import CertificateType, SpecParameter
-    from app.modules.catalog.seed import default_certificate_rows, default_spec_rows
+    from app.models.country import CountryDocumentRule
+    from app.modules.verification.seed import default_country_links, default_rule_rows
 
+    types = default_rows()
+    await conn.execute(Country.__table__.insert(), default_country_rows())
+    await conn.execute(KybDocumentType.__table__.insert(), types)
+    await conn.execute(CountryDocumentRule.__table__.insert(), default_rule_rows(types))
+    for code, links in default_country_links(types).items():
+        await conn.execute(Country.__table__.update().where(Country.code == code).values(**links))
+    from app.models.listing import CategoryCertificateRequirement, CertificateType, SpecParameter
+    from app.modules.catalog.seed import default_certificate_rows, default_requirement_rows, default_spec_rows
+
+    certificates = default_certificate_rows()
     await conn.execute(SpecParameter.__table__.insert(), default_spec_rows())
-    await conn.execute(CertificateType.__table__.insert(), default_certificate_rows())
+    await conn.execute(CertificateType.__table__.insert(), certificates)
+    await conn.execute(CategoryCertificateRequirement.__table__.insert(), default_requirement_rows(certificates))
     from app.models.credits import CreditPlan, CreditPrice
     from app.modules.credits.seed import default_plan_rows, default_price_rows
 
@@ -279,7 +289,20 @@ async def complete_listing(c: httpx.AsyncClient, **over) -> dict:
     body.update(over)
     r = await c.post("/products", json=body)
     assert r.status_code == 201, r.text
-    return r.json()
+    product = r.json()
+    # The documents the category requires (A-049), so the listing can be submitted.
+    template = (await c.get("/public/catalog/template", params={"category": body["category"]})).json()
+    required = [t["id"] for t in template["certificateTypes"] if t["isRequired"]]
+    for type_id in required:
+        r = await c.post(
+            f"/products/{product['id']}/certificates",
+            data={"certificateTypeId": type_id},
+            files={"file": ("document.pdf", PDF_BYTES, "application/pdf")},
+        )
+        assert r.status_code == 201, r.text
+    if required:
+        product = (await c.get(f"/products/{product['id']}")).json()
+    return product
 
 
 async def publish_listing(c: httpx.AsyncClient, admin: httpx.AsyncClient, product_id: str) -> None:
@@ -339,4 +362,33 @@ def png_bytes(size: int = 4) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
 
 
-PDF_BYTES = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+def _clean_pdf() -> bytes:
+    """A one-page PDF as uploads store it: already rewritten without metadata,
+    so a stored copy is byte-for-byte this value."""
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+
+    from app.shared.images import _rebuild_pdf
+
+    writer = PdfWriter()
+    writer.add_blank_page(72, 72)
+    writer.metadata = None
+    out = BytesIO()
+    writer.write(out)
+    return _rebuild_pdf(out.getvalue())
+
+
+PDF_BYTES = _clean_pdf()
+
+
+async def verify_business(admin: httpx.AsyncClient, user_id: str) -> httpx.Response:
+    """Approve a business the way a reviewer must (A-054): open each required
+    document the approval waits for (its file, or its number when there is
+    no file), then verify."""
+    reason = {"reason": "KYB review of this business"}
+    detail = await admin.post(f"/admin/users/{user_id}/open", json=reason)
+    for doc_id in detail.json().get("unopenedDocIds", []) if detail.status_code == 200 else []:
+        if (await admin.post(f"/admin/docs/{doc_id}/file", json=reason)).status_code != 200:
+            await admin.post(f"/admin/docs/{doc_id}/reveal", json=reason)
+    return await admin.post(f"/admin/users/{user_id}/verify")

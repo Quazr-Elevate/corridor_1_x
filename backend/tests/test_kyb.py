@@ -8,13 +8,14 @@ import logging
 import uuid
 
 import pytest
-from conftest import PDF_BYTES, png_bytes, signup_and_login
+from conftest import PDF_BYTES, png_bytes, set_status, signup_and_login
 from sqlalchemy import select
 
 from app.core import crypto
 from app.core.config import Settings
 from app.core.db import SessionLocal
 from app.models.admin_action import AdminAction
+from app.models.business import BusinessStatus
 from app.models.business_document import BusinessDocument
 
 GSTIN = "29ABCDE1234F1Z5"
@@ -56,10 +57,9 @@ async def test_signup_names_the_business_and_country_defaults(client, make_clien
     assert me["business"]["country"] == "IN" and me["showTour"] is True
     assert me["branding"] == {"logoUrl": None, "bannerUrl": None}
 
-    # Company names are unique (case / spacing ignored).
+    # Sign-up doesn't check the name against other businesses (A-046).
     other = make_client()
-    with pytest.raises(AssertionError, match="already registered"):
-        await signup_and_login(other, "x@otherfoods.in", company_name="kaveri  foods pvt ltd")
+    await signup_and_login(other, "x@otherfoods.in", company_name="kaveri  foods pvt ltd")
 
 
 # ── dropdown ─────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ async def test_same_gstin_cannot_belong_to_two_businesses(client, make_client, a
     other = make_client()
     await signup_and_login(other, "b@othermill.in")
     r = await _add(other, type_id=t["gstin"]["id"], value="29abcde 1234f1z5")  # case + spacing ignored
-    assert r.status_code == 409 and "already registered" in r.json()["detail"]
+    assert r.status_code == 409 and r.json()["detail"] == "This GSTIN can't be used for this account. If it is yours, contact support."
 
     # A rejected claim stops blocking the real owner.
     first = (await client.get("/me/verification-docs")).json()["items"][0]
@@ -345,3 +345,72 @@ def test_key_config_and_rotation():
     assert crypto.decrypt(old, 1) == "AAAAA1111A"
     with pytest.raises(crypto.DecryptionError):
         crypto.decrypt(old, 2)  # wrong key slot is rejected (bound as associated data)
+
+
+# ── Country rules, shared PAN, quota document (A-047, A-052) ─────────
+
+
+async def _indian_profile(c, n: int) -> None:
+    r = await c.post(
+        "/onboarding/company",
+        json={"legalName": f"Mill {n} Pvt Ltd", "industry": "Rice", "operatingCountries": ["IN"],
+              "addressLine": f"{n} Market Road", "city": "Karnal", "country": "IN"},
+    )
+    assert r.status_code == 200, r.text
+
+
+async def test_the_pan_must_match_the_gstin_before_review(client):
+    await signup_and_login(client, "owner@kaverifoods.in")
+    await _indian_profile(client, 1)
+    t = await _types(client)
+    assert (await _add(client, type_id=t["gstin"]["id"], value=GSTIN)).status_code == 201
+    assert (await _add(client, type_id=t["pan"]["id"], value="ZZZZZ9999Z")).status_code == 201
+    r = await client.post("/me/submit-verification")
+    assert r.status_code == 400 and r.json()["detail"] == "Your PAN must match characters 3 to 12 of your GSTIN."
+    pan = next(d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == "pan")
+    assert (await client.delete(f"/me/verification-docs/{pan['id']}")).status_code == 204
+    assert (await _add(client, type_id=t["pan"]["id"], value=PAN)).status_code == 201
+    assert (await client.post("/me/submit-verification")).status_code == 200
+
+
+async def test_one_pan_may_stand_behind_several_gstins_and_the_reviewer_sees_them_related(client, make_client, admin_client):
+    first = await signup_and_login(client, "owner@kaverifoods.in")
+    await _indian_profile(client, 1)
+    t = await _types(client)
+    await _add(client, type_id=t["gstin"]["id"], value=GSTIN)
+    await _add(client, type_id=t["pan"]["id"], value=PAN)
+    await set_status(first["userId"], BusinessStatus.verified)
+    code = (await client.get("/me")).json()["companyCode"]
+
+    branch = make_client()  # the same company's registration in another state
+    second = await signup_and_login(branch, "owner@kaverifoods-mh.in")
+    await _indian_profile(branch, 2)
+    assert (await _add(branch, type_id=t["gstin"]["id"], value="27ABCDE1234F1Z5")).status_code == 201
+    assert (await _add(branch, type_id=t["pan"]["id"], value=PAN)).status_code == 201  # shared, not refused
+    assert (await _add(branch, type_id=t["gstin"]["id"], value=GSTIN)).status_code in (409, 400)  # a GSTIN is still one business's
+
+    reason = {"reason": "KYB review of this business"}
+    detail = (await admin_client.post(f"/admin/users/{second['userId']}/open", json=reason)).json()
+    assert detail["relatedTo"] == [code]
+
+    # Each GSTIN keeps its own free RFQs.
+    await set_status(second["userId"], BusinessStatus.verified)
+    assert (await branch.get("/wallet")).json()["freeRfqs"]["remaining"] == 10
+
+
+async def test_admins_manage_rules_and_links(admin_client):
+    t = {x["code"]: x for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()["items"]}
+    rules = (await admin_client.get("/admin/kyb/countries/IN/rules")).json()["items"]
+    assert [(r["sourceName"], r["sourceStart"], r["sourceEnd"], r["targetName"]) for r in rules] == [("GSTIN", 3, 12, "PAN")]
+    bad = {"sourceTypeId": t["gstin"]["id"], "sourceStart": 5, "sourceEnd": 2, "targetTypeId": t["iec"]["id"]}
+    assert (await admin_client.post("/admin/kyb/countries/IN/rules", json=bad)).status_code == 400
+    ae = (await admin_client.get("/admin/kyb/document-types?country=AE")).json()["items"][0]["id"]
+    foreign = {"sourceTypeId": t["gstin"]["id"], "sourceStart": 3, "sourceEnd": 12, "targetTypeId": ae}
+    assert (await admin_client.post("/admin/kyb/countries/IN/rules", json=foreign)).status_code == 400
+    r = await admin_client.patch(f"/admin/kyb/countries/IN/rules/{rules[0]['id']}", json={"active": False})
+    assert r.status_code == 200 and r.json()["active"] is False
+
+    links = (await admin_client.get("/admin/kyb/countries/IN/links")).json()
+    assert (links["quotaDocumentTypeId"], links["groupDocumentTypeId"]) == (t["gstin"]["id"], t["pan"]["id"])
+    r = await admin_client.put("/admin/kyb/countries/AE/links", json={"quotaDocumentTypeId": ae})
+    assert r.status_code == 200 and r.json()["quotaDocumentTypeId"] == ae and r.json()["groupDocumentTypeId"] is None

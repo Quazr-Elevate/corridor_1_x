@@ -27,6 +27,7 @@ from app.models.deal import Deal
 from app.models.deal import DealStatus as D
 from app.models.listing import ALL_CATEGORIES, CertificateType, SpecParameter
 from app.models.product import Product
+from app.models.quote import Quote
 from app.models.rfq import HeldCountry, Rfq, RfqMatch, TradeSetting
 from app.models.rfq import RfqStatus as R
 from app.models.user import User
@@ -35,6 +36,7 @@ from app.modules.catalog.queries import visible_products_select
 from app.modules.credits import service as credits
 from app.modules.deals import machine
 from app.modules.deals.machine import Actor
+from app.modules.masking import service as masking
 from app.modules.rfq import matching, seed
 from app.modules.rfq.schemas import (
     CertificateNeed,
@@ -136,8 +138,12 @@ async def _clean_certificates(db: AsyncSession, category: str, ids: list[str]) -
     return wanted
 
 
-def _refuse_leaks(values: dict[str, Any]) -> None:
-    found = leakfilter.check_all({f: values.get(f) for f in LEAK_CHECKED if isinstance(values.get(f), str)})
+async def _refuse_leaks(db: AsyncSession, business_id: uuid.UUID, values: dict[str, Any]) -> None:
+    """RFQ text must not carry a way to reach the buyer, or the buyer's own name."""
+    texts = {f: values.get(f) for f in LEAK_CHECKED if isinstance(values.get(f), str)}
+    if not texts:
+        return
+    found = leakfilter.check_all(texts, await masking.legal_name_for_text_check(db, business_id))
     for field, result in found.items():
         if result.blocked:
             reasons = list(result.reasons)
@@ -164,7 +170,7 @@ async def _apply(db: AsyncSession, rfq: Rfq, changes: dict[str, Any], payload: R
     for field in _BLANK_TO_NONE:
         if field in changes:
             changes[field] = (changes[field] or "").strip() or None
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, rfq.buyer_business_id, changes)
     specs = changes.pop("specs", None)
     certificate_ids = changes.pop("certificate_type_ids", None)
     category_changed = "category" in changes and changes["category"] != rfq.category
@@ -334,9 +340,23 @@ async def _required_names(db: AsyncSession, category: str) -> dict[str, str]:
     return {pid: p.name for pid, p in (await _parameters(db, category)).items() if p.is_required}
 
 
+async def _documents_on_file(db: AsyncSession, listing_ids: list[uuid.UUID]) -> dict[uuid.UUID, dict[str, str]]:
+    """Per listing: certificate type id → name, for the certificates rule."""
+    stored = await catalog.stored_certificates(db, listing_ids)
+    return {pid: {str(c.certificate_type_id): t.name for c, t in rows} for pid, rows in stored.items()}
+
+
+async def _needed_names(db: AsyncSession, rfq: Rfq) -> dict[str, str]:
+    return {tid: t.name for tid, t in (await _certificate_types(db, rfq.category)).items()}
+
+
 async def evaluate_listing(db: AsyncSession, rfq: Rfq, listing: Product, today) -> list[dict[str, Any]]:
     specs = (await catalog._stored_specs(db, [listing.id]))[listing.id]
-    return matching.evaluate(rfq, listing, specs, await _required_names(db, rfq.category), today)
+    on_file = (await _documents_on_file(db, [listing.id]))[listing.id]
+    return matching.evaluate(
+        rfq, listing, specs, await _required_names(db, rfq.category), today,
+        on_file=on_file, needed=await _needed_names(db, rfq),
+    )
 
 
 async def propose_matches(db: AsyncSession, rfq: Rfq, *, today) -> int:
@@ -350,7 +370,9 @@ async def propose_matches(db: AsyncSession, rfq: Rfq, *, today) -> int:
         stmt = stmt.where(Product.id == rfq.listing_id)
     listings = list(await db.scalars(stmt.order_by(Product.published_at.desc())))
     specs = await catalog._stored_specs(db, [p.id for p in listings])
+    on_file = await _documents_on_file(db, [p.id for p in listings])
     required = await _required_names(db, rfq.category)
+    needed = await _needed_names(db, rfq)
 
     existing = {m.seller_business_id: m for m in await db.scalars(select(RfqMatch).where(RfqMatch.rfq_id == rfq.id))}
     for match in existing.values():
@@ -365,7 +387,9 @@ async def propose_matches(db: AsyncSession, rfq: Rfq, *, today) -> int:
             break
         if listing.business_id in kept:
             continue
-        reasons = matching.evaluate(rfq, listing, specs[listing.id], required, today)
+        reasons = matching.evaluate(
+            rfq, listing, specs[listing.id], required, today, on_file=on_file[listing.id], needed=needed
+        )
         if matching.passes(reasons):
             db.add(RfqMatch(
                 rfq_id=rfq.id, seller_business_id=listing.business_id, listing_id=listing.id, status="proposed",
@@ -520,8 +544,10 @@ async def open_matched(db: AsyncSession, user: User, rfq_id: uuid.UUID | None) -
 
 async def expire_due(db: AsyncSession, now: datetime | None = None) -> int:
     """Close every RFQ whose open period ran out without an offer: the RFQ
-    becomes ``expired`` and its deal is cancelled. Safe to call often; it is
-    run before the lists are read and by ``scripts/expire_rfqs.py``."""
+    becomes ``expired`` and its deal is cancelled. When no seller quoted at
+    all, the buyer gets the RFQ back (credits or the free use, A-053). Safe to
+    call often; it is run before the lists are read and by
+    ``scripts/expire_rfqs.py``."""
     now = now or utcnow()
     due = list(await db.scalars(
         select(Rfq).where(Rfq.status.in_((R.submitted, R.held, R.matched)), Rfq.expires_at < now)
@@ -533,6 +559,8 @@ async def expire_due(db: AsyncSession, now: datetime | None = None) -> int:
             continue  # an offer was published; the deal has moved on
         _move(rfq, R.expired)
         machine.transition(db, deal, D.CANCELLED, actor=Actor.system(), reason="expired")
+        if await db.scalar(select(Quote.id).where(Quote.rfq_id == rfq.id).limit(1)) is None:
+            await credits.refund(db, rfq.buyer_business_id, spend_key(rfq.id), note="No seller quoted before the request closed")
         closed += 1
     if closed:
         await db.commit()

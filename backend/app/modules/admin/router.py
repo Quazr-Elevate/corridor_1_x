@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.modules.admin import (
     admins,
     auth,
+    country_rules,
     credits,
     dashboard,
     docs,
@@ -24,6 +25,7 @@ router.include_router(users.router)
 router.include_router(docs.router)
 router.include_router(kyb_types.router)
 router.include_router(kyb_types.countries_router)
+router.include_router(country_rules.router)
 router.include_router(listings.router)
 router.include_router(listing_templates.router)
 router.include_router(admins.router)

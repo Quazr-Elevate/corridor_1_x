@@ -18,7 +18,7 @@ const KEYS = [
   "minPrice",
   "maxPrice",
   "priceCurrency",
-  "minMoq",
+  "orderQuantity",
   "q",
 ] as const;
 

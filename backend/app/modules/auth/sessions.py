@@ -1,8 +1,8 @@
 """Server-side sessions (users and admins) + the sign-in event log.
 
-One active session per account: :func:`start_session` revokes whatever is
-active (``replaced``) before inserting the new row, and a partial unique
-index enforces it in the database. A session ends at the first of:
+A trader keeps up to ``USER_MAX_SESSIONS`` live sessions (five, A-044): the
+next sign-in signs out the oldest (``replaced``). An admin keeps one, held by
+a partial unique index. A session ends at the first of:
 
 * idle timeout — no request for ``idle`` (traders 12h, admins 30m);
 * absolute timeout — ``expires_at`` (traders 7d, admins 8h);
@@ -109,12 +109,14 @@ class Policy:
     subject_type: str
     idle: timedelta
     absolute: timedelta
+    max_active: int = 1
 
 
 def user_policy() -> Policy:
     return Policy(
         UserSession, "user_id", "user",
         timedelta(hours=settings.user_session_idle_hours), timedelta(days=settings.user_session_max_days),
+        max_active=max(1, settings.user_max_sessions),
     )
 
 
@@ -171,13 +173,40 @@ async def revoke_all(
     return result.rowcount or 0
 
 
+def _is_live(row: Any, policy: Policy, now) -> bool:
+    return ensure_aware(row.expires_at) > now and ensure_aware(row.last_seen_at) + policy.idle > now
+
+
+async def _make_room(db: AsyncSession, policy: Policy, subject_id: uuid.UUID) -> int:
+    """Before a new sign-in: close sessions that have run out, then sign out
+    the oldest live ones until the new session fits under the limit.
+    Returns how many live sessions were signed out."""
+    if policy.max_active == 1:
+        return await revoke_all(db, policy, subject_id, "replaced")
+    m = policy.model
+    now = utcnow()
+    open_rows = list(await db.scalars(
+        select(m).where(getattr(m, policy.owner_col) == subject_id, m.revoked_at.is_(None)).order_by(m.created_at)
+    ))
+    live = []
+    for row in open_rows:
+        if _is_live(row, policy, now):
+            live.append(row)
+        else:
+            row.revoked_at, row.revoked_reason = now, "expired"
+    over = len(live) - (policy.max_active - 1)
+    for row in live[:max(over, 0)]:
+        row.revoked_at, row.revoked_reason = now, "replaced"
+    return max(over, 0)
+
+
 async def start_session(
     db: AsyncSession, policy: Policy, subject_id: uuid.UUID, client: ClientInfo
 ) -> tuple[str, Any]:
-    """Revoke the active session (if any), create a new one, commit.
+    """Make room under the policy's limit, create a new session, commit.
     Returns ``(cookie token, session row)``."""
     for attempt in (1, 2):
-        replaced = await revoke_all(db, policy, subject_id, "replaced")
+        replaced = await _make_room(db, policy, subject_id)
         now = utcnow()
         token, token_hash = new_session_token()
         row = policy.model(
@@ -196,7 +225,7 @@ async def start_session(
             await db.commit()
             return token, row
         except IntegrityError:
-            # A concurrent sign-in won the one-active-session index; retry once.
+            # A concurrent admin sign-in won the one-active-session index; retry once.
             await db.rollback()
             if attempt == 2:
                 raise
@@ -240,15 +269,37 @@ async def end_session(db: AsyncSession, policy: Policy, token: str | None, clien
     await db.commit()
 
 
-async def active_session(db: AsyncSession, policy: Policy, subject_id: uuid.UUID) -> Any | None:
+async def live_sessions(db: AsyncSession, policy: Policy, subject_id: uuid.UUID) -> list[Any]:
+    """The account's live sessions, most recently used first."""
     m = policy.model
-    row = await db.scalar(select(m).where(getattr(m, policy.owner_col) == subject_id, m.revoked_at.is_(None)))
-    if row is None:
-        return None
     now = utcnow()
-    if ensure_aware(row.expires_at) <= now or ensure_aware(row.last_seen_at) + policy.idle <= now:
-        return None
-    return row
+    rows = await db.scalars(
+        select(m).where(getattr(m, policy.owner_col) == subject_id, m.revoked_at.is_(None)).order_by(m.last_seen_at.desc())
+    )
+    return [r for r in rows if _is_live(r, policy, now)]
+
+
+async def revoke_one(
+    db: AsyncSession, policy: Policy, subject_id: uuid.UUID, session_id: uuid.UUID, client: ClientInfo
+) -> bool:
+    """Sign one of the account's own sessions out. False when there is no
+    such live session (another account's, or already ended)."""
+    m = policy.model
+    row = await db.scalar(
+        select(m).where(m.id == session_id, getattr(m, policy.owner_col) == subject_id, m.revoked_at.is_(None))
+    )
+    if row is None:
+        return False
+    row.revoked_at, row.revoked_reason = utcnow(), "signed_out_elsewhere"
+    record_event(db, subject_type=policy.subject_type, subject_id=subject_id, event="session_signed_out", client=client)
+    await db.commit()
+    return True
+
+
+async def active_session(db: AsyncSession, policy: Policy, subject_id: uuid.UUID) -> Any | None:
+    """The account's most recently used live session, or None."""
+    live = await live_sessions(db, policy, subject_id)
+    return live[0] if live else None
 
 
 def cookie_max_age(policy: Policy) -> int:

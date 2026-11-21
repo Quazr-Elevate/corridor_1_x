@@ -1,0 +1,8 @@
+Hi {{ first_name }},
+
+An offer on your request for {{ category }} ends on {{ when }}. After that
+it can't be taken up, and a new one depends on the seller's current price.
+
+Look at it now: {{ rfq_url }}
+
+-- Cor1x

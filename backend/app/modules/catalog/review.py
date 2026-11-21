@@ -7,10 +7,10 @@ from decimal import Decimal
 from typing import Any
 
 from pydantic.alias_generators import to_camel
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BadRequest, Conflict, NotFound
+from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.time import utcnow
 from app.models.business import Business
 from app.models.listing import ProductCertificate
@@ -53,6 +53,7 @@ class AdminListingRow(CamelModel):
     category: str
     status: str
     # "new" — a submitted listing; "revision" — edits to a published one;
+    # "documents" — a document added to a live listing, not decided yet;
     # null — nothing waiting.
     review_kind: str | None = None
     waiting_since: Any = None
@@ -79,10 +80,30 @@ class AdminListingDetail(CamelModel):
     leak_flags: list[LeakFlag] = []
 
 
-def _kind(p: Product) -> str | None:
+def _kind(p: Product, documents: dict[uuid.UUID, Any]) -> str | None:
     if p.status == S.under_review:
         return "new"
-    return "revision" if p.pending_revision else None
+    if p.pending_revision:
+        return "revision"
+    # A document added to a live listing that nobody has decided on (C12).
+    return "documents" if p.id in documents else None
+
+
+def _undecided_documents():
+    """Certificates added to a listing after it was published, still
+    internal with no decision made. Those uploaded before were seen with the
+    listing when it was reviewed."""
+    return (
+        select(ProductCertificate.product_id, func.min(ProductCertificate.created_at).label("since"))
+        .join(Product, Product.id == ProductCertificate.product_id)
+        .where(
+            ProductCertificate.visibility == "internal",
+            ProductCertificate.visibility_set_by.is_(None),
+            Product.published_at.is_not(None),
+            ProductCertificate.created_at > Product.published_at,
+        )
+        .group_by(ProductCertificate.product_id)
+    )
 
 
 def _seller(b: Business | None, business_id: uuid.UUID, legal_name: str | None) -> ListingSeller:
@@ -109,20 +130,34 @@ def _leak_flags(product: Product, legal_name: str | None) -> list[LeakFlag]:
     return flags
 
 
-def _waiting(p: Product):
-    return p.submitted_at if p.status == S.under_review else p.revision_submitted_at
+async def _documents_waiting(db: AsyncSession, live: list[Product]) -> dict[uuid.UUID, Any]:
+    """Live listing id → when its oldest undecided document was added."""
+    if not live:
+        return {}
+    rows = await db.execute(_undecided_documents().where(ProductCertificate.product_id.in_([p.id for p in live])))
+    return dict(rows.all())
+
+
+def _waiting(p: Product, documents: dict[uuid.UUID, Any]):
+    if p.status == S.under_review:
+        return p.submitted_at
+    return p.revision_submitted_at or documents.get(p.id)
 
 
 async def list_listings(
     db: AsyncSession, admin: Actor, *, queue: str, status: str | None, q: str | None, limit: int, offset: int
 ) -> AdminListingList:
-    """``queue=pending``: listings waiting for a decision (new submissions and
-    edits to published listings), oldest first. ``queue=all``: every listing,
+    """``queue=pending``: listings waiting for a decision (new submissions,
+    edits to published listings, and documents added to live listings that
+    nobody has decided on), oldest first. ``queue=all``: every listing,
     newest first, optionally one status."""
     stmt = select(Product).where(Product.deleted_at.is_(None))
+    undecided = _undecided_documents().subquery()
     if queue == "pending":
-        stmt = stmt.where(or_(Product.status == S.under_review, Product.revision_submitted_at.is_not(None)))
-        order = (func.coalesce(Product.revision_submitted_at, Product.submitted_at).asc(),)
+        live_docs = and_(Product.status.in_((S.published, S.paused)), Product.id.in_(select(undecided.c.product_id)))
+        stmt = stmt.where(or_(Product.status == S.under_review, Product.revision_submitted_at.is_not(None), live_docs))
+        stmt = stmt.outerjoin(undecided, undecided.c.product_id == Product.id)
+        order = (func.coalesce(Product.revision_submitted_at, Product.submitted_at, undecided.c.since).asc(),)
     else:
         if status:
             if status not in S.ALL:
@@ -133,14 +168,15 @@ async def list_listings(
         stmt = stmt.where(Product.name.ilike(f"%{_escape_like(q.strip())}%", escape="\\"))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = list(await db.scalars(stmt.order_by(*order).offset(offset).limit(limit)))
+    documents = await _documents_waiting(db, [r for r in rows if r.status in (S.published, S.paused)])
     sellers = await hydrate_businesses(db, [r.business_id for r in rows])
-    names = await masking.names_for_staff(db, admin, list(sellers))
+    names = await masking.names_for_staff(db, admin, list(sellers), purpose="listing_queue")
     return AdminListingList(
         total=total,
         items=[
             AdminListingRow(
-                id=str(p.id), name=p.name, category=p.category, status=p.status, review_kind=_kind(p),
-                waiting_since=_waiting(p), photo=(p.photos or [None])[0],
+                id=str(p.id), name=p.name, category=p.category, status=p.status, review_kind=_kind(p, documents),
+                waiting_since=_waiting(p, documents), photo=(p.photos or [None])[0],
                 seller=_seller(sellers.get(p.business_id), p.business_id, names.get(p.business_id)),
             )
             for p in rows
@@ -169,21 +205,36 @@ async def listing_detail(db: AsyncSession, admin: Actor, product_id: uuid.UUID |
         for field, proposed in (read.pending_revision or {}).items()
     ]
     return AdminListingDetail(
-        listing=read, review_kind=_kind(product),
+        listing=read,
+        review_kind=_kind(product, await _documents_waiting(db, [product] if product.status in (S.published, S.paused) else [])),
         seller=_seller(await db.get(Business, product.business_id), product.business_id, identity.legal_name),
         changes=changes, leak_flags=_leak_flags(product, identity.legal_name),
     )
 
 
-async def approve(db: AsyncSession, admin: Actor, product_id: uuid.UUID | None) -> Product:
+async def approve(
+    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, *, override_reason: str | None = None,
+    may_override: bool = False,
+) -> Product:
     """Publish a submitted listing, or apply the edits waiting on a published
-    one."""
+    one. A listing the leak filter flagged can't go out until the seller
+    fixes it, unless someone allowed to override gives a reason (C18)."""
     product = await _listing(db, product_id)
+    flags = _leak_flags(product, await masking.legal_name_for_text_check(db, product.business_id))
+    if flags and not override_reason:
+        found = "; ".join(f"{f.field}: {', '.join(f.reasons)}" for f in flags)
+        raise Conflict(
+            f"This listing may reveal the seller ({found}). Reject it so the seller can fix the text, "
+            "or approve with a reason if you have checked it."
+        )
+    if flags and not may_override:
+        raise Forbidden("Only a super admin can approve a listing the leak filter flagged.")
+    override = {"leakOverride": override_reason.strip(), "leakFlags": [f.field for f in flags]} if flags else {}
     now = utcnow()
     if product.status == S.under_review:
         transition(product, S.published, now=now, admin_id=admin.id)
         record_action(db, admin=admin, action="listing.approve", target_type="product", target_id=product.id,
-                      details={"businessId": str(product.business_id)})
+                      details={"businessId": str(product.business_id), **override})
     elif product.pending_revision:
         revision = dict(product.pending_revision)
         specs = revision.pop("specs", None)
@@ -201,7 +252,11 @@ async def approve(db: AsyncSession, admin: Actor, product_id: uuid.UUID | None) 
         product.reviewed_by = admin.id
         record_action(
             db, admin=admin, action="listing.revision_approve", target_type="product", target_id=product.id,
-            details={"businessId": str(product.business_id), "fields": sorted(to_camel(f) for f in product_fields(revision, specs))},
+            details={
+                "businessId": str(product.business_id),
+                "fields": sorted(to_camel(f) for f in product_fields(revision, specs)),
+                **override,
+            },
         )
     else:
         raise Conflict("This listing has nothing waiting for review.")
@@ -247,16 +302,25 @@ async def _certificate(db: AsyncSession, product_id: uuid.UUID | None, certifica
 
 
 async def set_certificate_visibility(
-    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, certificate_id: uuid.UUID | None, visibility: str
+    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, certificate_id: uuid.UUID | None, visibility: str,
+    *, checked_no_identity: bool = False,
 ) -> ProductCertificate:
-    """Decide whether verified buyers may download this certificate."""
+    """Decide whether verified buyers may download this certificate. A lab
+    report usually prints the exporter's name, so making one downloadable
+    needs the reviewer's word that this copy shows none (C20)."""
+    if visibility == "downloadable" and not checked_no_identity:
+        raise BadRequest(
+            "Open the document and confirm it shows no company name, logo, address or contact details "
+            "before buyers can download it."
+        )
     product, cert = await _certificate(db, product_id, certificate_id)
     cert.visibility = visibility
     cert.visibility_set_by = admin.id
     cert.visibility_set_at = utcnow()
     record_action(
         db, admin=admin, action="listing.certificate_visibility", target_type="product_certificate",
-        target_id=cert.id, details={"productId": str(product.id), "visibility": visibility},
+        target_id=cert.id,
+        details={"productId": str(product.id), "visibility": visibility, "checkedNoIdentity": checked_no_identity},
     )
     await db.commit()
     await db.refresh(cert)

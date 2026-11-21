@@ -1,10 +1,11 @@
 name: CI
 
 on:
+  # Every change reaches main through a pull request, and main's branch rule
+  # requires these jobs to pass before it can merge.
   pull_request:
   push:
-    # The development branch carries every milestone until it is merged (A-018).
-    branches: [main, feat/m0-stabilise]
+    branches: [main]
 
 # A newer push to the same branch makes the older run pointless.
 concurrency:
@@ -111,6 +112,7 @@ jobs:
           node-version: "20"
       - run: pip install -r backend/requirements-dev.txt
       # pip-audit has no severity filter: any known advisory fails the job.
+      # requirements.txt is the full lock, so indirect packages are audited too.
       - name: Backend packages
         run: pip-audit -r backend/requirements.txt
       - name: Frontend packages (production only, high and critical)

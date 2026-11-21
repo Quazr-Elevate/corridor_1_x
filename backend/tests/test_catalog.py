@@ -6,7 +6,7 @@ from datetime import timedelta
 
 import pytest
 
-from conftest import complete_listing, fill_mandatory, publish_listing, set_status, signup_and_login, upload_photo
+from conftest import complete_listing, fill_mandatory, publish_listing, set_status, signup_and_login, upload_photo, verify_business
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -109,7 +109,7 @@ async def test_market_visibility_needs_a_verified_business_and_a_published_listi
     assert (await client.post(f"/products/{pid}/submit")).status_code == 403
 
     await client.post("/me/submit-verification")
-    assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, seller['userId'])).status_code == 200
     # A verified business is not enough: the listing itself must be approved.
     assert (await anon.get("/public/products")).json()["total"] == 0
     await publish_listing(client, admin_client, pid)
@@ -132,7 +132,7 @@ async def test_market_visibility_needs_a_verified_business_and_a_published_listi
     r = await admin_client.post(f"/admin/users/{seller['userId']}/reject", json={"reason": "Expired GST", "failedItems": ["legalName"]})
     assert r.status_code == 200
     assert (await anon.get("/public/products")).json()["total"] == 0
-    assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, seller['userId'])).status_code == 200
     assert (await anon.get("/public/products")).json()["total"] == 1
 
     # A deleted listing leaves the market.
@@ -146,7 +146,7 @@ async def _verified_seller_with_product(client, admin_client, email="seller@kave
     await fill_mandatory(client, n=n)
     pid = (await complete_listing(client))["id"]
     await client.post("/me/submit-verification")
-    assert (await admin_client.post(f"/admin/users/{seller['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, seller['userId'])).status_code == 200
     await publish_listing(client, admin_client, pid)
     return seller, pid
 

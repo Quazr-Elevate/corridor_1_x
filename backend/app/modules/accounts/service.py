@@ -43,6 +43,7 @@ from app.modules.masking import service as masking
 from app.modules.verification.rules import (
     PROFILE_FIELDS,
     SUBMITTABLE_STATUSES,
+    document_rule_problems,
     is_configured,
     reopen_review,
     requirements,
@@ -206,6 +207,9 @@ async def submit_for_verification(db: AsyncSession, user: User) -> VerificationS
         raise BadRequest(f"Complete your business profile before submitting. Missing: {labels}.")
     if b.verification_status == BusinessStatus.verified:
         raise BadRequest("Your business is already verified — nothing to submit.")
+    mismatched = await document_rule_problems(db, b)
+    if mismatched:
+        raise BadRequest(" ".join(mismatched))
     if b.verification_status in SUBMITTABLE_STATUSES:
         b.verification_status = BusinessStatus.pending_verification
         b.verification_submitted_at = utcnow()
@@ -280,7 +284,7 @@ async def _finish_save(db: AsyncSession, user_id: uuid.UUID) -> OnboardingStatus
 async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn) -> OnboardingStatus:
     website = payload.website_url or None
     await masking.ensure_company_available(
-        db, user.business_id, legal_name=payload.legal_name, website_url=website
+        db, user.business_id, website_url=website
     )
     u = await reload_user(db, user.id)
     b = u.business
@@ -353,7 +357,7 @@ async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSav
     website = payload.website_url or None
     sent = payload.model_fields_set
     await masking.ensure_company_available(
-        db, user.business_id, legal_name=payload.legal_name, website_url=website if "website_url" in sent else None
+        db, user.business_id, website_url=website if "website_url" in sent else None
     )
     u = await reload_user(db, user.id)
     b = u.business

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { DEAL_CURRENCIES, PAYMENT_TERMS, fromMinor, money, toMinor, trade, type PaymentTerms, type Quote, type RfqSellerView } from "@/lib/trade";
+import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/verification";
 import { Button } from "@/components/ui/Button";
 import { ChoiceChips, Segmented } from "@/components/ui/Controls";
@@ -14,9 +15,22 @@ import { Card, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { RequestSheet } from "@/components/trade/parts";
 
-interface Answer {
-  meets: boolean;
-  value: string;
+/**
+ * Whether a stated value meets the buyer's limit, the way the server works
+ * it out (CX-180): numbers compare as numbers, text must match exactly.
+ * Only a hint while typing; the saved quote carries the server's answer.
+ */
+function meetsLimit(value: string, limit: string, operator: string): boolean | null {
+  const v = value.trim();
+  if (!v) return null;
+  const a = Number(v);
+  const b = Number(limit);
+  if (Number.isFinite(a) && Number.isFinite(b) && v !== "" && limit.trim() !== "") {
+    if (operator === "MAX") return a <= b;
+    if (operator === "MIN") return a >= b;
+    return a === b;
+  }
+  return operator === "EQ" && v.toLowerCase().replace(/\s+/g, " ") === limit.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 /**
@@ -42,7 +56,7 @@ export default function MatchedRequestPage() {
   const [terms, setTerms] = useState<PaymentTerms[]>([]);
   const [validUntil, setValidUntil] = useState("");
   const [notes, setNotes] = useState("");
-  const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let live = true;
@@ -54,7 +68,7 @@ export default function MatchedRequestPage() {
         setRfq(view);
         setQuantity(view.quantity ? String(Number(view.quantity)) : "");
         setIncoterm(view.incoterms[0] ?? "");
-        setAnswers(Object.fromEntries(view.specs.map((s) => [s.parameterId, { meets: true, value: "" }])));
+        setAnswers(Object.fromEntries(view.specs.map((s) => [s.parameterId, ""])));
         const q = await trade.getQuote(id).catch(() => null);
         if (!live || !q) return;
         setQuote(q);
@@ -67,7 +81,7 @@ export default function MatchedRequestPage() {
         setTerms(q.paymentTerms);
         setValidUntil(q.validUntil);
         setNotes(q.notes ?? "");
-        setAnswers(Object.fromEntries(q.specs.map((s) => [s.parameterId, { meets: s.meets, value: s.value ?? "" }])));
+        setAnswers(Object.fromEntries(q.specs.map((s) => [s.parameterId, s.value ?? ""])));
       })
       .catch((err) =>
         live &&
@@ -91,6 +105,10 @@ export default function MatchedRequestPage() {
     if (!/^\d+(\.\d{1,2})?$/.test(quantity)) return setFormError("Enter the quantity you can supply.");
     if (!/^\d+$/.test(lead)) return setFormError("Enter the lead time in days.");
     if (!terms.length) return setFormError("Choose at least one way you accept payment.");
+    if (rfq.quantity && Number(quantity) > Number(rfq.quantity))
+      return setFormError(`Quote at most the ${Number(rfq.quantity)} ${rfq.unit} the buyer asked for.`);
+    const blank = rfq.specs.filter((s) => !(answers[s.parameterId] ?? "").trim());
+    if (blank.length) return setFormError(`Give your value for ${blank.map((s) => s.name).join(", ")}.`);
     setBusy(true);
     setFormError(null);
     try {
@@ -105,7 +123,7 @@ export default function MatchedRequestPage() {
         paymentTerms: terms,
         validUntil: validUntil || null,
         notes: notes || null,
-        specs: rfq.specs.map((s) => ({ parameterId: s.parameterId, meets: answers[s.parameterId]?.meets ?? false, value: answers[s.parameterId]?.value || null })),
+        specs: rfq.specs.map((s) => ({ parameterId: s.parameterId, value: (answers[s.parameterId] ?? "").trim() || null })),
       });
       setQuote(saved);
       setValidUntil(saved.validUntil);
@@ -173,13 +191,13 @@ export default function MatchedRequestPage() {
               </div>
               {rfq.specs.length ? (
                 <div>
-                  <p className="t-label mb-2 text-fg-3">Do you meet each specification?</p>
+                  <p className="t-label mb-2 text-fg-3">Your value for each specification</p>
                   <ul className="space-y-3">
                     {rfq.specs.map((s) => {
-                      const a = answers[s.parameterId] ?? { meets: false, value: "" };
-                      const put = (patch: Partial<Answer>) => setAnswers((all) => ({ ...all, [s.parameterId]: { ...a, ...patch } }));
+                      const value = answers[s.parameterId] ?? "";
+                      const meets = meetsLimit(value, s.value, s.operator);
                       return (
-                        <li key={s.parameterId} className="well grid items-end gap-3 rounded-[18px] p-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,160px)]">
+                        <li key={s.parameterId} className="well grid items-end gap-3 rounded-[18px] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,160px)_auto]">
                           <p className="t-body text-fg">
                             {s.name}
                             <span className="t-code ml-2 text-fg-3">
@@ -187,17 +205,16 @@ export default function MatchedRequestPage() {
                               {s.unit ? ` ${s.unit}` : ""}
                             </span>
                           </p>
-                          <Segmented
-                            label={`${s.name}: do you meet it`}
-                            size="sm"
-                            value={a.meets ? "yes" : "no"}
-                            onChange={(v) => put({ meets: v === "yes" })}
-                            options={[
-                              { value: "yes", label: "Meets" },
-                              { value: "no", label: "Does not" },
-                            ]}
+                          <Input
+                            label="Your value"
+                            value={value}
+                            maxLength={200}
+                            onChange={(e) => setAnswers((all) => ({ ...all, [s.parameterId]: e.target.value }))}
+                            inputClassName="t-code"
                           />
-                          <Input label="Your value" optional value={a.value} maxLength={200} onChange={(e) => put({ value: e.target.value })} inputClassName="t-code" />
+                          <span className={cn("t-sub pb-3", meets === null ? "text-fg-3" : meets ? "text-accent" : "text-danger")}>
+                            {meets === null ? "—" : meets ? "Meets" : "Does not meet"}
+                          </span>
                         </li>
                       );
                     })}

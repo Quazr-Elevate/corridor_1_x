@@ -56,7 +56,13 @@ async def _deliver(c, body: bytes, *, event_id: str = "evt_1", signature: str | 
     return await c.post(f"/webhooks/payments/{provider}", content=body, headers=headers)
 
 
-async def _buy(c, plan="topup-25", key="key-00000001"):
+async def _buy(c, plan="topup-25", key="key-00000001", *, verify=True):
+    """Open a checkout. Only a verified company can buy (A-050), so the
+    caller's company is verified first unless ``verify`` is False."""
+    if verify:
+        me = (await c.get("/me")).json()
+        if me.get("status") != "verified":
+            await set_status(me["userId"], BusinessStatus.verified)
     return await c.post("/wallet/purchases", json={"planCode": plan}, headers={"Idempotency-Key": key})
 
 
@@ -283,7 +289,7 @@ async def test_a_plan_runs_out_through_grace_to_free_and_renewal_adds_time(clien
     # Renewing early adds thirty days to the time left.
     await _top_up(client, anon, plan="starter", key="key-00000002", event_id="evt_2")
     second = (await client.get("/wallet")).json()
-    assert second["balance"] == 100
+    assert (second["balance"], second["planCredits"]) == (100, 100)
     from datetime import datetime
 
     gap = datetime.fromisoformat(second["plan"]["expiresAt"]) - datetime.fromisoformat(first["expiresAt"])
@@ -298,11 +304,23 @@ async def test_a_plan_runs_out_through_grace_to_free_and_renewal_adds_time(clien
             )
             await db.commit()
 
+    # A top-up and a spend: plan credits go first, top-up credits don't expire.
+    await _top_up(client, anon, plan="topup-25", key="key-00000003", event_id="evt_3")
+    assert await _spend(me["userId"], "RFQ_POST", "rfq-1") == (-5, 120, False)
+    mid = (await client.get("/wallet")).json()
+    assert (mid["balance"], mid["planCredits"]) == (120, 95)
+
     await expire(3)
-    assert (await client.get("/wallet")).json()["plan"]["state"] == "grace"
+    ended = (await client.get("/wallet")).json()
+    assert ended["plan"]["state"] == "grace"
+    # The plan has ended: its credits are written off once, the top-up stays (A-051).
+    assert (ended["balance"], ended["planCredits"]) == (25, 0)
+    lines = (await client.get("/wallet/ledger")).json()["items"]
+    assert (lines[0]["entryType"], lines[0]["amount"]) == ("EXPIRY", -95)
     await expire(8)  # past the seven days of grace
     lapsed = (await client.get("/wallet")).json()
-    assert lapsed["plan"] is None and lapsed["balance"] == 100  # bought credits are kept
+    assert lapsed["plan"] is None and lapsed["balance"] == ended["balance"]
+    assert [l["entryType"] for l in (await client.get("/wallet/ledger")).json()["items"]].count("EXPIRY") == 1
 
 
 # ── Admin ────────────────────────────────────────────────────────────
@@ -386,7 +404,47 @@ def test_webhook_signature_is_hmac_sha256_of_the_raw_body():
 def test_the_test_provider_is_refused_outside_debug():
     from app.core.config import Settings
 
-    base = dict(debug=False, session_secret="x" * 40)
+    base = dict(
+        debug=False, test_harness=False, cookie_secure=None, session_secret="x" * 40, email_provider="resend",
+        database_url="postgresql://u:p@db/cor1x",
+    )
     assert any("PAYMENT_PROVIDER=test" in p for p in Settings(**base, payment_provider="test").insecure_defaults())
+    assert any("PAYMENT_PROVIDER=test" in p for p in Settings(**base, payment_provider=" Test").insecure_defaults())
     assert any("RAZORPAY" in p for p in Settings(**base, payment_provider="razorpay").insecure_defaults())
     assert not Settings(**base, payment_provider="none").insecure_defaults()
+
+
+async def test_only_a_verified_company_can_buy(client, checkout):
+    await signup_and_login(client, "owner@kaverifoods.in")
+    assert (await client.get("/wallet")).json()["checkoutAvailable"] is False
+    r = await _buy(client, verify=False)
+    assert r.status_code == 403 and r.json()["detail"] == "Get your business verified before buying credits."
+
+
+def test_the_financial_year_turns_on_1_april_in_india():
+    from datetime import datetime, timezone
+
+    assert credits.financial_year(datetime(2026, 3, 31, 18, 29, tzinfo=timezone.utc)) == "2025-26"  # 23:59 IST
+    assert credits.financial_year(datetime(2026, 3, 31, 18, 31, tzinfo=timezone.utc)) == "2026-27"  # 00:01 IST
+    assert credits.financial_year(datetime(2099, 12, 1, tzinfo=timezone.utc)) == "2099-00"
+
+
+async def test_invoice_numbers_count_from_one_in_each_financial_year(client, make_client, checkout):
+    from app.models import InvoiceCounter
+
+    anon = make_client()
+    await signup_and_login(client, "owner@kaverifoods.in")
+    await _top_up(client, anon, key="key-00000001", event_id="evt_1")
+    await _top_up(client, anon, key="key-00000002", event_id="evt_2")
+    fy = credits.financial_year(utcnow())
+    async with SessionLocal() as db:
+        rows = list(await db.scalars(select(PlanPurchase).order_by(PlanPurchase.invoice_number)))
+        assert [(p.invoice_fy, p.invoice_number) for p in rows] == [(fy, 1), (fy, 2)]
+        from app.modules.credits.schemas import purchase_to_read
+
+        assert purchase_to_read(rows[1], "rzp_test_key").invoice_ref == f"C1X/{fy}/0002"
+        # A new year starts again at 1.
+        db.add(InvoiceCounter(fy="2099-00", last_number=0))
+        await db.commit()
+        assert await credits._next_invoice_number(db, "2099-00") == 1
+        assert await credits._next_invoice_number(db, "2100-01") == 1

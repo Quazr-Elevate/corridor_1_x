@@ -130,8 +130,8 @@ async def delete_certificate(product_id: str, certificate_id: str, user: Current
 async def certificate_file(product_id: str, certificate_id: str, user: CurrentUser, db: DbSession) -> Response:
     """The listing's own business always; a verified buyer when an admin
     approved the download (each one is logged)."""
-    cert, data = await certificates.open_certificate(db, user, parse_uuid(product_id), parse_uuid(certificate_id))
-    return file_response(data, filename=cert.original_filename, cache_control="private, no-store")
+    filename, data = await certificates.open_certificate(db, user, parse_uuid(product_id), parse_uuid(certificate_id))
+    return file_response(data, filename=filename, cache_control="private, no-store")
 
 
 @products_router.post("/{product_id}/contact-reveal", response_model=RevealedContact, response_model_by_alias=True)
@@ -154,7 +154,9 @@ async def public_products(
     price_currency: str | None = Query(
         None, alias="priceCurrency", max_length=3, description="Currency of minPrice/maxPrice (default USD)"
     ),
-    min_moq: Decimal | None = Query(None, alias="minMoq", ge=0),
+    order_quantity: Decimal | None = Query(
+        None, alias="orderQuantity", ge=0, description="Listings whose minimum order is at most this quantity"
+    ),
     q: str | None = Query(None, max_length=200),
     limit: int = Query(24, ge=1, le=60),
     offset: int = Query(0, ge=0),
@@ -170,7 +172,7 @@ async def public_products(
         min_price=min_price,
         max_price=max_price,
         price_currency=price_currency,
-        min_moq=min_moq,
+        order_quantity=order_quantity,
         q=q,
         limit=limit,
         offset=offset,

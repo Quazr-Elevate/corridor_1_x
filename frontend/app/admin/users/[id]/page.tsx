@@ -34,8 +34,8 @@ import {
   RejectSheet,
   USER_REJECT_REASONS,
 } from "@/components/admin/RejectSheet";
-import { AccessScope } from "@/components/admin/AccessReason";
-import { DocCard, KeyValue, StatusChip } from "@/components/admin/parts";
+import { AccessReasonCancelled, AccessScope, useAccessReason } from "@/components/admin/AccessReason";
+import { DocCard, KeyValue, StatusChip, TwinFlags, useUnopenedDocs } from "@/components/admin/parts";
 import { displayValue, fmtDate, fmtDateTime, plural, refId, tradeLabel } from "@/components/admin/format";
 
 /* ───────────────────────────── Field layout ─────────────────────────
@@ -162,6 +162,7 @@ export default function AccountDetailPage() {
   const { setDirty } = useUnsavedGuard();
 
   const [user, setUser] = useState<UserDetail | null>(null);
+  const unopened = useUnopenedDocs(user?.unopenedDocIds);
   const [loadErr, setLoadErr] = useState<{ msg: string; status?: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -174,17 +175,26 @@ export default function AccountDetailPage() {
   const [rejectDoc, setRejectDoc] = useState<VerifyDoc | null>(null);
   const [docBusy, setDocBusy] = useState<string | null>(null);
 
+  const access = useAccessReason(`user:${id}`);
+
   const load = useCallback(async () => {
     try {
-      const u = await adminApi.user(id);
+      const reason = await access.ask();
+      const u = await adminApi.user(id, reason);
+      // The same reason covers this business's files and numbers below.
+      access.remember(u.businessId, reason);
       setUser(u);
       setLoadErr(null);
       return u;
     } catch (e) {
+      if (e instanceof AccessReasonCancelled) {
+        setLoadErr({ msg: "Opening an account needs a reason. It is kept in the audit log." });
+        return null;
+      }
       setLoadErr({ msg: errorMessage(e, "Couldn't load this account."), status: errorStatus(e) });
       return null;
     }
-  }, [id]);
+  }, [id, access]);
 
   useEffect(() => {
     if (id) void load();
@@ -342,12 +352,14 @@ export default function AccountDetailPage() {
   const passportPlace = [displayValue(user.businessProfile?.city), displayValue(user.businessProfile?.country)]
     .filter(Boolean)
     .join(", ");
-  const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing;
+  const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing && unopened.length === 0;
   const canReject = REJECTABLE.has(user.status) && !editing;
   const approveHint = editing
     ? "Save or cancel your edits first."
     : missing.length
       ? `${plural(missing.length, "required item")} still missing.`
+      : unopened.length && APPROVABLE.has(user.status)
+        ? `Open each required document first: ${plural(unopened.length, "document")} not opened yet.`
       : user.status === "verified"
         ? "Already verified."
         : !APPROVABLE.has(user.status)
@@ -448,6 +460,7 @@ export default function AccountDetailPage() {
                   ? "Verified. Revoke it if something no longer holds."
                   : "Profile and required documents are in — hold to approve.")}
             </p>
+            <TwinFlags sameNameAs={user.sameNameAs ?? []} relatedTo={user.relatedTo ?? []} />
           </div>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
             <Button variant="danger" icon="close" onClick={() => setRejectUserOpen(true)} disabled={!canReject || busy}>

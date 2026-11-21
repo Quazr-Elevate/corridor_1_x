@@ -1,0 +1,11 @@
+Hi {{ first_name }},
+
+Corridor One X has sent you an offer on your request for {{ category }}.
+It stays open until {{ when }}.
+
+Compare it with any other offers and open the price here: {{ rfq_url }}
+
+The seller's name is not shown. Corridor One X is the counterparty for both
+sides of the trade.
+
+-- Cor1x

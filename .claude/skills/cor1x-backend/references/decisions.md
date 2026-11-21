@@ -25,7 +25,7 @@ If it changes the build plan's scope, say so to the user.
 | A-005 | **Every milestone starts with a design review** (schemas, endpoints with input and output, errors, security, tests) that the user approves before code | 13 Nov 2026 | User |
 | A-006 | **REST API design and security are maintained in every milestone** (`api-standard.md`, `security.md`) | 13 Nov 2026 | User |
 | A-007 | Admin access is deny-by-default: one permission per `/admin` route, enforced by the route-matrix test | 31 Oct 2026 | Built (`0024_identity_access`) |
-| A-008 | Sessions: traders 12 h idle / 7 days; admins 30 min idle / 8 h; one active device; lockout 5 → 15 min → 30 min → support unlock | 31 Oct 2026 | Built |
+| A-008 | Sessions: traders 12 h idle / 7 days; admins 30 min idle / 8 h; one active device (traders: superseded by A-044); lockout 5 → 15 min → 30 min → support unlock | 31 Oct 2026 | Built |
 | A-009 | KYB values are encrypted in the app, masked to the last 4 in lists, revealed by a separate rate-limited audited call; Aadhaar is never accepted | before 31 Oct 2026 | Built |
 | A-010 | Listings keep the API resource name `products` | current code | Convention, to avoid churn |
 | A-011 | Every route under `/v1/...` except `/health` (was D-001). Built in M0 | 15 Nov 2026 | User, M0 design review |
@@ -61,6 +61,30 @@ If it changes the build plan's scope, say so to the user.
 | A-041 | M3 fields approved as proposed, **plus packaging and required certificates on the RFQ** (16 fields). Quote, cost sheet and offer fields approved as proposed | 16 Nov 2026 | User, M3 design review |
 | A-042 | A locked offer shows lead time, incoterm and specs met; **the price and terms open with OFFER_UNLOCK**. The purchase price never reaches a buyer | 16 Nov 2026 | User, M3 design review |
 | A-043 | CX-149 (user name, email and phone into the vault) is **approved for M3**. It is built after the offer flow, with its own design note, because it changes sign-in | 16 Nov 2026 | User, M3 design review |
+| A-044 | **Traders keep up to 5 sessions** per login; the 6th sign-in signs out the oldest. Admins stay at one. Settings lists devices with sign-out per device. Replaces the one-device part of A-008 (CX-155) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-045 | A password reset by emailed code **also clears the support lock**: the code proves control of the email (CX-156) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-046 | Sign-up **does not check the company name**; a duplicate name is a flag in the KYB review queue instead (CX-157) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-047 | Cross-checks between KYB documents are **admin-defined rules per country** ('characters x–y of document A equal document B'), not code. India ships with GSTIN 3–12 = PAN (CX-158) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-048 | Duplicate refusals are **neutral**: they say the value can't be used, never that another business holds it (CX-159) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-049 | Specification templates and required documents for Sugar, Wheat, Oilseeds, Cotton, Millets, Tea, Coffee and Other **approved as drafted** in the review; required documents are set **per category** (CX-164) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-050 | **Only verified companies can buy credits** (CX-172) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-051 | **Plan credits expire** at the end of the plan; top-up credits do not (CX-173) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-052 | The free-RFQ quota is keyed on a **per-country document**: in India each GSTIN is its own company, and a shared PAN only flags related companies in KYB review. Other countries choose their document through configuration (CX-174) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-053 | A matched RFQ that **expires with no quote is refunded**; one that had quotes but no offer is not (CX-179) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-054 | The KYB **approve button stays disabled until the reviewer has opened every required document** (CX-161) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-055 | The **GST check stays manual** for India; no automated registry lookup for now | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-056 | **PDF metadata is stripped** from uploads, and certificate downloads are renamed to the company code (CX-166) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-057 | With DEBUG=false the app **refuses the console mailer, SQLite, COOKIE_SECURE=false and disabled rate limiting**, and compares PAYMENT_PROVIDER without case. `TEST_HARNESS` exempts only the first three, for the test suite (CX-151) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-058 | A listing the leak filter flagged is approved only with a reason and the new **`listings.override`** permission (super admin only); the reason is kept on the audit row (CX-165) | 21 Nov 2026 | Built in PR-2 from the approved change list |
+| A-059 | Opening an account in the console is **`POST /admin/users/{id}/open` with a reason**; the GET is removed. Staff list pages that show names write an **`identity.listed`** row with the count (CX-168, CX-169) | 21 Nov 2026 | Built in PR-2 from the approved change list |
+| A-060 | Matcher hard rules gain **capacity over the months left (or stock)**, **incoterm overlap** and **requested documents on the listing**. Origin and price overlap are not rules yet: the RFQ has no origin field, and price stays a desk-only judgement (CX-175, CX-176) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-061 | A quote gives a **value** per required spec; **whether it meets the limit is worked out by the server**. A quote may be for less than asked (shown to the desk as a part quote), never more (CX-180, CX-184) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-062 | A cost sheet waits for a desk manager when the margin is under the floor, **over `max_margin_pct`**, or the **exchange rate is older than `fx_max_age_days`**; both new settings are placeholders (25%, 3 days) until the client sets them (CX-181, CX-182) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-063 | The desk can **withdraw a published offer** with a reason; a buyer who paid to unlock it is refunded, and the sheet reopens so a corrected offer can follow (CX-186) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-064 | Emails: the buyer on a new offer and the day before it ends; the seller when their quote goes to the buyer. **'Quote not taken'** waits for the deal to close (M4) (CX-183) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-065 | Credit **invoice numbers restart each Indian financial year** (April–March, IST): `C1X/2026-27/0001`, taken from a per-year counter in one guarded UPDATE (CX-171) | 21 Nov 2026 | Built in PR-5 to PR-7 |
+| A-066 | Per-country rules, quota and group documents, and per-category required documents are **admin-managed through the API** in this batch (`/admin/kyb/countries/{code}/rules`, `/links`, `/admin/listing-templates/category-requirements/{category}`); their console screens come later | 21 Nov 2026 | Built in PR-5 to PR-7 |
+| A-067 | Credits bought before migration 0034 **do not expire**: they were sold as non-expiring, so `plan_credits` starts at 0 for every wallet | 21 Nov 2026 | Built in PR-5 to PR-7 |
 
 ## Proposed: awaiting approval
 
