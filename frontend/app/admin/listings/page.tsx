@@ -129,7 +129,9 @@ export default function ListingReviewPage() {
     }
   };
 
-  const waiting = detail?.reviewKind !== null && detail?.reviewKind !== undefined;
+  // A listing whose only open item is a new document is decided document by document below.
+  const waiting = detail?.reviewKind === "new" || detail?.reviewKind === "revision";
+  const documentsWaiting = detail?.reviewKind === "documents";
   // Flagged text blocks a plain approval; only a super admin can send it out, with a reason.
   const flagged = !!detail?.leakFlags.length;
 
@@ -200,7 +202,13 @@ export default function ListingReviewPage() {
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-1">
                       <Chip tone={r.reviewKind ? "move" : STATUS[r.status].tone} size="sm" noIcon>
-                        {r.reviewKind === "revision" ? "Edit" : r.reviewKind === "new" ? "New" : STATUS[r.status].label}
+                        {r.reviewKind === "revision"
+                          ? "Edit"
+                          : r.reviewKind === "new"
+                            ? "New"
+                            : r.reviewKind === "documents"
+                              ? "Documents"
+                              : STATUS[r.status].label}
                       </Chip>
                       {r.waitingSince ? <span className="t-foot text-fg-3">{fmtAgo(r.waitingSince)}</span> : null}
                     </span>
@@ -260,6 +268,16 @@ export default function ListingReviewPage() {
                         {detail.reviewKind === "revision" ? "Approve changes" : "Approve and publish"}
                       </HoldButton>
                     )}
+                  </div>
+                ) : documentsWaiting ? (
+                  <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-6">
+                    <p className="t-sub text-fg-3">
+                      A document was added after the listing went live. Set each new one to internal or downloadable
+                      above.
+                    </p>
+                    <Button variant="danger" onClick={() => setRejecting(true)} disabled={busy}>
+                      Take down…
+                    </Button>
                   </div>
                 ) : detail.listing.status === "published" || detail.listing.status === "paused" ? (
                   <div className="mt-8 flex justify-end border-t border-line pt-6">

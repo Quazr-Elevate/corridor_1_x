@@ -3,7 +3,7 @@ document), per-item rejection, approval cascading to documents, and
 verified businesses going back to review when KYB data changes."""
 from __future__ import annotations
 
-from conftest import fill_mandatory, signup_and_login
+from conftest import fill_mandatory, signup_and_login, verify_business
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
@@ -19,7 +19,7 @@ async def _submitted(client, admin_client, *, email="r@kaverifoods.in", n=1, ver
     await fill_mandatory(client, n=n)
     assert (await client.post("/me/submit-verification")).status_code == 200
     if verify:
-        assert (await admin_client.post(f"/admin/users/{body['userId']}/verify")).status_code == 200
+        assert (await verify_business(admin_client, body['userId'])).status_code == 200
     return body
 
 
@@ -101,7 +101,7 @@ async def test_reject_flags_items_and_rejects_those_documents(client, admin_clie
     detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "KYB review of this business"})).json()
     assert detail["verificationRejectedItems"] == ["addressLine", "kyb:gstin"]
     # A flagged required document must be fixed before anyone can approve.
-    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    r = await verify_business(admin_client, uid)
     assert r.status_code == 400 and "GSTIN" in r.json()["detail"]
 
     # Fix + resubmit clears the flags.
@@ -127,7 +127,7 @@ async def test_other_entries_are_labelled_and_decided_separately(client, admin_c
     assert (await client.post("/me/submit-verification")).status_code == 200
 
     # Approving the business approves only the required documents.
-    assert (await admin_client.post(f"/admin/users/{body['userId']}/verify")).status_code == 200
+    assert (await verify_business(admin_client, body['userId'])).status_code == 200
     docs = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert docs[other["id"]] == "pending" and docs[iec["id"]] == "pending"
     assert sorted(docs.values()).count("approved") == 2  # GSTIN + PAN
@@ -250,3 +250,28 @@ async def test_countries_are_referenced_not_free_text():
         db.add(Business(country="ZZ"))
         with pytest.raises(IntegrityError):
             await db.commit()
+
+
+
+async def test_approval_waits_until_the_reviewer_opened_every_required_document(client, admin_client, make_client):
+    from test_admin_accounts import _new_admin
+
+    body = await signup_and_login(client, "owner@kaverifoods.in")
+    await fill_mandatory(client)
+    assert (await client.post("/me/submit-verification")).status_code == 200
+    uid = body["userId"]
+    reason = {"reason": "KYB review of this business"}
+    detail = (await admin_client.post(f"/admin/users/{uid}/open", json=reason)).json()
+    assert len(detail["unopenedDocIds"]) == 2  # GSTIN and PAN, entered as numbers
+
+    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    assert r.status_code == 409 and r.json()["detail"].startswith("Open each required document before approving.")
+    first, second = detail["unopenedDocIds"]
+    await admin_client.post(f"/admin/docs/{first}/reveal", json=reason)
+    assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 409
+    # Another reviewer's look doesn't count for this one.
+    _, other = await _new_admin(admin_client, make_client)
+    await other.post(f"/admin/docs/{second}/reveal", json=reason)
+    assert (await admin_client.post(f"/admin/users/{uid}/open", json=reason)).json()["unopenedDocIds"] == [second]
+    await admin_client.post(f"/admin/docs/{second}/reveal", json=reason)
+    assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 200

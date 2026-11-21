@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from conftest import ADMIN_EMAIL, fill_mandatory, sent_emails, signup_and_login
+from conftest import ADMIN_EMAIL, fill_mandatory, sent_emails, signup_and_login, verify_business
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
@@ -46,7 +46,7 @@ async def test_verify_flow_with_audit_and_email(client, admin_client):
     bid = body["businessId"]
 
     # Not submitted yet → 409
-    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    r = await verify_business(admin_client, uid)
     assert r.status_code == 409
     assert "awaiting verification" in r.json()["detail"]
 
@@ -67,16 +67,17 @@ async def test_verify_flow_with_audit_and_email(client, admin_client):
     assert me["verification"]["rejectedReason"] == "Upload your GST certificate"
 
     # Admin can approve from rejected.
-    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    r = await verify_business(admin_client, uid)
     assert r.status_code == 200 and r.json()["status"] == "verified"
     assert any("verified" in m.subject for m in sent_emails(email))
     me = (await client.get("/me")).json()
     assert me["status"] == "verified" and me["verification"]["verifiedAt"]
 
     # Already verified → verify again is 409; reject (revoke) allowed.
-    assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 409
+    assert (await verify_business(admin_client, uid)).status_code == 409
 
-    actions = await _actions()
+    # The decisions (opening the account and its documents is audited too).
+    actions = [a for a in await _actions() if a.action.startswith("business.")]
     assert [(a.action, a.target_type, a.target_id) for a in actions] == [
         ("business.reject", "business", bid),
         ("business.verify", "business", bid),
@@ -96,7 +97,7 @@ async def test_verify_requires_mandatory_fields(client, admin_client):
     r = await admin_client.patch(f"/admin/users/{body['userId']}", json={"businessProfile": {"addressLine": ""}})
     assert r.status_code == 200, r.text
     assert r.json()["missingMandatoryFields"] == ["addressLine"]
-    r = await admin_client.post(f"/admin/users/{body['userId']}/verify")
+    r = await verify_business(admin_client, body['userId'])
     assert r.status_code == 400
     assert "Registered address" in r.json()["detail"]
 
@@ -116,10 +117,11 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     assert r.status_code == 422
     r = await admin_client.patch(f"/admin/users/{b['userId']}", json={"businessProfile": {"country": "Narnia"}})
     assert r.status_code == 422
+    # A shared company name is allowed and flagged, not refused (A-046).
     r = await admin_client.patch(
         f"/admin/users/{b['userId']}", json={"businessProfile": {"legalName": "ACME AGRO 1 PVT LTD"}}
     )
-    assert r.status_code == 409
+    assert r.status_code == 200 and r.json()["sameNameAs"]
     r = await admin_client.patch(f"/admin/users/{b['userId']}", json={"profile": {"phone": "+91 98765 00001"}})
     assert r.status_code == 409
 

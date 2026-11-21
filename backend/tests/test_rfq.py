@@ -503,8 +503,9 @@ async def test_capacity_counts_the_months_left_and_incoterms_and_documents_must_
     assert r.status_code == 409 and "Buyer accepts DAP; listing offers FOB, CIF." in r.json()["detail"]
 
     # A requested document the listing doesn't carry rules it out.
-    coa = next(t["id"] for t in (await _template(buyer))["certificateTypes"] if t["code"] == "coa")
-    needs_coa = await _submitted(buyer, certificateTypeIds=[coa])
-    assert (await admin_client.get(f"/admin/rfqs/{needs_coa['id']}")).json()["matches"] == []
-    r = await admin_client.post(f"/admin/rfqs/{needs_coa['id']}/matches", json={"listingId": pid})
-    assert r.status_code == 409 and "Not on the listing: Certificate of analysis (COA)." in r.json()["detail"]
+    # The listing carries Rice's required COA but no product certificate.
+    pc = next(t["id"] for t in (await _template(buyer))["certificateTypes"] if t["code"] == "product_certificate")
+    needs_pc = await _submitted(buyer, certificateTypeIds=[pc])
+    assert (await admin_client.get(f"/admin/rfqs/{needs_pc['id']}")).json()["matches"] == []
+    r = await admin_client.post(f"/admin/rfqs/{needs_pc['id']}/matches", json={"listingId": pid})
+    assert r.status_code == 409 and "Not on the listing: Product certificate." in r.json()["detail"]

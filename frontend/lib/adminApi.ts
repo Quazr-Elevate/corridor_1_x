@@ -219,6 +219,12 @@ export interface UserDetail {
   businessName: string | null;
   /** Masked company code; null until the business is verified. */
   companyCode: string | null;
+  /** Other businesses with the same legal name, as codes (A-046). */
+  sameNameAs: string[];
+  /** Other businesses sharing the country's group document (India: PAN), as codes (A-052). */
+  relatedTo: string[];
+  /** Required documents this admin hasn't opened yet; approval waits for them (A-054). */
+  unopenedDocIds: string[];
   /** The business verification status. */
   status: string;
   createdAt: string;
@@ -395,7 +401,8 @@ export interface AdminListingRow {
   category: string;
   status: ProductRead["status"];
   /** "new" — a submitted listing; "revision" — edits to a published one. */
-  reviewKind: "new" | "revision" | null;
+  /** "documents": a document added to a live listing, not decided yet. */
+  reviewKind: "new" | "revision" | "documents" | null;
   waitingSince: string | null;
   photo: string | null;
   seller: ListingSeller;
@@ -409,7 +416,8 @@ export interface RevisionChange {
 
 export interface AdminListingDetail {
   listing: ProductRead;
-  reviewKind: "new" | "revision" | null;
+  /** "documents": a document added to a live listing, not decided yet. */
+  reviewKind: "new" | "revision" | "documents" | null;
   seller: ListingSeller;
   changes: RevisionChange[];
   /** Listing text the leak filter wants a person to read. */

@@ -90,9 +90,9 @@ async def delete_certificate(
 ) -> None:
     product = await service.get_own_product(db, user, product_id)
     cert = await _certificate(db, product.id, certificate_id)
-    ctype = await db.get(CertificateType, cert.certificate_type_id)
     editable = (ListingStatus.draft, ListingStatus.rejected)
-    if ctype is not None and ctype.is_required and product.status not in editable:
+    required = await service.required_certificate_ids(db, product.category)
+    if cert.certificate_type_id in required and product.status not in editable:
         raise Conflict("This document is required for the category. Upload a replacement instead of removing it.")
     key = cert.storage_key
     await db.delete(cert)

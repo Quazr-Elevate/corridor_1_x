@@ -82,6 +82,9 @@ If it changes the build plan's scope, say so to the user.
 | A-062 | A cost sheet waits for a desk manager when the margin is under the floor, **over `max_margin_pct`**, or the **exchange rate is older than `fx_max_age_days`**; both new settings are placeholders (25%, 3 days) until the client sets them (CX-181, CX-182) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
 | A-063 | The desk can **withdraw a published offer** with a reason; a buyer who paid to unlock it is refunded, and the sheet reopens so a corrected offer can follow (CX-186) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
 | A-064 | Emails: the buyer on a new offer and the day before it ends; the seller when their quote goes to the buyer. **'Quote not taken'** waits for the deal to close (M4) (CX-183) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-065 | Credit **invoice numbers restart each Indian financial year** (April–March, IST): `C1X/2026-27/0001`, taken from a per-year counter in one guarded UPDATE (CX-171) | 21 Nov 2026 | Built in PR-5 to PR-7 |
+| A-066 | Per-country rules, quota and group documents, and per-category required documents are **admin-managed through the API** in this batch (`/admin/kyb/countries/{code}/rules`, `/links`, `/admin/listing-templates/category-requirements/{category}`); their console screens come later | 21 Nov 2026 | Built in PR-5 to PR-7 |
+| A-067 | Credits bought before migration 0034 **do not expire**: they were sold as non-expiring, so `plan_credits` starts at 0 for every wallet | 21 Nov 2026 | Built in PR-5 to PR-7 |
 
 ## Proposed: awaiting approval
 

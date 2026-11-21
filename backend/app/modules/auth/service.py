@@ -31,7 +31,6 @@ from app.models.business import Business, BusinessStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.user import AccountStatus, User, UserRole
 from app.modules.masking import service as masking
-from app.modules.masking.service import LEGAL_NAME_TAKEN
 from app.modules.auth import lockout, sessions
 from app.modules.auth.sessions import ClientInfo, record_event
 
@@ -194,8 +193,9 @@ async def complete_signup(
     email = normalize_email(email)
     if await _email_taken(db, email):
         raise Conflict(ACCOUNT_EXISTS)
+    # The name is not checked against other businesses (A-046): a duplicate
+    # is flagged to the KYB reviewer instead, so sign-up confirms nothing.
     company_name = " ".join(company_name.split())
-    await masking.ensure_company_available(db, uuid.uuid4(), legal_name=company_name)
     row = await _latest_code(db, email, EmailCodePurpose.signup)
     if row is None or row.verified_at is None:
         raise BadRequest("Verify your email first.")
@@ -226,10 +226,8 @@ async def complete_signup(
     row.consumed_at = now
     try:
         await db.commit()
-    except IntegrityError as exc:
+    except IntegrityError:
         await db.rollback()
-        if "legal_name" in str(exc.orig):
-            raise Conflict(LEGAL_NAME_TAKEN) from None
         raise Conflict(ACCOUNT_EXISTS) from None
     return user
 
@@ -351,7 +349,8 @@ async def request_password_reset(db: AsyncSession, *, email: str, client: Client
 
 async def reset_password(db: AsyncSession, *, email: str, code: str, new_password: str, client: ClientInfo) -> User:
     """Code + new password → password replaced, every session signed out,
-    temporary lockout cleared. A support lock stays (support must unlock)."""
+    and any lockout cleared, the support lock included: the emailed code
+    proves control of the account (A-045)."""
     email = normalize_email(email)
     code = "".join(ch for ch in code if ch.isdigit())
     purpose = EmailCodePurpose.reset_password
@@ -373,9 +372,12 @@ async def reset_password(db: AsyncSession, *, email: str, code: str, new_passwor
     row.consumed_at = now
     user.password_hash = hash_password(new_password)
     user.session_version = (user.session_version or 0) + 1
-    if not lockout.needs_support(user):
-        lockout.record_success(user)
+    was_support_locked = lockout.needs_support(user)
+    lockout.record_success(user)
     await sessions.revoke_all(db, sessions.user_policy(), user.id, "password_reset")
-    record_event(db, subject_type="user", subject_id=user.id, event="password_reset", client=client)
+    record_event(
+        db, subject_type="user", subject_id=user.id, event="password_reset", client=client,
+        details={"cleared_support_lock": True} if was_support_locked else None,
+    )
     await db.commit()
     return user

@@ -42,13 +42,13 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
   const [q, setQ] = useState(current.q ?? "");
   const [minPrice, setMinPrice] = useState(current.minPrice ?? "");
   const [maxPrice, setMaxPrice] = useState(current.maxPrice ?? "");
-  const [minMoq, setMinMoq] = useState(current.minMoq ?? "");
+  const [orderQuantity, setOrderQuantity] = useState(current.orderQuantity ?? "");
   useEffect(() => {
     setQ(current.q ?? "");
     setMinPrice(current.minPrice ?? "");
     setMaxPrice(current.maxPrice ?? "");
-    setMinMoq(current.minMoq ?? "");
-  }, [current.q, current.minPrice, current.maxPrice, current.minMoq]);
+    setOrderQuantity(current.orderQuantity ?? "");
+  }, [current.q, current.minPrice, current.maxPrice, current.orderQuantity]);
 
   const fx = useFx();
   const { setGuestCurrency, signedIn } = fx;
@@ -67,7 +67,7 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
       : fx.displayCurrency;
   const symbol = currencySymbol(priceCurrency);
 
-  const refined = !!(current.originState || current.minPrice || current.maxPrice || current.minMoq);
+  const refined = !!(current.originState || current.minPrice || current.maxPrice || current.orderQuantity);
   const [moreOpen, setMoreOpen] = useState(refined);
 
   const navigate = (next: CatalogFilters) => {
@@ -100,7 +100,7 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
       maxPrice: maxPrice || undefined,
       // Signed-in: the saved display currency; guests keep their URL pick.
       priceCurrency: priced || !signedIn ? (signedIn ? priceCurrency : current.priceCurrency) : undefined,
-      minMoq: minMoq || undefined,
+      orderQuantity: orderQuantity || undefined,
     });
   };
 
@@ -108,7 +108,7 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
     setQ("");
     setMinPrice("");
     setMaxPrice("");
-    setMinMoq("");
+    setOrderQuantity("");
     navigate({});
   };
 
@@ -246,11 +246,11 @@ export function ProductFilters({ facets }: { facets: CatalogFacets }) {
             </p>
           )}
           <Input
-            label="Min MOQ"
+            label="I want to buy"
             inputMode="decimal"
-            placeholder="Any"
-            value={minMoq}
-            onChange={(e) => setMinMoq(numeric(e.target.value))}
+            placeholder="Any quantity"
+            value={orderQuantity}
+            onChange={(e) => setOrderQuantity(numeric(e.target.value))}
           />
           <div className="sm:col-span-2 lg:col-span-1 lg:pt-[27px]">
             <Button type="submit" variant="secondary" block className="h-12 lg:w-auto" disabled={!!priceError || pending}>

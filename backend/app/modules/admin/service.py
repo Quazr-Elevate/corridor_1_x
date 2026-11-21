@@ -15,6 +15,7 @@ from app.models.admin_action import AdminAction
 from app.models.business import Business, BusinessStatus
 from app.models.business_identity import BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
+from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
 from app.models.user import User
@@ -37,12 +38,13 @@ from app.modules.verification.rules import (
     ADMIN_REJECTABLE_STATUSES,
     ADMIN_VERIFIABLE_STATUSES,
     PROFILE_FIELDS,
+    document_rule_problems,
     requirements,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
 from app.modules.accounts.service import get_owner
 from app.modules.auth.lockout import lock_state
-from app.modules.auth.sessions import active_session, user_policy
+from app.modules.auth.sessions import live_sessions, user_policy
 
 MAX_REASON = 500
 STUCK_AFTER = timedelta(hours=24)
@@ -238,6 +240,7 @@ async def verify_queue(db: AsyncSession, admin: Actor) -> list[VerifyQueueRow]:
     docs = await _docs_by_business(db, [b.id for _, b in rows])
     missing = {b.id: await missing_keys(db, b) for _, b in rows}
     names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="verify_queue")
+    twins = await masking.same_name_codes(db, [b.id for _, b in rows])
 
     def since(b: Business):
         if b.verification_status == BusinessStatus.pending_verification:
@@ -253,6 +256,7 @@ async def verify_queue(db: AsyncSession, admin: Actor) -> list[VerifyQueueRow]:
             full_name=u.full_name,
             business_name=names.get(b.id),
             company_code=b.company_code,
+            same_name_as=twins.get(b.id, []),
             country=b.country,
             industry=b.industry,
             trade_position=b.trade_position,
@@ -361,13 +365,15 @@ async def _owner_for(db: AsyncSession, user: User) -> User | None:
 
 async def _account_security(db: AsyncSession, u: User) -> AccountSecurityOut:
     now = utcnow()
-    active = await active_session(db, user_policy(), u.id)
+    live = await live_sessions(db, user_policy(), u.id)
+    active = live[0] if live else None
     state = lock_state(u, now)
     return AccountSecurityOut(
         lock_state=state,
         locked_until=u.locked_until if state == "temporary" else None,
         failed_login_count=u.failed_login_count,
         active_session=SessionOut.model_validate(active, from_attributes=True) if active else None,
+        active_session_count=len(live),
         last_login_at=u.last_login_at,
     )
 
@@ -396,6 +402,9 @@ async def user_detail(
     return UserDetail(
         user_id=str(u.id),
         business_id=str(b.id),
+        same_name_as=(await masking.same_name_codes(db, [b.id]))[b.id],
+        related_to=await related_codes(db, b),
+        unopened_doc_ids=[str(d.id) for d in await unopened_required_docs(db, admin.id, b.id)],
         role=u.role.value,
         email=u.email,
         email_verified_at=u.email_verified_at,
@@ -438,7 +447,6 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
         await masking.ensure_company_available(
             db,
             business.id,
-            legal_name=business_changes.get("legal_name"),
             website_url=business_changes.get("website_url"),
         )
     if "full_name" in profile_changes and not profile_changes["full_name"]:
@@ -486,8 +494,74 @@ async def _decision(db: AsyncSession, user: User, business: Business) -> Decisio
     )
 
 
+async def related_codes(db: AsyncSession, business: Business) -> list[str]:
+    """Other live businesses that share this one's group document (India: the
+    PAN behind several GSTINs, A-052), as company codes, "unverified" when
+    they have none yet. Compared by keyed hash; no number is read."""
+    country = await db.get(Country, business.country)
+    if country is None or country.group_document_type_id is None:
+        return []
+    mine = await db.scalar(
+        select(BusinessDocument.value_hash).where(
+            BusinessDocument.business_id == business.id,
+            BusinessDocument.document_type_id == country.group_document_type_id,
+            BusinessDocument.value_hash.is_not(None),
+            BusinessDocument.status != DocStatus.rejected,
+        )
+    )
+    if mine is None:
+        return []
+    codes = await db.scalars(
+        select(Business.company_code)
+        .join(BusinessDocument, BusinessDocument.business_id == Business.id)
+        .where(
+            BusinessDocument.document_type_id == country.group_document_type_id,
+            BusinessDocument.value_hash == mine,
+            BusinessDocument.status != DocStatus.rejected,
+            Business.id != business.id,
+            Business.deleted_at.is_(None),
+        )
+    )
+    return sorted(code or "unverified" for code in codes)
+
+
+async def unopened_required_docs(db: AsyncSession, admin_id: uuid.UUID, business_id: uuid.UUID) -> list[BusinessDocument]:
+    """The pending required documents this admin hasn't opened since they
+    were uploaded: the file, or the full number when there is no file
+    (A-054). Opening is read from the audit log the reveal routes write."""
+    docs = list(await db.scalars(
+        select(BusinessDocument)
+        .join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id)
+        .where(
+            BusinessDocument.business_id == business_id,
+            BusinessDocument.status == DocStatus.pending,
+            KybDocumentType.is_mandatory.is_(True),
+        )
+    ))
+    if not docs:
+        return []
+    opened = (await db.execute(
+        select(AdminAction.target_id, AdminAction.action, func.max(AdminAction.created_at))
+        .where(
+            AdminAction.admin_user_id == admin_id,
+            AdminAction.action.in_(("kyb.file_viewed", "kyb.value_viewed")),
+            AdminAction.target_id.in_([str(d.id) for d in docs]),
+        )
+        .group_by(AdminAction.target_id, AdminAction.action)
+    )).all()
+    seen = {(target, action): ensure_aware(when) for target, action, when in opened}
+
+    def was_opened(d: BusinessDocument) -> bool:
+        action = "kyb.file_viewed" if d.storage_key else "kyb.value_viewed"
+        when = seen.get((str(d.id), action))
+        return when is not None and when >= ensure_aware(d.uploaded_at)
+
+    return [d for d in docs if not was_opened(d)]
+
+
 async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> Decision:
-    """Approve the user's business."""
+    """Approve the user's business, once this admin has opened every
+    required document it rests on (A-054)."""
     user = await load_user(db, uid)
     b = user.business
     if b.verification_status not in ADMIN_VERIFIABLE_STATUSES:
@@ -499,6 +573,13 @@ async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> 
     if report.missing:
         labels = ", ".join(r.label for r in report.missing)
         raise BadRequest(f"Can't verify: the business profile is incomplete ({labels}).")
+    mismatched = await document_rule_problems(db, b)
+    if mismatched:
+        raise BadRequest("Can't verify: " + " ".join(mismatched))
+    unopened = await unopened_required_docs(db, admin.id, b.id)
+    if unopened:
+        names = ", ".join(sorted({d.doc_type for d in unopened}))
+        raise Conflict(f"Open each required document before approving. Not opened yet: {names}.")
     now = utcnow()
     b.verification_status = BusinessStatus.verified
     b.verified_at = now

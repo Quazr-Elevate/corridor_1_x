@@ -16,8 +16,9 @@ import logging
 import uuid
 from collections.abc import Mapping
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +26,7 @@ from app.core.config import settings
 from app.core.errors import (
     BadRequest,
     Conflict,
+    Forbidden,
     NotFound,
     PaymentRequired,
     ServiceUnavailable,
@@ -34,7 +36,8 @@ from app.core.errors import (
 from app.core.time import ensure_aware, utcnow
 from app.integrations import payments
 from app.models.business import Business
-from app.models.business_document import BusinessDocument
+from app.models.business_document import BusinessDocument, DocStatus
+from app.models.country import Country
 from app.models.credits import (
     SPEND_TYPES,
     CreditFreeQuota,
@@ -43,6 +46,7 @@ from app.models.credits import (
     CreditPrice,
     CreditWallet,
     IdempotencyKey,
+    InvoiceCounter,
     PaymentEvent,
     PlanPurchase,
 )
@@ -82,6 +86,46 @@ async def wallet_of(db: AsyncSession, business_id: uuid.UUID) -> CreditWallet:
     return await db.scalar(select(CreditWallet).where(CreditWallet.business_id == business_id))
 
 
+def _plan_credits_after(entry_type: str, amount: int):
+    """How a line moves the expiring part of the balance (A-051): a plan adds
+    to it, a spend takes from it first, the write-off clears it."""
+    current = CreditWallet.plan_credits
+    if entry_type == "PLAN_PURCHASE":
+        return current + amount
+    if entry_type in SPEND_TYPES and amount < 0:
+        return case((current > -amount, current + amount), else_=0)
+    if entry_type == "EXPIRY":
+        return 0
+    return current
+
+
+async def expire_plan_credits(db: AsyncSession, business_id: uuid.UUID, now: datetime | None = None) -> CreditLedgerEntry | None:
+    """Write off the plan credits left once the plan has ended, as an EXPIRY
+    line (A-051). Top-up credits stay. Once per plan period; does not commit."""
+    now = now or utcnow()
+    wallet = await wallet_of(db, business_id)
+    await db.refresh(wallet)
+    if not wallet.plan_credits or wallet.plan_expires_at is None or ensure_aware(wallet.plan_expires_at) > now:
+        return None
+    gone = min(wallet.plan_credits, wallet.balance)
+    key = f"expiry:{ensure_aware(wallet.plan_expires_at).isoformat()}"
+    if gone == 0:
+        wallet.plan_credits = 0
+        return None
+    return await _post(db, business_id, "EXPIRY", -gone, idempotency_key=key, note=f"{wallet.plan_code} credits ended")
+
+
+async def expire_due_plans(db: AsyncSession) -> int:
+    """Every wallet whose plan has ended with credits left (the hourly job)."""
+    due = list(await db.scalars(
+        select(CreditWallet.business_id).where(CreditWallet.plan_credits > 0, CreditWallet.plan_expires_at <= utcnow())
+    ))
+    for business_id in due:
+        await expire_plan_credits(db, business_id)
+    await db.commit()
+    return len(due)
+
+
 async def _line_for_key(db: AsyncSession, business_id: uuid.UUID, key: str | None) -> CreditLedgerEntry | None:
     if not key:
         return None
@@ -115,7 +159,11 @@ async def _post(
             moved = await db.execute(
                 update(CreditWallet)
                 .where(CreditWallet.business_id == business_id, CreditWallet.balance + amount >= 0)
-                .values(balance=CreditWallet.balance + amount, updated_at=utcnow())
+                .values(
+                    balance=CreditWallet.balance + amount,
+                    plan_credits=_plan_credits_after(entry_type, amount),
+                    updated_at=utcnow(),
+                )
                 .execution_options(synchronize_session=False)
             )
             if moved.rowcount != 1:
@@ -169,6 +217,7 @@ async def spend(
             user_id=user.id, note="Free quota",
         )
     cost = await price_of(db, action)
+    await expire_plan_credits(db, business.id)
     try:
         return await _post(
             db, business.id, action, -cost, idempotency_key=idempotency_key, reference=reference, user_id=user.id
@@ -238,18 +287,23 @@ async def list_ledger(db: AsyncSession, user: User, *, limit: int, offset: int) 
 
 
 async def registration_hash(db: AsyncSession, business: Business) -> str | None:
-    """The keyed hash of the company's registration number: the value of its
-    first required KYB document (GSTIN in India). None until one is on file."""
-    return await db.scalar(
+    """The keyed hash of the company's registration number: the document its
+    country names for the quota (A-052; GSTIN in India), or else its first
+    required document with a number. None until one is on file."""
+    stmt = (
         select(BusinessDocument.value_hash)
         .join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id)
         .where(
             BusinessDocument.business_id == business.id,
             BusinessDocument.value_hash.is_not(None),
-            KybDocumentType.is_mandatory.is_(True),
+            BusinessDocument.status != DocStatus.rejected,
         )
-        .order_by(KybDocumentType.sort_order, KybDocumentType.name)
-        .limit(1)
+    )
+    country = await db.get(Country, business.country)
+    if country is not None and country.quota_document_type_id is not None:
+        return await db.scalar(stmt.where(KybDocumentType.id == country.quota_document_type_id).limit(1))
+    return await db.scalar(
+        stmt.where(KybDocumentType.is_mandatory.is_(True)).order_by(KybDocumentType.sort_order, KybDocumentType.name).limit(1)
     )
 
 
@@ -305,6 +359,7 @@ def plan_state(wallet: CreditWallet, name: str | None, now: datetime) -> PlanSta
 
 
 async def wallet_view(db: AsyncSession, user: User) -> WalletRead:
+    await expire_plan_credits(db, user.business_id)
     wallet = await wallet_of(db, user.business_id)
     quota = await _quota(db, user.business, "RFQ_POST")
     await db.commit()  # the wallet or quota row may have just been created
@@ -319,10 +374,11 @@ async def wallet_view(db: AsyncSession, user: User) -> WalletRead:
     prices = await db.scalars(select(CreditPrice).order_by(CreditPrice.action))
     return WalletRead(
         balance=wallet.balance,
+        plan_credits=min(wallet.plan_credits, wallet.balance),
         plan=plan_state(wallet, plan_name, utcnow()),
         free_rfqs=free,
         prices=[price_to_read(p) for p in prices],
-        checkout_available=payments.get_provider().name != "none",
+        checkout_available=payments.get_provider().name != "none" and user.business.is_verified,
     )
 
 
@@ -337,8 +393,11 @@ async def list_plans(db: AsyncSession, *, active_only: bool = True) -> list[Cred
 
 
 async def create_purchase(db: AsyncSession, user: User, plan_code: str, idempotency_key: str) -> PurchaseRead:
-    """Open a checkout for a plan or a top-up. The same key with the same
-    plan returns the first order; with a different plan it is refused."""
+    """Open a checkout for a plan or a top-up. Only a verified company can
+    buy (A-050). The same key with the same plan returns the first order;
+    with a different plan it is refused."""
+    if not user.business.is_verified:
+        raise Forbidden("Get your business verified before buying credits.")
     request_hash = hashlib.sha256(plan_code.encode()).hexdigest()
     stored = await _stored_answer(db, user.business_id, idempotency_key)
     if stored is not None:
@@ -459,7 +518,10 @@ async def _settle(db: AsyncSession, purchase: PlanPurchase, payment_id: str | No
     purchase.status = "paid"
     purchase.paid_at = now
     purchase.provider_payment_id = payment_id
-    purchase.invoice_number = (await db.scalar(select(func.coalesce(func.max(PlanPurchase.invoice_number), 0)))) + 1
+    purchase.invoice_fy = financial_year(now)
+    purchase.invoice_number = await _next_invoice_number(db, purchase.invoice_fy)
+    # Credits of a plan that has already ended go before the new ones arrive.
+    await expire_plan_credits(db, purchase.business_id, now)
     await _post(
         db, purchase.business_id, "PLAN_PURCHASE" if purchase.plan_kind == "plan" else "TOP_UP", purchase.credits,
         idempotency_key=f"purchase:{purchase.id}", reference=("purchase", str(purchase.id)),
@@ -473,6 +535,43 @@ async def _settle(db: AsyncSession, purchase: PlanPurchase, payment_id: str | No
         start = current if current and current > now and wallet.plan_code == purchase.plan_code else now
         wallet.plan_code = purchase.plan_code
         wallet.plan_expires_at = start + timedelta(days=purchase.period_days or 0)
+
+
+#: Indian financial years run April to March, by the clock in India.
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def financial_year(moment: datetime) -> str:
+    """``"2026-27"`` for any moment from 1 April 2026 to 31 March 2027 IST."""
+    local = ensure_aware(moment).astimezone(_IST)
+    start = local.year if local.month >= 4 else local.year - 1
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
+def invoice_ref(fy: str | None, number: int | None) -> str | None:
+    return f"C1X/{fy}/{number:04d}" if fy and number else None
+
+
+async def _next_invoice_number(db: AsyncSession, fy: str) -> int:
+    """Take the next number of the year in one guarded UPDATE, creating the
+    year's counter on its first invoice. Two payments at once can't share a
+    number (A-065)."""
+    for _ in range(2):
+        taken = await db.scalar(
+            update(InvoiceCounter)
+            .where(InvoiceCounter.fy == fy)
+            .values(last_number=InvoiceCounter.last_number + 1)
+            .returning(InvoiceCounter.last_number)
+            .execution_options(synchronize_session=False)
+        )
+        if taken is not None:
+            return taken
+        try:
+            async with db.begin_nested():
+                db.add(InvoiceCounter(fy=fy, last_number=0))
+        except IntegrityError:  # another payment opened the year first
+            pass
+    raise RuntimeError(f"Could not take an invoice number for {fy}.")
 
 
 # ── Admin configuration ──────────────────────────────────────────────

@@ -17,14 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, DomainError
 from app.models.user import User
-from app.modules.masking.service import LEGAL_NAME_TAKEN, WEBSITE_TAKEN
+from app.modules.masking.service import WEBSITE_TAKEN
 from app.shared.normalize import normalize_phone
 
-PHONE_TAKEN = "This phone number is already registered on Cor1x."
+PHONE_TAKEN = "This phone number can't be used for this account. If it is yours, contact support."
 
 _BY_COLUMN = {
     "phone_normalized": PHONE_TAKEN,
-    "legal_name_normalized": LEGAL_NAME_TAKEN,
     "website_normalized": WEBSITE_TAKEN,
 }
 

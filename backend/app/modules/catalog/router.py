@@ -154,7 +154,9 @@ async def public_products(
     price_currency: str | None = Query(
         None, alias="priceCurrency", max_length=3, description="Currency of minPrice/maxPrice (default USD)"
     ),
-    min_moq: Decimal | None = Query(None, alias="minMoq", ge=0),
+    order_quantity: Decimal | None = Query(
+        None, alias="orderQuantity", ge=0, description="Listings whose minimum order is at most this quantity"
+    ),
     q: str | None = Query(None, max_length=200),
     limit: int = Query(24, ge=1, le=60),
     offset: int = Query(0, ge=0),
@@ -170,7 +172,7 @@ async def public_products(
         min_price=min_price,
         max_price=max_price,
         price_currency=price_currency,
-        min_moq=min_moq,
+        order_quantity=order_quantity,
         q=q,
         limit=limit,
         offset=offset,

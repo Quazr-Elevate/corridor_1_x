@@ -30,12 +30,12 @@ from app.models.admin_action import AdminAction
 from app.models.business import Business
 from app.models.business_identity import VAULT_COLUMNS, BusinessIdentity
 from app.ratelimit import RateLimitRule, get_limiter
-from app.shared.normalize import normalize_legal_name, normalize_website
+from app.shared.normalize import normalize_website
 
 log = logging.getLogger(__name__)
 
-LEGAL_NAME_TAKEN = "This legal company name is already registered on Cor1x."
-WEBSITE_TAKEN = "This website is already linked to another Cor1x account."
+#: Neutral on purpose (A-048): it must not confirm that another business holds the value.
+WEBSITE_TAKEN = "This website can't be used for this account. If it is yours, contact support."
 
 #: Hard ceiling on identities one admin can open in an hour.
 STAFF_UNMASK = RateLimitRule("identity.unmask:admin", limit=120, window_sec=60 * 60)
@@ -93,21 +93,40 @@ def set_company_field(business: Business, identity: BusinessIdentity, column: st
     setattr(identity if column in VAULT_COLUMNS else business, column, value)
 
 
-async def ensure_company_available(
-    db: AsyncSession,
-    business_id: uuid.UUID,
-    *,
-    legal_name: str | None = None,
-    website_url: str | None = None,
-) -> None:
-    """Friendly pre-check for the two UNIQUE indexes on the vault; a racing
-    duplicate still hits the index and becomes the same 409."""
-    name_key = normalize_legal_name(legal_name)
-    if name_key is not None and await _taken(db, BusinessIdentity.legal_name_normalized == name_key, business_id):
-        raise Conflict(LEGAL_NAME_TAKEN)
+async def ensure_company_available(db: AsyncSession, business_id: uuid.UUID, *, website_url: str | None = None) -> None:
+    """Friendly pre-check for the UNIQUE website index on the vault; a racing
+    duplicate still hits the index and becomes the same 409. Company names
+    are not unique: two firms can share one, and the KYB review shows it
+    (A-046, :func:`same_name_codes`)."""
     site_key = normalize_website(website_url)
     if site_key is not None and await _taken(db, BusinessIdentity.website_normalized == site_key, business_id):
         raise Conflict(WEBSITE_TAKEN)
+
+
+async def same_name_codes(db: AsyncSession, business_ids: list[uuid.UUID]) -> dict[uuid.UUID, list[str]]:
+    """For each business, the other live businesses with the same legal name
+    (normalized), as company codes ("unverified" when they have none yet).
+    The reviewer sees the flag; nobody else does."""
+    if not business_ids:
+        return {}
+    mine = dict(
+        (await db.execute(
+            select(BusinessIdentity.business_id, BusinessIdentity.legal_name_normalized).where(
+                BusinessIdentity.business_id.in_(business_ids), BusinessIdentity.legal_name_normalized.is_not(None)
+            )
+        )).all()
+    )
+    if not mine:
+        return {b: [] for b in business_ids}
+    rows = (await db.execute(
+        select(BusinessIdentity.legal_name_normalized, Business.id, Business.company_code)
+        .join(Business, Business.id == BusinessIdentity.business_id)
+        .where(BusinessIdentity.legal_name_normalized.in_(set(mine.values())), Business.deleted_at.is_(None))
+    )).all()
+    out: dict[uuid.UUID, list[str]] = {b: [] for b in business_ids}
+    for business_id, key in mine.items():
+        out[business_id] = sorted(code or "unverified" for name, other, code in rows if name == key and other != business_id)
+    return out
 
 
 async def _taken(db: AsyncSession, clause: ColumnElement[bool], business_id: uuid.UUID) -> bool:

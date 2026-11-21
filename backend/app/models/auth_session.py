@@ -1,9 +1,9 @@
 """Server-side sessions and the sign-in event log.
 
 The cookie carries a random token; only its SHA-256 is stored, so a
-database leak doesn't hand out live sessions. A partial unique index keeps
-**one active session per account**: signing in elsewhere revokes the old
-one first (``revoked_reason = 'replaced'``).
+database leak doesn't hand out live sessions. A trader keeps up to five
+live sessions and the next sign-in revokes the oldest; an admin keeps one,
+held by a partial unique index (``revoked_reason = 'replaced'``).
 """
 from __future__ import annotations
 
@@ -36,10 +36,10 @@ class UserSession(_SessionColumns, Base):
     __tablename__ = "user_sessions"
     __table_args__ = (
         Index("uq_user_sessions_token_hash", "token_hash", unique=True),
+        # Up to five live sessions per trader (A-044), counted in sessions.py.
         Index(
-            "uq_user_sessions_one_active",
+            "ix_user_sessions_active",
             "user_id",
-            unique=True,
             sqlite_where=text("revoked_at IS NULL"),
             postgresql_where=text("revoked_at IS NULL"),
         ),

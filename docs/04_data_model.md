@@ -644,7 +644,7 @@ while it is empty creates the first super admin.
 | `user_agent` | varchar(200) | yes | |
 
 Partial unique index `uq_*_one_active` on the owner where `revoked_at IS NULL`
-→ **one active session per account**; a new sign-in revokes the old one
+→ **one active session per admin**; a trader keeps up to five (0032, A-044), the next sign-in revoking the oldest
 (`replaced`). Timeouts: traders 12 h idle / 7 days absolute; admins 30 min /
 8 h (`USER_SESSION_*`, `ADMIN_SESSION_*`).
 
@@ -891,3 +891,32 @@ cross-rate such as INR to AED), since that is the one whose age matters.
 the buyer when no seller quoted, A-053), expires overdue offers and sends
 the day-before reminders. Run it hourly in production (a Railway cron
 service with the backend's variables).
+
+
+---
+
+## Trader sessions and company names (`0032_trader_sessions`)
+
+| Table | Change | Why |
+|---|---|---|
+| `user_sessions` | `uq_user_sessions_one_active` becomes the plain partial index `ix_user_sessions_active` | A trader keeps up to five live sessions (A-044); `app/modules/auth/sessions.py` signs out the oldest. Admins keep their unique index |
+| `business_identities` | `uq_business_identities_legal_name_normalized` becomes `ix_business_identities_legal_name_normalized` | Two firms may share a name (A-046); the KYB review shows `sameNameAs` |
+
+## Country rules and category requirements (`0033_country_rules`)
+
+| Table | Columns | Rules |
+|---|---|---|
+| `country_document_rules` | `country`, `kind` (`slice_equals`), `source_type_id`, `source_start`, `source_end`, `target_type_id`, `active` | Characters `source_start`..`source_end` (1-based) of the source number must equal the target number. Checked at submission and approval. India: GSTIN 3–12 = PAN (A-047) |
+| `countries` | `quota_document_type_id`, `group_document_type_id` | The free-RFQ quota keys on the first; businesses sharing the second are flagged `relatedTo` in review. India: GSTIN and PAN (A-052) |
+| `kyb_document_types` | India's `pan.is_unique` → false | One PAN may stand behind several GSTINs, each its own business |
+| `category_certificate_requirements` | `category`, `certificate_type_id` | The documents a listing in a category must carry (A-049) |
+| `spec_parameters` | Templates for Sugar, Wheat, Oilseeds, Cotton, Millets, Tea, Coffee and Other; Spices and Pulses rows made required | As approved in the walkthrough review |
+
+## Plan credit expiry and invoice numbers (`0034_credit_expiry_invoices`)
+
+| Table | Change | Why |
+|---|---|---|
+| `credit_wallets` | `plan_credits` (≥ 0) | The part of the balance that came from plans. Spends use it first; when the plan ends the rest is written off (A-051). Wallets start at 0, so credits bought before this migration don't expire |
+| `credit_ledger` | Entry type `EXPIRY` (amount ≤ 0) | The write-off line |
+| `plan_purchases` | `invoice_fy`; unique (`invoice_fy`, `invoice_number`) | Invoice numbers restart each Indian financial year: `C1X/2026-27/0001` (A-065) |
+| `invoice_counters` | `fy` (PK), `last_number` | Taken with one guarded UPDATE, so two payments can't share a number |

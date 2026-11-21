@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     session_secret: str = "dev-only-session-secret-change-me"
     user_session_idle_hours: int = 12
     user_session_max_days: int = 7
+    # Traders may be signed in on this many devices at once; the oldest is
+    # signed out by the next sign-in (A-044). Admins always have one.
+    user_max_sessions: int = 5
 
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"

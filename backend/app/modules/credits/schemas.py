@@ -37,6 +37,8 @@ class FreeQuotaRead(CamelModel):
 
 class WalletRead(CamelModel):
     balance: int
+    #: How much of the balance comes from the plan and ends with it (A-051).
+    plan_credits: int = 0
     #: None on the Free plan (never bought one, or lapsed past the grace period).
     plan: PlanState | None
     #: Free RFQs of this company; None until it is verified.
@@ -89,6 +91,8 @@ class PurchaseRead(CamelModel):
     #: What the browser checkout opens with.
     provider_order_id: str
     checkout_key: str
+    #: The tax invoice number once paid: C1X/2026-27/0001 (A-065).
+    invoice_ref: str | None = None
 
 
 class WebhookAck(CamelModel):
@@ -140,4 +144,5 @@ def purchase_to_read(p: PlanPurchase, checkout_key: str) -> PurchaseRead:
     return PurchaseRead(
         id=str(p.id), plan_code=p.plan_code, credits=p.credits, amount_minor=p.amount_minor, currency=p.currency,
         status=p.status, provider=p.provider, provider_order_id=p.provider_order_id, checkout_key=checkout_key,
+        invoice_ref=f"C1X/{p.invoice_fy}/{p.invoice_number:04d}" if p.invoice_fy and p.invoice_number else None,
     )

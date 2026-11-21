@@ -37,6 +37,8 @@ import {
   type PillDot,
   type PillTab,
   type QueueItem,
+  TwinFlags,
+  useUnopenedDocs,
 } from "@/components/admin/parts";
 import {
   displayValue,
@@ -486,6 +488,7 @@ function DetailPanel({
 }) {
   const docsOnly = row.reviewKind === "documents";
   const d = typeof detail === "object" ? detail : null;
+  const unopened = useUnopenedDocs(d?.unopenedDocIds);
   const p = d?.profile ?? {};
   const b = d?.businessProfile ?? {};
   const docs = d?.docs ?? row.docs;
@@ -770,8 +773,11 @@ function DetailPanel({
                 <p className="t-foot mb-3 text-fg-3">
                   {missing.length
                     ? `${plural(missing.length, "required item")} missing — approval needs the profile and required documents.`
-                    : "Profile and required documents are in."}
+                    : unopened.length
+                      ? `Open each required document first: ${plural(unopened.length, "document")} not opened yet.`
+                      : "Profile and required documents are in, and you have opened each one."}
                 </p>
+                <TwinFlags sameNameAs={d?.sameNameAs ?? []} relatedTo={d?.relatedTo ?? []} />
                 <div className="grid grid-cols-2 gap-2">
                   <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">
                     Open account
@@ -787,7 +793,7 @@ function DetailPanel({
                   className="mt-2 rounded-[18px]"
                   onCommit={onApprove}
                   loading={busy}
-                  disabled={missing.length > 0}
+                  disabled={missing.length > 0 || unopened.length > 0 || loadingDetail}
                 >
                   Approve company
                 </HoldButton>

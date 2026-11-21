@@ -42,17 +42,56 @@ async def test_session_cookie_is_opaque_and_only_hash_stored(client):
     assert len(rows) == 1 and rows[0].token_hash == hash_token(token) and token not in rows[0].token_hash
 
 
-async def test_second_device_signs_out_the_first(client, make_client):
-    email = "onedev@kaverifoods.in"
+async def test_a_trader_keeps_five_devices_and_the_sixth_signs_out_the_oldest(client, make_client):
+    email = "fivedev@kaverifoods.in"
     await signup_and_login(client, email)
-    other = make_client()
-    assert (await _login(other, email)).status_code == 200
-    assert (await other.get("/me")).status_code == 200
+    others = [make_client() for _ in range(5)]
+    for i, other in enumerate(others[:4]):
+        assert (await _login(other, email)).status_code == 200
+    # Five devices: all signed in.
+    assert all([(await c.get("/me")).status_code == 200 for c in [client, *others[:4]]])
+    overview = (await others[0].get("/auth/security")).json()
+    assert overview["maxDevices"] == 5 and len(overview["devices"]) == 5
+    assert [d["current"] for d in overview["devices"]].count(True) == 1
+    assert "session_replaced" not in await _events(email)
+
+    # The sixth signs out the oldest (the first browser) and only that one.
+    assert (await _login(others[4], email)).status_code == 200
     assert (await client.get("/me")).status_code == 401
+    assert all([(await c.get("/me")).status_code == 200 for c in others])
     async with SessionLocal() as db:
         rows = list(await db.scalars(select(UserSession).order_by(UserSession.created_at)))
-    assert [r.revoked_reason for r in rows] == ["replaced", None]
+    assert [r.revoked_reason for r in rows] == ["replaced", None, None, None, None, None]
     assert "session_replaced" in await _events(email)
+
+
+async def test_a_trader_signs_out_one_other_device(client, make_client):
+    email = "signout@kaverifoods.in"
+    await signup_and_login(client, email)
+    phone = make_client()
+    assert (await _login(phone, email)).status_code == 200
+    devices = (await client.get("/auth/security")).json()["devices"]
+    mine = next(d["id"] for d in devices if d["current"])
+    theirs = next(d["id"] for d in devices if not d["current"])
+
+    assert (await client.delete(f"/auth/sessions/{mine}")).status_code == 404  # this one uses /logout
+    stranger = make_client()
+    await signup_and_login(stranger, "stranger@othermill.in")
+    assert (await stranger.delete(f"/auth/sessions/{theirs}")).status_code == 404  # not their device
+    assert (await client.delete(f"/auth/sessions/{theirs}")).status_code == 204
+    assert (await phone.get("/me")).status_code == 401
+    assert (await client.get("/me")).status_code == 200
+    assert (await client.delete(f"/auth/sessions/{theirs}")).status_code == 404  # already gone
+    assert "session_signed_out" in await _events(email)
+
+
+async def test_an_admin_still_has_one_session(admin_client, make_client):
+    from conftest import ADMIN_EMAIL, ADMIN_PASSWORD
+
+    second = make_client()
+    assert (await second.post("/admin/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})).status_code == 200
+    assert (await admin_client.get("/admin/me")).status_code == 401
+    assert (await second.get("/admin/me")).status_code == 200
 
 
 async def test_idle_timeout(client):
@@ -97,9 +136,11 @@ async def test_security_overview(client):
     assert r.status_code == 200
     body = r.json()
     assert body["device"]["current"] is True and body["idleTimeoutMinutes"] == 720 and body["maxSessionDays"] == 7
+    # Signing in again in the same browser replaced its session: one device.
+    assert len(body["devices"]) == 1 and body["devices"][0]["current"] is True
     events = [e["event"] for e in body["recent"]]
-    assert events[0] == "session_replaced" or events[0] == "login_succeeded"
-    assert {"login_succeeded", "login_failed", "session_replaced"} <= set(events)
+    assert events[0] == "login_succeeded"
+    assert {"login_succeeded", "login_failed"} <= set(events)
 
 
 async def test_account_deletion_revokes_session(client):
@@ -212,7 +253,7 @@ async def test_password_reset_unknown_email_looks_the_same(make_client):
     assert sent_emails("nobody@kaverifoods.in") == []
 
 
-async def test_password_reset_keeps_support_lock(client, make_client):
+async def test_password_reset_clears_the_support_lock(client, make_client):
     email = "stilllocked@kaverifoods.in"
     await signup_and_login(client, email)
     async with SessionLocal() as db:
@@ -224,7 +265,11 @@ async def test_password_reset_keeps_support_lock(client, make_client):
         "/auth/password/reset", json={"email": email, "code": _reset_code(email), "newPassword": "Fresh-pass-99"}
     )
     assert r.status_code == 200
-    assert (await _login(anon, email, "Fresh-pass-99")).status_code == 423
+    # The emailed code proves control of the account (A-045).
+    assert (await _login(anon, email, "Fresh-pass-99")).status_code == 200
+    async with SessionLocal() as db:
+        row = await db.scalar(select(AuthEvent).where(AuthEvent.event == "password_reset"))
+    assert row.details == {"cleared_support_lock": True}
 
 
 # ── Headers / logs ───────────────────────────────────────────────────

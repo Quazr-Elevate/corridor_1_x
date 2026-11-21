@@ -26,7 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import notifications
 from app.core.config import settings
-from app.core.security import SESSION_COOKIE, clear_cookie, set_cookie
+from app.core.errors import NotFound
+from app.core.security import SESSION_COOKIE, clear_cookie, parse_uuid, set_cookie
 from app.core.time import utcnow
 from app.models.auth_session import AuthEvent
 from app.models.user import User
@@ -68,7 +69,7 @@ RESET_PER_IP = RateLimitRule("auth.reset:ip", limit=20, window_sec=15 * 60)
 #: Events shown to the user on /auth/security.
 VISIBLE_EVENTS = (
     "login_succeeded", "login_failed", "locked", "locked_support", "unlocked", "session_replaced",
-    "sessions_revoked", "password_changed", "password_reset",
+    "sessions_revoked", "session_signed_out", "password_changed", "password_reset",
 )
 
 
@@ -140,11 +141,19 @@ async def signup_complete(
     dependencies=[Depends(ip_rate_limit(LOGIN_PER_IP))],
 )
 async def login(
-    payload: LoginRequest, response: Response, db: DbSession, client: sessions.Client, background: BackgroundTasks
+    payload: LoginRequest,
+    response: Response,
+    db: DbSession,
+    client: sessions.Client,
+    background: BackgroundTasks,
+    cor1x_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> LoginResponse:
     await get_limiter().check(LOGIN_PER_EMAIL, service.normalize_email(payload.email))
     signin = await service.authenticate(db, email=payload.email, password=payload.password, client=client)
     user = signin.user
+    # Signing in again in the same browser replaces its session instead of
+    # taking a second of the five places.
+    await sessions.end_session(db, sessions.user_policy(), cor1x_session, client)
     await _start(db, response, user, client)
     if signin.new_device:
         background.add_task(
@@ -227,10 +236,18 @@ async def whoami(user: OptionalUser) -> SessionInfo:
     return SessionInfo(user_id=str(user.id) if user else None)
 
 
+def _device(row, current_id) -> DeviceOut:
+    return DeviceOut(
+        id=str(row.id), created_at=row.created_at, last_seen_at=row.last_seen_at, expires_at=row.expires_at,
+        ip_prefix=row.ip_prefix, user_agent=row.user_agent, current=row.id == current_id,
+    )
+
+
 @router.get("/security", response_model=SecurityOverview, response_model_by_alias=True)
-async def security_overview(user: CurrentUser, db: DbSession) -> SecurityOverview:
+async def security_overview(user: CurrentUser, session_id: CurrentSessionId, db: DbSession) -> SecurityOverview:
     policy = sessions.user_policy()
-    active = await sessions.active_session(db, policy, user.id)
+    live = await sessions.live_sessions(db, policy, user.id)
+    devices = [_device(row, session_id) for row in live]
     events = await db.scalars(
         select(AuthEvent)
         .where(AuthEvent.subject_type == "user", AuthEvent.subject_id == user.id, AuthEvent.event.in_(VISIBLE_EVENTS))
@@ -238,11 +255,26 @@ async def security_overview(user: CurrentUser, db: DbSession) -> SecurityOvervie
         .limit(20)
     )
     return SecurityOverview(
-        device=DeviceOut.model_validate(active, from_attributes=True) if active else None,
+        device=next((d for d in devices if d.current), None),
+        devices=devices,
+        max_devices=policy.max_active,
         recent=[AuthEventOut.model_validate(e, from_attributes=True) for e in events],
         idle_timeout_minutes=int(policy.idle.total_seconds() // 60),
         max_session_days=policy.absolute.days,
     )
+
+
+@router.delete("/sessions/{session_id}", status_code=204, response_class=Response, response_model=None)
+async def sign_out_device(
+    session_id: str, user: CurrentUser, current: CurrentSessionId, db: DbSession, client: sessions.Client
+) -> Response:
+    """Sign one of your other devices out. This device signs out with /logout."""
+    target = parse_uuid(session_id)
+    if target is None or target == current:
+        raise NotFound("No such device is signed in.")
+    if not await sessions.revoke_one(db, sessions.user_policy(), user.id, target, client):
+        raise NotFound("No such device is signed in.")
+    return Response(status_code=204)
 
 
 def _notify_password_changed(background: BackgroundTasks, user: User) -> None:
@@ -257,7 +289,7 @@ def _notify_password_changed(background: BackgroundTasks, user: User) -> None:
 
 
 async def _start(db: DbSession, response: Response, user: User, client: sessions.ClientInfo) -> None:
-    """Commit the login changes, start the one active session, set the cookie."""
+    """Commit the login changes, start a session, set the cookie."""
     policy = sessions.user_policy()
     token, _ = await sessions.start_session(db, policy, user.id, client)
     set_cookie(response, SESSION_COOKIE, token, sessions.cookie_max_age(policy))

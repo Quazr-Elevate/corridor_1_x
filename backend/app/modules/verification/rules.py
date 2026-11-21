@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business import Business, BusinessStatus
 from app.models.business_document import BusinessDocument, DocStatus
-from app.models.country import Country
+from app.core import crypto
+from app.models.country import Country, CountryDocumentRule
 from app.models.kyb_document_type import KybDocumentType
 from app.modules.masking import service as masking
 
@@ -169,3 +170,54 @@ ADMIN_REJECTABLE_STATUSES = frozenset({BusinessStatus.pending_verification, Busi
 
 #: Statuses from which the business may press "Send for verification".
 SUBMITTABLE_STATUSES = frozenset({BusinessStatus.draft, BusinessStatus.rejected})
+
+
+# ── Cross-checks between documents (A-047) ───────────────────────────
+
+
+def _clean(value: str) -> str:
+    return "".join(value.split()).upper()
+
+
+async def document_rule_problems(db: AsyncSession, business: Business) -> list[str]:
+    """What the country's cross-checks find wrong with this business's
+    numbers, in the business's words. A rule whose documents aren't both
+    entered yet is skipped: the requirements check asks for them."""
+    rules = list(await db.scalars(
+        select(CountryDocumentRule).where(
+            CountryDocumentRule.country == business.country, CountryDocumentRule.active.is_(True)
+        )
+    ))
+    if not rules:
+        return []
+    entries = {
+        d.document_type_id: d
+        for d in await db.scalars(
+            select(BusinessDocument).where(
+                BusinessDocument.business_id == business.id,
+                BusinessDocument.status != DocStatus.rejected,
+                BusinessDocument.value_encrypted.is_not(None),
+            )
+        )
+    }
+    names = {
+        t.id: t.name
+        for t in await db.scalars(
+            select(KybDocumentType).where(
+                KybDocumentType.id.in_({r.source_type_id for r in rules} | {r.target_type_id for r in rules})
+            )
+        )
+    }
+    problems = []
+    for rule in rules:
+        source, target = entries.get(rule.source_type_id), entries.get(rule.target_type_id)
+        if source is None or target is None:
+            continue
+        a = _clean(crypto.decrypt(source.value_encrypted, source.value_key_version))
+        b = _clean(crypto.decrypt(target.value_encrypted, target.value_key_version))
+        if a[rule.source_start - 1:rule.source_end] != b:
+            problems.append(
+                f"Your {names.get(rule.target_type_id, 'number')} must match characters "
+                f"{rule.source_start} to {rule.source_end} of your {names.get(rule.source_type_id, 'number')}."
+            )
+    return problems

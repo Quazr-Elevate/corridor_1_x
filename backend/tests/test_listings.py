@@ -11,6 +11,7 @@ from conftest import (
     PDF_BYTES,
     complete_listing,
     fill_mandatory,
+    force_published,
     publish_listing,
     set_status,
     signup_and_login,
@@ -349,7 +350,8 @@ async def test_admin_manages_listing_templates(admin_client, client):
     assert (await admin_client.post("/admin/listing-templates/spec-parameters", json={"category": "Gold", "code": "x1", "name": "X one"})).status_code == 422
 
     listed = (await admin_client.get("/admin/listing-templates/spec-parameters", params={"category": "Tea"})).json()
-    assert listed["total"] == 1 and listed["items"][0]["id"] == created["id"]
+    tea = [i["id"] for i in listed["items"]]
+    assert created["id"] in tea and len(tea) == 6  # the five approved Tea rows (A-049) and the new one
 
     # A text parameter takes text; retiring it removes it from the template.
     await _seller(client)
@@ -357,7 +359,7 @@ async def test_admin_manages_listing_templates(admin_client, client):
     assert r.status_code == 201 and r.json()["specs"][0]["value"] == "BOP"
     r = await admin_client.patch(f"/admin/listing-templates/spec-parameters/{created['id']}", json={"active": False})
     assert r.json()["active"] is False
-    assert (await _template(client, "Tea"))["specParameters"] == []
+    assert created["id"] not in [p["id"] for p in (await _template(client, "Tea"))["specParameters"]]
     assert (await admin_client.patch(f"/admin/listing-templates/spec-parameters/{uuid.uuid4()}", json={"active": True})).status_code == 404
 
     r = await admin_client.post(
@@ -444,21 +446,38 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     await client.post(f"/products/{pid}/pause")
     assert (await buyer.get(cert["url"])).status_code == 404
 
-    assert (await client.delete(f"/products/{pid}/certificates/{cert['id']}")).status_code == 204
-    assert (await client.get(cert["url"])).status_code == 404
+    # Rice requires a COA (A-049): on a listing that isn't a draft it is
+    # replaced, never removed.
+    r = await client.delete(f"/products/{pid}/certificates/{cert['id']}")
+    assert r.status_code == 409 and "required for the category" in r.json()["detail"]
 
 
 async def test_a_required_certificate_blocks_submit(client, admin_client):
     await _seller(client)
-    coa = await _cert_type(client)
-    assert (await admin_client.patch(f"/admin/listing-templates/certificate-types/{coa}", json={"isRequired": True})).status_code == 200
-    pid = (await complete_listing(client))["id"]
+    pid = (await complete_listing(client))["id"]  # carries Rice's required COA
+    # Made required for every category after the listing was drafted.
+    other = await _cert_type(client, "product_certificate")
+    r = await admin_client.patch(f"/admin/listing-templates/certificate-types/{other}", json={"isRequired": True})
+    assert r.status_code == 200
     r = await client.post(f"/products/{pid}/submit")
-    assert r.status_code == 400 and "the document “Certificate of analysis (COA)”" in r.json()["detail"]
-    assert (await _add_cert(client, pid, coa)).status_code == 201
+    assert r.status_code == 400 and "the document “Product certificate”" in r.json()["detail"]
+    assert (await _add_cert(client, pid, other)).status_code == 201
     assert (await client.post(f"/products/{pid}/submit")).status_code == 200
     # Documents are frozen while the reviewer has the listing.
-    assert (await _add_cert(client, pid, coa)).status_code == 409
+    assert (await _add_cert(client, pid, other)).status_code == 409
+
+
+async def test_each_category_requires_its_own_documents(client):
+    rice = {t["code"]: t["isRequired"] for t in (await _template(client, "Rice"))["certificateTypes"]}
+    cotton = {t["code"]: t["isRequired"] for t in (await _template(client, "Cotton"))["certificateTypes"]}
+    other = {t["code"]: t["isRequired"] for t in (await _template(client, "Other"))["certificateTypes"]}
+    assert rice == {"coa": True, "quality_test_report": False, "product_certificate": False}
+    assert cotton == {"coa": False, "quality_test_report": True, "product_certificate": False}
+    assert not any(other.values())
+    await _seller(client)
+    r = await client.post("/products", json={"name": "Shankar-6 cotton", "category": "Cotton"})
+    r = await client.post(f"/products/{r.json()['id']}/submit")
+    assert "the document “Quality test report”" in r.json()["detail"]
 
 
 # ── Admin access ─────────────────────────────────────────────────────
@@ -579,3 +598,27 @@ async def test_a_flagged_listing_needs_a_super_admins_reason_to_go_out(client, a
         row = await db.scalar(select(AdminAction).where(AdminAction.action == "listing.approve"))
     assert row.details["leakOverride"] == "Checked: samples go through the desk"
     assert row.details["leakFlags"] == ["description"]
+
+
+async def test_a_document_added_to_a_live_listing_waits_in_the_queue(client, admin_client):
+    await _seller(client)
+    pid = (await complete_listing(client))["id"]
+    await force_published(pid)
+    assert [r["id"] for r in (await admin_client.get("/admin/listings")).json()["items"]] == []
+    qtr = await _cert_type(client, "quality_test_report")
+    cert = (await _add_cert(client, pid, qtr)).json()
+    (row,) = (await admin_client.get("/admin/listings")).json()["items"]
+    assert (row["id"], row["reviewKind"]) == (pid, "documents") and row["waitingSince"]
+    # A decision either way takes it off the queue.
+    vis = f"/admin/listings/{pid}/certificates/{cert['id']}/visibility"
+    assert (await admin_client.post(vis, json={"visibility": "internal"})).status_code == 200
+    assert (await admin_client.get("/admin/listings")).json()["items"] == []
+
+
+async def test_the_market_filters_by_the_quantity_a_buyer_wants(client, make_client):
+    await _seller(client)
+    pid = (await complete_listing(client))["id"]  # MOQ 25 MT
+    await force_published(pid)
+    guest = make_client()
+    assert (await guest.get("/public/products", params={"orderQuantity": "10"})).json()["total"] == 0
+    assert (await guest.get("/public/products", params={"orderQuantity": "50"})).json()["total"] == 1

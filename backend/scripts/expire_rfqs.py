@@ -1,6 +1,7 @@
 """Close RFQs whose open period ran out without an offer, mark offers past
-their date expired, and remind buyers of offers that end tomorrow (cron,
-hourly: CX-178, CX-183).
+their date expired, remind buyers of offers that end tomorrow, and write
+off plan credits whose plan has ended (cron, hourly: CX-178, CX-183,
+CX-173).
 
 The lists also run this when they are read, so a missed run only delays the
 status change; it never lets an expired RFQ be worked.
@@ -20,6 +21,7 @@ from app.core.config import settings  # noqa: E402
 from app.core.db import SessionLocal  # noqa: E402
 from app.main import configure_integrations  # noqa: E402
 from app.modules.accounts.service import get_owner  # noqa: E402
+from app.modules.credits.service import expire_due_plans  # noqa: E402
 from app.modules.quotes.service import expire_offers_due, offers_to_remind  # noqa: E402
 from app.modules.rfq.service import expire_due  # noqa: E402
 
@@ -29,6 +31,7 @@ async def main() -> None:
     async with SessionLocal() as db:
         closed = await expire_due(db)
         offers = await expire_offers_due(db)
+        plans = await expire_due_plans(db)
         due = await offers_to_remind(db)
         owners = [(await get_owner(db, offer.buyer_business_id), offer, rfq) for offer, rfq in due]
         await db.commit()
@@ -38,7 +41,10 @@ async def main() -> None:
                 notifications.send_offer_expiring, to=owner.email, first_name=notifications.first_name_of(owner.full_name),
                 category=rfq.category, rfq_id=str(rfq.id), valid_until=offer.valid_until,
             )
-    print(f"Expired {closed} request(s) and {offers} offer(s); reminded {len(owners)} buyer(s).")
+    print(
+        f"Expired {closed} request(s), {offers} offer(s) and the credits of {plans} plan(s); "
+        f"reminded {len(owners)} buyer(s)."
+    )
 
 
 if __name__ == "__main__":
