@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Query, Response
 from app import notifications
 from app.core.security import parse_uuid
 from app.models.rfq import RfqStatus
-from app.modules.accounts.service import get_owner
+from app.modules.accounts.service import owner_contact
 from app.modules.admin import service as audit
 from app.modules.admin.deps import CanConfigureTrade, CanTriageRfqs
 from app.modules.auth.deps import DbSession
@@ -91,7 +91,7 @@ async def confirm_matches(
     audit.record_action(
         db, admin=admin, action="rfq.confirm", target_type="rfq", target_id=rfq.id, details={"sellers": len(sellers)}
     )
-    owners = [await get_owner(db, seller) for seller in sellers]
+    owners = [await owner_contact(db, seller) for seller in sellers]
     await db.commit()
     for owner in owners:
         if owner is not None:

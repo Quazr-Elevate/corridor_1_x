@@ -9,7 +9,7 @@ from app import notifications
 
 from app.core.security import parse_uuid
 from app.models.rfq import Rfq
-from app.modules.accounts.service import get_owner
+from app.modules.accounts.service import owner_contact
 from app.modules.admin import service as audit
 from app.modules.admin.deps import CanApproveMargin, CanTriageRfqs
 from app.modules.auth.deps import DbSession
@@ -65,7 +65,7 @@ async def publish_offer(
         details={"deal": deal.code},
     )
     rfq = await db.get(Rfq, offer.rfq_id)
-    buyer, seller = await get_owner(db, offer.buyer_business_id), await get_owner(db, offer.seller_business_id)
+    buyer, seller = await owner_contact(db, offer.buyer_business_id), await owner_contact(db, offer.seller_business_id)
     await db.commit()
     if buyer is not None:
         background.add_task(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import timedelta
 
-from conftest import sent_emails, signup_and_login
+from conftest import sent_emails, signup_and_login, user_with_email
 from sqlalchemy import select, update
 
 from app.core.db import SessionLocal
@@ -24,7 +24,7 @@ async def _login(c, email, password=PW):
 
 async def _events(user_email: str) -> list[str]:
     async with SessionLocal() as db:
-        uid = await db.scalar(select(User.id).where(User.email == user_email))
+        uid = await db.scalar(select(User.id).where(user_with_email(user_email)))
         return list(await db.scalars(
             select(AuthEvent.event).where(AuthEvent.subject_id == uid).order_by(AuthEvent.created_at)
         ))
@@ -163,7 +163,7 @@ async def _expire_lock(email):
     real time would also have cleared)."""
     await get_limiter().reset()
     async with SessionLocal() as db:
-        await db.execute(update(User).where(User.email == email).values(locked_until=utcnow() - timedelta(seconds=1)))
+        await db.execute(update(User).where(user_with_email(email)).values(locked_until=utcnow() - timedelta(seconds=1)))
         await db.commit()
 
 
@@ -178,7 +178,7 @@ async def test_lockout_escalates_to_support(client, make_client):
     await _expire_lock(email)
     assert await _fail(c, email, 5) == [401, 401, 401, 401, 423]
     async with SessionLocal() as db:
-        u = await db.scalar(select(User).where(User.email == email))
+        u = await db.scalar(select(User).where(user_with_email(email)))
         assert u.lockout_count == 2
         assert timedelta(minutes=29) < u.locked_until - utcnow() <= timedelta(minutes=30)
 
@@ -204,7 +204,7 @@ async def test_admin_unlocks_support_lock(client, make_client, admin_client):
     email = "unlockme@kaverifoods.in"
     body = await signup_and_login(client, email)
     async with SessionLocal() as db:
-        await db.execute(update(User).where(User.email == email).values(lockout_count=3, locked_until=None))
+        await db.execute(update(User).where(user_with_email(email)).values(lockout_count=3, locked_until=None))
         await db.commit()
     c = make_client()
     assert (await _login(c, email)).status_code == 423
@@ -257,7 +257,7 @@ async def test_password_reset_clears_the_support_lock(client, make_client):
     email = "stilllocked@kaverifoods.in"
     await signup_and_login(client, email)
     async with SessionLocal() as db:
-        await db.execute(update(User).where(User.email == email).values(lockout_count=3))
+        await db.execute(update(User).where(user_with_email(email)).values(lockout_count=3))
         await db.commit()
     anon = make_client()
     await anon.post("/auth/password/forgot", json={"email": email})

@@ -63,7 +63,7 @@ os.environ.update(
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402
-from sqlalchemy import delete, update  # noqa: E402
+from sqlalchemy import delete, select, update  # noqa: E402
 
 import app.models  # noqa: E402,F401
 from app.core.db import SessionLocal, engine  # noqa: E402
@@ -72,6 +72,7 @@ from app.main import app as asgi_app  # noqa: E402
 from app.models.base import Base  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.models.user_identity import UserIdentity  # noqa: E402
 from app.modules.lookups.router import clear_cache as clear_lookup_cache  # noqa: E402
 from app.modules.masking import service as masking  # noqa: E402
 from app.ratelimit import get_limiter  # noqa: E402
@@ -182,6 +183,12 @@ async def admin_client(make_client):
 
 
 # ── helpers ──────────────────────────────────────────────────────────
+
+
+def user_with_email(email: str):
+    """Clause: the account signed in with ``email`` (it lives in the vault,
+    ``user_identities``, since CX-149)."""
+    return User.id == select(UserIdentity.user_id).where(UserIdentity.email == email).scalar_subquery()
 
 
 def sent_emails(to: str | None = None):

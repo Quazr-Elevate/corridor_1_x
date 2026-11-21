@@ -22,6 +22,7 @@ from app.models import (
     EmailCode,
     Product,
     User,
+    UserIdentity,
 )
 
 NOW = utcnow()
@@ -45,16 +46,20 @@ async def _user(business_id: uuid.UUID, **over) -> uuid.UUID:
         id=uid,
         business_id=business_id,
         role="owner",
-        email=f"u-{uid.hex[:8]}@acme.in",
         password_hash="x",
         account_status="active",
         email_verified_at=NOW,
-        full_name="Test User",
         session_version=0,
     )
     values.update(over)
     await _insert(User.__table__, **values)
     return uid
+
+
+async def _person(user_id: uuid.UUID, **over) -> None:
+    values = dict(user_id=user_id, full_name="Test User", email=f"u-{user_id.hex[:8]}@acme.in")
+    values.update(over)
+    await _insert(UserIdentity.__table__, **values)
 
 
 async def _product(business_id: uuid.UUID, **over) -> uuid.UUID:
@@ -120,21 +125,32 @@ async def test_the_website_is_unique_in_the_vault(column):
 
 async def test_user_checks_and_uniques():
     bid = await _business()
-    await _user(bid, email="owner@acme.in", phone_normalized="+911")
-
-    err = await _rejects(lambda: _user(bid, role="member", email="Mixed@Acme.in"))
-    assert "ck_users_email_lowercase" in str(err.orig)
+    await _user(bid)
     err = await _rejects(lambda: _user(bid, role="member", session_version=-1))
     assert "ck_users_session_version" in str(err.orig)
-    await _rejects(lambda: _user(bid, role="member", email="owner@acme.in"))  # uq_users_email
-    err = await _rejects(lambda: _user(bid, role="member", phone_normalized="+911"))
-    assert "phone_normalized" in str(err.orig)
     # One owner per business; members are fine; a deleted owner doesn't count.
     await _rejects(lambda: _user(bid, role="owner"))
     await _user(bid, role="member")
     other = await _business()
-    await _user(other, role="owner", deleted_at=NOW, phone_normalized="+922")
-    await _user(other, role="owner", phone_normalized="+922")  # deleted user's phone is free
+    await _user(other, role="owner", deleted_at=NOW)
+    await _user(other, role="owner")
+
+
+async def test_user_identity_checks_and_uniques():
+    """The person's vault row (CX-149): email lowercase and unique, phone
+    unique on its normalized form, one row per user, gone with the user."""
+    bid = await _business()
+    first, second = await _user(bid), await _user(bid, role="member")
+    await _person(first, email="owner@acme.in", phone_normalized="+911")
+
+    err = await _rejects(lambda: _person(second, email="Mixed@Acme.in"))
+    assert "ck_user_identities_email_lowercase" in str(err.orig)
+    await _rejects(lambda: _person(second, email="owner@acme.in"))  # uq_user_identities_email
+    err = await _rejects(lambda: _person(second, phone_normalized="+911"))
+    assert "phone_normalized" in str(err.orig)
+    await _rejects(lambda: _person(first, email="again@acme.in"))  # one row per user
+    await _rejects(lambda: _person(uuid.uuid4()))  # no such user
+    await _person(second, phone_normalized="+922")
 
 
 # ── email_codes ──────────────────────────────────────────────────────

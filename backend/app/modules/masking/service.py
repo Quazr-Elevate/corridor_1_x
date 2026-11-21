@@ -1,13 +1,18 @@
 """The one door to the identity vault (build plan 18.1–18.3).
 
-``business_identities`` holds a company's name, address and website. Every
-other module holds ``businesses.company_code`` and comes here when it needs
-more:
+``business_identities`` holds a company's name, address and website, and
+``user_identities`` a trader's name, work email and phone (CX-149). Every
+other module holds ``businesses.company_code`` and ``users.id`` and comes
+here when it needs more:
 
 * a business reading or editing **its own** identity — :func:`own_identity`;
 * staff reading someone's identity — :func:`unmask_for_staff` (audited as
   ``identity.unmasked``, rate-limited, with an alert on volume) and
-  :func:`names_for_staff` for the lists a reviewer works from.
+  :func:`names_for_staff` for the lists a reviewer works from;
+* a person: signing in by email (:func:`user_by_email`), their own profile
+  (:func:`own_person`), the address and first name a system email goes to
+  (:func:`contact_of`), and staff lists (:func:`people_for_staff`, audited
+  as ``identity.listed``).
 
 Nothing here returns an identity to another business. Until deals exist (M3)
 there is no trader-to-trader unmask at all.
@@ -15,11 +20,12 @@ there is no trader-to-trader unmask at all.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 import secrets
 import uuid
 from typing import Protocol
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
@@ -29,8 +35,10 @@ from app.core.time import utcnow
 from app.models.admin_action import AdminAction
 from app.models.business import Business
 from app.models.business_identity import VAULT_COLUMNS, BusinessIdentity
+from app.models.user import User
+from app.models.user_identity import PERSON_COLUMNS, UserIdentity
 from app.ratelimit import RateLimitRule, get_limiter
-from app.shared.normalize import normalize_website
+from app.shared.normalize import normalize_phone, normalize_website
 
 log = logging.getLogger(__name__)
 
@@ -149,6 +157,87 @@ async def identity_for_contact_reveal(db: AsyncSession, seller_business_id: uuid
     return await own_identity(db, seller_business_id)
 
 
+# ── People (CX-149) ──────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Contact:
+    """Where a system email to one person goes, and how it greets them."""
+
+    email: str
+    full_name: str
+
+
+async def user_by_email(db: AsyncSession, email: str) -> User | None:
+    """The live account signed in with ``email`` (already normalized). A
+    deleted account has no vault row, so it is never found."""
+    return await db.scalar(
+        select(User).join(UserIdentity, UserIdentity.user_id == User.id).where(UserIdentity.email == email)
+    )
+
+
+async def email_taken(db: AsyncSession, email: str) -> bool:
+    return await db.scalar(select(UserIdentity.user_id).where(UserIdentity.email == email)) is not None
+
+
+def start_person(db: AsyncSession, user_id: uuid.UUID, *, full_name: str, email: str) -> UserIdentity:
+    """The vault row of an account that is being created at sign-up."""
+    person = UserIdentity(user_id=user_id, full_name=full_name, email=email)
+    db.add(person)
+    return person
+
+
+async def own_person(db: AsyncSession, user_id: uuid.UUID) -> UserIdentity:
+    """A person's own vault row (their profile, their sign-in response). Not
+    an unmask: a person reading themselves."""
+    person = await db.get(UserIdentity, user_id)
+    if person is None:
+        raise NotFound("User not found")
+    return person
+
+
+def person_field(user: User, person: UserIdentity, column: str):
+    """A profile column, wherever it lives (``position`` stays on users)."""
+    return getattr(person if column in PERSON_COLUMNS else user, column)
+
+
+def set_person_field(user: User, person: UserIdentity, column: str, value) -> None:
+    setattr(person if column in PERSON_COLUMNS else user, column, value)
+
+
+async def phone_taken(db: AsyncSession, phone: str | None, user_id: uuid.UUID) -> bool:
+    """Whether another live account already holds ``phone`` (compared on its
+    normalized form)."""
+    key = normalize_phone(phone)
+    if key is None:
+        return False
+    other = await db.scalar(
+        select(UserIdentity.user_id).where(UserIdentity.phone_normalized == key, UserIdentity.user_id != user_id)
+    )
+    return other is not None
+
+
+async def contact_of(db: AsyncSession, user_id: uuid.UUID | None) -> Contact | None:
+    """The address and name a system email to this person uses (sign-in
+    alerts, review outcomes, RFQ and offer notices). Never shown to another
+    party, so not an unmask; the email log records each send."""
+    person = await db.get(UserIdentity, user_id) if user_id else None
+    return Contact(email=person.email, full_name=person.full_name) if person else None
+
+
+async def erase_person(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Delete the vault row (right to erasure): the name, email and phone are
+    gone and the email can sign up again."""
+    await db.execute(delete(UserIdentity).where(UserIdentity.user_id == user_id))
+
+
+async def person_for_contact_reveal(db: AsyncSession, user_id: uuid.UUID | None) -> UserIdentity | None:
+    """The seller's owner the old contact reveal hands a paying buyer. Only
+    reached while ``CONTACT_REVEAL_ENABLED`` is on; recorded as a contact
+    reveal, and goes away with the reveal code (CX-083)."""
+    return await db.get(UserIdentity, user_id) if user_id else None
+
+
 # ── Company codes ────────────────────────────────────────────────────
 
 
@@ -192,6 +281,7 @@ async def unmask_for_staff(
     *,
     purpose: str,
     reason: str | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> BusinessIdentity:
     """A company's identity for one admin, staged with its audit row in the
     caller's transaction. ``purpose`` names the screen (``kyb_review``,
@@ -201,7 +291,10 @@ async def unmask_for_staff(
     if business is None:
         raise NotFound("Business not found.")
     identity = await own_identity(db, business_id)
-    _audit(db, staff, "identity.unmasked", business_id, reason, {"purpose": purpose, "company_code": business.company_code})
+    details = {"purpose": purpose, "company_code": business.company_code}
+    if user_id is not None:
+        details["user_id"] = str(user_id)  # the person is opened with it (person_for_staff)
+    _audit(db, staff, "identity.unmasked", business_id, reason, details)
     await _flag_volume(db, staff)
     return identity
 
@@ -225,6 +318,45 @@ async def names_for_staff(
     if shown:
         await _record_listing(staff, purpose, shown)
     return names
+
+
+async def person_for_staff(db: AsyncSession, user_id: uuid.UUID) -> UserIdentity:
+    """The person behind an account an admin has just opened. Call it only
+    after :func:`unmask_for_staff` for their business, whose audit row
+    already records the opening (with ``user_id`` in its details)."""
+    person = await db.get(UserIdentity, user_id)
+    if person is None:
+        raise NotFound("User not found")
+    return person
+
+
+async def people_for_staff(
+    db: AsyncSession, staff: Staff, user_ids: list[uuid.UUID], *, purpose: str
+) -> dict[uuid.UUID, Contact]:
+    """Names and emails for a page of an admin list. Counts against the same
+    hourly budget as company names and leaves an ``identity.listed`` row with
+    ``kind: person`` and how many it showed."""
+    await get_limiter().check(STAFF_NAME_LISTS, str(staff.id))
+    ids = [u for u in user_ids if u is not None]
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(UserIdentity.user_id, UserIdentity.email, UserIdentity.full_name).where(UserIdentity.user_id.in_(ids))
+    )
+    people = {user_id: Contact(email=email, full_name=name) for user_id, email, name in rows}
+    if people:
+        await _record_listing(staff, purpose, len(people), kind="person")
+    return people
+
+
+def person_matches(pattern: str) -> ColumnElement[bool]:
+    """Clause for the admin directory search: accounts whose name or email
+    matches ``pattern`` (an ILIKE pattern)."""
+    return User.id.in_(
+        select(UserIdentity.user_id).where(
+            or_(UserIdentity.email.ilike(pattern), UserIdentity.full_name.ilike(pattern))
+        )
+    )
 
 
 def name_matches(pattern: str) -> ColumnElement[bool]:
@@ -252,12 +384,12 @@ async def _flag_volume(db: AsyncSession, staff: Staff) -> None:
     )
 
 
-async def _record_listing(staff: Staff, purpose: str, count: int) -> None:
+async def _record_listing(staff: Staff, purpose: str, count: int, *, kind: str = "company") -> None:
     """In its own transaction: list pages are reads and their callers don't
     commit, but the trace must stay."""
+    details = {"purpose": purpose, "count": count} if kind == "company" else {"purpose": purpose, "count": count, "kind": kind}
     async with SessionLocal() as audit_db:
-        _audit(audit_db, staff, "identity.listed", staff.id, None, {"purpose": purpose, "count": count},
-               target_type="admin_user")
+        _audit(audit_db, staff, "identity.listed", staff.id, None, details, target_type="admin_user")
         await audit_db.commit()
 
 

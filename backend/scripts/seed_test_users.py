@@ -24,7 +24,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import select  # noqa: E402
 
 from app.core.db import SessionLocal  # noqa: E402
 from app.modules.masking import service as masking  # noqa: E402
@@ -61,18 +60,21 @@ _SEED: list[dict] = [
 
 
 async def _upsert(db, row: dict) -> None:
-    user = await db.scalar(select(User).where(User.email == row["email"]))
+    user = await masking.user_by_email(db, row["email"])
     if user is None:
         business = Business(country="IN")
-        user = User(business=business, email=row["email"], role=UserRole.owner)
+        user = User(business=business, role=UserRole.owner)
         db.add_all([business, user])
+        await db.flush()  # the vault row needs the user id
+        masking.start_person(db, user.id, full_name=row["full_name"], email=row["email"])
     business = user.business
     user.password_hash = hash_password(PASSWORD)
     user.account_status = AccountStatus.active
     user.email_verified_at = NOW - timedelta(days=1)
-    user.full_name = row["full_name"]
+    person = await masking.own_person(db, user.id)
+    person.full_name = row["full_name"]
+    person.phone = row["phone"]
     user.position = row["position"]
-    user.phone = row["phone"]
     user.consent_at = user.consent_at or NOW - timedelta(days=1)
     user.consent_version = user.consent_version or "2026-08-29"
     user.deleted_at = None

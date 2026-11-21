@@ -87,6 +87,7 @@ If it changes the build plan's scope, say so to the user.
 | A-067 | Credits bought before migration 0034 **do not expire**: they were sold as non-expiring, so `plan_credits` starts at 0 for every wallet | 21 Nov 2026 | Built in PR-5 to PR-7 |
 | A-068 | Until an email provider is set up, a non-debug server **may run on the console mailer**: it is logged as `insecure_setting` at startup instead of refused (it writes sign-in codes to the log). The other A-057 refusals stay | 21 Nov 2026 | User |
 | A-069 | **`STRICT_STARTUP`** (default **false**) governs the startup refusals while Railway is a test environment. Off: every A-057 problem is logged as `insecure_setting` and the server starts; missing KYB keys fall back to the development keys with a warning (half-set or malformed keys are still refused); a hosted email provider without API key or sender falls back to the console mailer with `email_provider_fallback`. On: all of these refuse again. **Set `STRICT_STARTUP=true` before go-live** | 21 Nov 2026 | User |
+| A-070 | **CX-149, Option A:** a trader's name, work email and phone move to the vault table **`user_identities`**, read only through `app/modules/masking`; **sign-in reads the vault** (no separate hashed handle). Plain text in the same database for now; encryption and a separate role come with CX-054 for companies and people together. Deleting an account **deletes the vault row**, so the email can sign up again. The hourly job deletes **email codes older than 24 hours** | 21 Nov 2026 | User, PR-8 design note |
 
 ## Proposed: awaiting approval
 
