@@ -328,7 +328,12 @@ def _k(byte: bytes) -> str:
 
 def test_key_config_and_rotation():
     with pytest.raises(crypto.CryptoConfigError):
-        crypto.load_keys(Settings(debug=False, kyb_enc_keys="", kyb_hash_key=""))
+        crypto.load_keys(Settings(debug=False, strict_startup=True, kyb_enc_keys="", kyb_hash_key=""))
+    # Not strict (A-069): missing keys fall back to the development keys...
+    assert crypto.load_keys(Settings(debug=False, kyb_enc_keys="", kyb_hash_key="")).is_dev
+    # ...but a half-set or malformed key is always refused.
+    with pytest.raises(crypto.CryptoConfigError):
+        crypto.load_keys(Settings(debug=False, kyb_enc_keys="", kyb_hash_key=_k(b"h")))
     with pytest.raises(crypto.CryptoConfigError):
         crypto.load_keys(Settings(debug=False, kyb_enc_keys="1:short", kyb_hash_key=_k(b"h")))
     with pytest.raises(crypto.CryptoConfigError):

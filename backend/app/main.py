@@ -49,6 +49,7 @@ def configure_integrations(s: Settings) -> None:
             outbox_dir=s.email_outbox_path,
             http_timeout_sec=s.email_timeout_sec,
             max_attempts=s.email_max_attempts,
+            fallback_to_console=not s.strict_startup,
         )
     )
     configure_sms(
@@ -133,13 +134,17 @@ def docs_urls(s: Settings) -> dict[str, str | None]:
 
 def create_app(s: Settings = settings) -> FastAPI:
     configure_logging(s.log_level, s.log_format)
-    # Refuse to run a non-debug deployment on development defaults.
+    # A non-debug deployment on development defaults: refused when
+    # STRICT_STARTUP is on (go-live), logged and allowed while it is off (A-069).
     if not s.debug and (problems := s.insecure_defaults()):
-        raise RuntimeError("Insecure configuration with DEBUG=false: " + "; ".join(problems))
+        if s.strict_startup:
+            raise RuntimeError("Insecure configuration with DEBUG=false: " + "; ".join(problems))
+        for problem in problems:
+            log.warning("insecure_setting %s (refused once STRICT_STARTUP=true)", problem)
     if not s.debug and not s.test_harness:
         for warning in s.startup_warnings():
             log.warning("insecure_setting %s", warning)
-    # KYB field encryption: refuse to start without real keys in production.
+    # KYB field encryption: without keys, refused when strict, development keys otherwise.
     if crypto.check_keys(s):
         log.warning("KYB encryption is using the DEVELOPMENT key — set KYB_ENC_KEYS and KYB_HASH_KEY in production.")
     configure_integrations(s)

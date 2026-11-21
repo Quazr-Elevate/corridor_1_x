@@ -309,9 +309,54 @@ def test_insecure_defaults_refused():
     from app.core.config import Settings
     from app.main import create_app
 
-    s = Settings(debug=False, session_secret="dev-only-session-secret-change-me")
+    s = Settings(debug=False, strict_startup=True, session_secret="dev-only-session-secret-change-me")
     with pytest.raises(RuntimeError, match="SESSION_SECRET"):
         create_app(s)
+
+
+def test_relaxed_startup_logs_instead_of_refusing(caplog, monkeypatch):
+    """STRICT_STARTUP off (the default, A-069): a test deployment on weak
+    settings and without KYB keys still starts, with warnings."""
+    import logging
+
+    import app.main as main
+    from app.core.config import Settings
+
+    # Keep the suite's limiter, storage and logging as they are.
+    monkeypatch.setattr(main, "configure_integrations", lambda s: None)
+    monkeypatch.setattr(main, "configure_logging", lambda *a: None)
+    s = Settings(
+        debug=False, test_harness=False, session_secret="dev-only-session-secret-change-me",
+        kyb_enc_keys="", kyb_hash_key="", rate_limit_enabled=False,
+    )
+    assert s.strict_startup is False
+    with caplog.at_level(logging.WARNING):
+        main.create_app(s)
+    logged = caplog.text
+    assert "SESSION_SECRET" in logged and "RATE_LIMIT_ENABLED" in logged and "DEVELOPMENT key" in logged
+
+
+def test_a_hosted_mailer_without_a_key_falls_back_to_the_console(caplog):
+    import logging
+
+    import pytest
+
+    from app.integrations.email import factory
+    from app.integrations.email.base import EmailConfig
+    from app.integrations.email.providers import ConsoleProvider
+
+    saved = factory._config, factory._provider
+    try:
+        factory.configure(EmailConfig(provider="resend", api_key="", from_address="", fallback_to_console=True))
+        with caplog.at_level(logging.WARNING):
+            assert isinstance(factory.get_provider(), ConsoleProvider)
+        assert "email_provider_fallback" in caplog.text
+        # Strict: the misconfiguration surfaces instead.
+        factory.configure(EmailConfig(provider="resend", api_key="", from_address=""))
+        with pytest.raises(RuntimeError):
+            factory.get_provider()
+    finally:
+        factory._config, factory._provider = saved
 
 
 def test_production_refuses_development_settings():

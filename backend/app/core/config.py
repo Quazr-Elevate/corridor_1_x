@@ -175,6 +175,13 @@ class Settings(BaseSettings):
     # upstream APIs (offline dev). Never enable in production.
     lookups_stub: bool = False
 
+    # ─── Startup checks ──────────────────────────────────────────
+    # Off while Railway is a test environment (A-069): with DEBUG off, every
+    # check in insecure_defaults() and missing KYB keys are logged as
+    # warnings and the server starts. Set STRICT_STARTUP=true at go-live and
+    # they refuse to start again.
+    strict_startup: bool = False
+
     # ─── Test suite ──────────────────────────────────────────────
     # Set by tests/conftest.py only. Lets the suite run with DEBUG off on
     # SQLite, the console mailer and plain-HTTP cookies. Never set it on a server.

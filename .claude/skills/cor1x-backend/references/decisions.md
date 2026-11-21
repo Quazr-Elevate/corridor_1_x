@@ -86,6 +86,7 @@ If it changes the build plan's scope, say so to the user.
 | A-066 | Per-country rules, quota and group documents, and per-category required documents are **admin-managed through the API** in this batch (`/admin/kyb/countries/{code}/rules`, `/links`, `/admin/listing-templates/category-requirements/{category}`); their console screens come later | 21 Nov 2026 | Built in PR-5 to PR-7 |
 | A-067 | Credits bought before migration 0034 **do not expire**: they were sold as non-expiring, so `plan_credits` starts at 0 for every wallet | 21 Nov 2026 | Built in PR-5 to PR-7 |
 | A-068 | Until an email provider is set up, a non-debug server **may run on the console mailer**: it is logged as `insecure_setting` at startup instead of refused (it writes sign-in codes to the log). The other A-057 refusals stay | 21 Nov 2026 | User |
+| A-069 | **`STRICT_STARTUP`** (default **false**) governs the startup refusals while Railway is a test environment. Off: every A-057 problem is logged as `insecure_setting` and the server starts; missing KYB keys fall back to the development keys with a warning (half-set or malformed keys are still refused); a hosted email provider without API key or sender falls back to the console mailer with `email_provider_fallback`. On: all of these refuse again. **Set `STRICT_STARTUP=true` before go-live** | 21 Nov 2026 | User |
 
 ## Proposed: awaiting approval
 
