@@ -380,6 +380,7 @@ function ListingDetail({
   footer: React.ReactNode;
 }) {
   const p = detail.listing;
+  const awaitingDecision = detail.reviewKind === "new" || detail.reviewKind === "revision";
   const rows: Array<[string, string | null]> = [
     ["Category", p.category],
     ["Grade", p.grade],
@@ -415,7 +416,13 @@ function ListingDetail({
       </div>
 
       {detail.leakFlags.length ? (
-        <Notice tone="move" title="Check this text before approving" className="mt-6">
+        // Worded as a call to act only while there is something to approve;
+        // on a published or rejected listing it is context for the reader.
+        <Notice
+          tone={awaitingDecision ? "move" : "info"}
+          title={awaitingDecision ? "Check this text before approving" : "Reviewer flags"}
+          className="mt-6"
+        >
           <ul className="space-y-1">
             {detail.leakFlags.map((f) => (
               <li key={f.field}>

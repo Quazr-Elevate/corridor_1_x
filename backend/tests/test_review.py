@@ -35,7 +35,7 @@ async def test_only_set_up_countries_can_be_picked(client):
     r = await client.put(
         "/me/business-profile", json={"legalName": "C Foods Pvt Ltd", "country": "SA", "addressLine": "1 Road", "city": "Riyadh"}
     )
-    assert r.status_code == 400 and "doesn’t onboard" in r.json()["detail"]
+    assert r.status_code == 400 and "isn't onboarded yet" in r.json()["detail"]
 
 
 async def test_admin_adds_country_with_required_documents(client, admin_client):
@@ -82,7 +82,7 @@ async def test_last_required_document_is_protected(admin_client):
 async def test_reject_flags_items_and_rejects_those_documents(client, admin_client):
     body = await _submitted(client, admin_client)
     uid = body["userId"]
-    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "x", "failedItems": ["nope"]})
+    r = await admin_client.post(f"/admin/users/{uid}/reject", json={"reason": "The address is wrong.", "failedItems": ["nope"]})
     assert r.status_code == 400 and "Unknown item" in r.json()["detail"]
     r = await admin_client.post(
         f"/admin/users/{uid}/reject",

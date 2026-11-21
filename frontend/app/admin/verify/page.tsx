@@ -20,7 +20,13 @@ import { HoldButton, Segmented } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
-import { DOC_REJECT_REASONS, RejectSheet, USER_REJECT_REASONS, type RejectItem } from "@/components/admin/RejectSheet";
+import {
+  DOC_REJECT_REASONS,
+  RejectSheet,
+  USER_REJECT_REASONS,
+  businessRejectItems,
+  type RejectItem,
+} from "@/components/admin/RejectSheet";
 import { AccessScope, useAccessReason } from "@/components/admin/AccessReason";
 import { ClearQueue } from "@/components/admin/ClearQueue";
 import { LaneHeader } from "@/components/admin/tower";
@@ -70,26 +76,9 @@ function rowSub(row: VerifyQueueRow) {
   return row.reviewKind === "documents" ? `New documents · ${base}` : base;
 }
 
-/** Key of a KYB entry in failed items — mirrors the backend. */
-function entryKey(doc: VerifyDoc): string {
-  return doc.documentTypeCode ? `kyb:${doc.documentTypeCode}` : `doc:${doc.id}`;
-}
-
 /** What the admin can tick when rejecting a business. */
 function rejectItems(row: VerifyQueueRow, detail?: UserDetail | null): RejectItem[] {
-  const docs = detail?.docs ?? row.docs;
-  const missing = detail?.missingMandatoryFields ?? row.missingFields;
-  return [
-    ...MANDATORY_FIELDS.map((f) => ({ key: f.key, label: f.label, sub: "Company profile" })),
-    ...docs.map((d) => ({
-      key: entryKey(d),
-      label: d.certType,
-      sub: `Document · ${d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : "to check"}`,
-    })),
-    ...missing
-      .filter(isDocumentKey)
-      .map((k) => ({ key: k, label: fieldByKey(k)?.label ?? k, sub: "Required document · not added" })),
-  ];
+  return businessRejectItems(detail?.docs ?? row.docs, detail?.missingMandatoryFields ?? row.missingFields);
 }
 
 export default function KybReviewsPage() {

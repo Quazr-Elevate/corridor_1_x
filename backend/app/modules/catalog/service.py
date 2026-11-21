@@ -24,6 +24,7 @@ from app.core.errors import (
     UnsupportedMediaType,
 )
 from app.core.time import utcnow
+from app.modules.verification.rules import configured_countries
 from app.integrations.storage import IMAGE_TYPES, StorageError, detect, get_storage
 from app.models.business import Business
 from app.models.contact_reveal import ContactReveal
@@ -456,6 +457,7 @@ async def read_products(db: AsyncSession, products: list[Product]) -> list[Produ
                 status=p.status, submitted_at=p.submitted_at, published_at=p.published_at,
                 rejection_reason=p.rejection_reason,
                 pending_revision=_revision_out(revision, revision_specs),
+                has_pending_revision=bool(revision),
                 revision_submitted_at=p.revision_submitted_at,
                 revision_rejection_reason=p.revision_rejection_reason,
                 missing=missing, created_at=p.created_at, updated_at=p.updated_at,
@@ -484,10 +486,18 @@ async def get_own_product(db: AsyncSession, user: User, product_id: uuid.UUID | 
 
 
 async def _normalise(db: AsyncSession, changes: dict[str, Any]) -> dict[str, Any]:
-    """Clean a payload's values (photos exist, currency supported, blanks → null)."""
+    """Clean a payload's values (photos exist, currency supported, origin
+    onboarded, validity date not past, blanks → null)."""
     for field in _BLANK_TO_NONE:
         if field in changes and not changes[field]:
             changes[field] = None
+    if changes.get("origin_country"):
+        # The same list the listing form offers: the countries Corridor onboards.
+        onboarded = await configured_countries(db)
+        if changes["origin_country"] not in onboarded:
+            raise BadRequest(f"Choose a country of origin we trade: {', '.join(onboarded)}.")
+    if changes.get("price_valid_until") is not None and changes["price_valid_until"] < utcnow().date():
+        raise BadRequest("The price validity date has passed. Choose today or a later date.")
     if "currency" in changes:
         changes["currency"] = fx.ensure_supported(changes["currency"])
     if "photos" in changes:
@@ -568,7 +578,34 @@ def _json_safe(value: Any) -> Any:
 
 
 def _from_revision(field: str, value: Any) -> Any:
-    return Decimal(value) if field == "capacity_per_month" and value is not None else value
+    return Decimal(value) if field in _DECIMAL_REVISION_FIELDS and value is not None else value
+
+
+#: Price fields that go to the reviewer together when the price swings.
+_PRICE_FIELDS = frozenset({"price_min", "price_max", "currency"})
+_DECIMAL_REVISION_FIELDS = frozenset({"capacity_per_month", "price_min", "price_max"})
+#: How far the price of a live listing may move without a review (20%).
+PRICE_REVIEW_SWING = Decimal("0.20")
+
+
+def _price_swings(product: Product, live: dict[str, Any]) -> bool:
+    """Whether this edit moves a live listing's price by more than
+    :data:`PRICE_REVIEW_SWING` from the approved one, or changes its currency."""
+    if "currency" in live and live["currency"] != product.currency:
+        return True
+    for field, column in (("price_min", "price_per_unit"), ("price_max", "price_max")):
+        old, new = getattr(product, column), live.get(field)
+        if field not in live or old is None or new is None or old == 0:
+            continue
+        if abs(Decimal(new) - old) / old > PRICE_REVIEW_SWING:
+            return True
+    return False
+
+
+async def apply_revision(db: AsyncSession, product: Product, fields: dict[str, Any]) -> None:
+    """Write an approved revision to the listing (request names, as stored in
+    ``pending_revision``), keeping the USD price mirror in step."""
+    await _set_fields(db, product, {f: _from_revision(f, v) for f, v in fields.items()})
 
 
 async def update_product(db: AsyncSession, user: User, product_id: uuid.UUID | None, payload: ProductUpdate) -> Product:
@@ -600,11 +637,14 @@ async def update_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
         return product
 
     live = {f: v for f, v in changes.items() if f in LIVE_FIELDS}
-    await _set_fields(db, product, live)
+    # A big price move (or a new currency) goes to the reviewer with the rest
+    # of the price, so a seller can't swing it to bait buyers or game ranking.
+    reviewed_price = _PRICE_FIELDS & live.keys() if _price_swings(product, live) else set()
+    await _set_fields(db, product, {f: v for f, v in live.items() if f not in reviewed_price})
 
     current = _listing_values(product)
     revision = dict(product.pending_revision or {})
-    for field in _REVIEWED_FIELDS:
+    for field in (*_REVIEWED_FIELDS, *sorted(reviewed_price)):
         if field not in changes:
             continue
         if changes[field] == current[field]:

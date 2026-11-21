@@ -172,7 +172,9 @@ export function KybSection({
       ) : (
         <button
           type="button"
-          onClick={() => setAdding(available.find((t) => !t.isMandatory)?.id ?? OTHER)}
+          // Start on "Other…" (name, number and copy), as onboarding does; the
+          // optional listed documents are one pick away in the same menu.
+          onClick={() => setAdding(OTHER)}
           className="well flex w-full items-center justify-center gap-2 rounded-[22px] px-4 py-4 text-[14px] font-medium text-fg-2 transition-colors hover:text-fg"
         >
           <Icon name="plus" size={16} />

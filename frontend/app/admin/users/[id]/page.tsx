@@ -33,6 +33,7 @@ import {
   DOC_REJECT_REASONS,
   RejectSheet,
   USER_REJECT_REASONS,
+  businessRejectItems,
 } from "@/components/admin/RejectSheet";
 import { AccessReasonCancelled, AccessScope, useAccessReason } from "@/components/admin/AccessReason";
 import { DocCard, KeyValue, StatusChip, TwinFlags, useUnopenedDocs } from "@/components/admin/parts";
@@ -48,14 +49,14 @@ type FieldMeta = { label: string; kind?: FieldKind; wide?: boolean; mono?: boole
 type FieldDef =
   | ({ source: "profile"; key: ProfilePatchKey } & FieldMeta)
   | ({ source: "business"; key: BusinessPatchKey } & FieldMeta);
-type FieldKind = "text" | "textarea" | "list" | "trade" | "entity" | "tel" | "url";
+type FieldKind = "text" | "textarea" | "list" | "trade" | "entity" | "tel" | "url" | "country";
 
 /** Profile fields required for KYB (required documents come from the server). */
 const MANDATORY_FIELDS: FieldDef[] = [
   { key: "legalName", label: "Company name", source: "business" },
   { key: "addressLine", label: "Registered address", source: "business", wide: true },
   { key: "city", label: "City", source: "business" },
-  { key: "country", label: "Country", source: "business", mono: true, hint: "2-letter code, e.g. IN or AE." },
+  { key: "country", label: "Country", source: "business", kind: "country" },
 ];
 
 const OPTIONAL_FIELDS: FieldDef[] = [
@@ -280,9 +281,9 @@ export default function AccountDetailPage() {
     }
   };
 
-  const rejectUser = async (reason: string) => {
+  const rejectUser = async (reason: string, failedItems: string[]) => {
     if (!user) return;
-    await adminApi.rejectUser(user.userId, reason);
+    await adminApi.rejectUser(user.userId, reason, failedItems);
     toast(`${user.businessName || user.email} ${user.status === "verified" ? "badge revoked" : "rejected"}`);
     setActionErr(null);
     await load();
@@ -646,6 +647,7 @@ export default function AccountDetailPage() {
         description={`${user.businessName || "They"} will see your reason on their next sign-in.`}
         quickReasons={USER_REJECT_REASONS}
         submitLabel={user.status === "verified" ? "Revoke" : "Reject"}
+        items={businessRejectItems(user.docs, user.missingMandatoryFields ?? [])}
         onSubmit={rejectUser}
       />
       <RejectSheet
@@ -746,6 +748,27 @@ function BackLink() {
   );
 }
 
+/** The countries Corridor has onboarded (active), loaded once per page visit. */
+let countriesOnce: Promise<{ value: string; label: string }[]> | null = null;
+function useCountryOptions(): { value: string; label: string }[] {
+  const [opts, setOpts] = useState<{ value: string; label: string }[]>([]);
+  useEffect(() => {
+    countriesOnce ??= adminApi
+      .kybCountries()
+      .then((cs) => cs.filter((c) => c.active).map((c) => ({ value: c.code, label: `${c.name} (${c.code})` })))
+      .catch(() => {
+        countriesOnce = null;
+        return [];
+      });
+    let live = true;
+    void countriesOnce.then((o) => live && setOpts(o));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return opts;
+}
+
 function FieldGrid({
   fields,
   user,
@@ -763,6 +786,7 @@ function FieldGrid({
   missing: string[];
   onChange: (key: string, value: string) => void;
 }) {
+  const countries = useCountryOptions();
   return (
     <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
       {fields.map((f) => {
@@ -790,6 +814,12 @@ function FieldGrid({
           }
           if (f.kind === "entity") {
             const opts = ENTITY_OPTIONS.some((o) => o.value === value) ? ENTITY_OPTIONS : [...ENTITY_OPTIONS, { value, label: value }];
+            return <Select key={k} {...common} value={value} options={opts} onChange={(e) => onChange(k, e.target.value)} />;
+          }
+          if (f.kind === "country") {
+            // A code that isn't onboarded (old data) stays visible so the admin sees what to change.
+            const known = countries.some((o) => o.value === value);
+            const opts = known || !value ? countries : [...countries, { value, label: `${value} (not onboarded)` }];
             return <Select key={k} {...common} value={value} options={opts} onChange={(e) => onChange(k, e.target.value)} />;
           }
           if (f.kind === "trade") {

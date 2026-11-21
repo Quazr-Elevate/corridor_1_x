@@ -76,7 +76,7 @@ async def test_reject_unknown_keys_refused(client, admin_client):
 async def test_cant_reject_already_rejected(client, admin_client):
     email, _ = await _ready_business(client, admin_client)
     uid = await user_id_for(admin_client, email)
-    body = {"reason": "first", "failedItems": ["legalName"]}
+    body = {"reason": "The company name is wrong.", "failedItems": ["legalName"]}
     assert (await admin_client.post(f"/admin/users/{uid}/reject", json=body)).status_code == 200
     assert (await admin_client.post(f"/admin/users/{uid}/reject", json=body)).status_code == 409
 

@@ -346,6 +346,8 @@ export interface ProductRead {
   rejectionReason: string | null;
   /** Edits to a published listing still waiting for a reviewer. */
   pendingRevision: (Record<string, unknown> & { specs?: ProductSpec[] }) | null;
+  /** True while edits (or a big price change) wait for a reviewer; the listing shown is the approved one. */
+  hasPendingRevision: boolean;
   revisionSubmittedAt: string | null;
   revisionRejectionReason: string | null;
   /** What is still needed before the listing can be submitted. */

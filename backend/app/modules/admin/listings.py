@@ -26,7 +26,7 @@ class ListingApproveIn(RequestModel):
 
 
 class ListingRejectIn(RequestModel):
-    reason: text(500, 1)  # type: ignore[valid-type]
+    reason: text(500)  # type: ignore[valid-type]  # at least 10 characters: clean_reason
 
 
 class CertificateVisibilityIn(RequestModel):

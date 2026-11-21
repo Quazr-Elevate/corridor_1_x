@@ -156,7 +156,7 @@ async def test_same_gstin_cannot_belong_to_two_businesses(client, make_client, a
 
     # A rejected claim stops blocking the real owner.
     first = (await client.get("/me/verification-docs")).json()["items"][0]
-    assert (await admin_client.post(f"/admin/docs/{first['id']}/reject", json={"reason": "Not yours"})).status_code == 200
+    assert (await admin_client.post(f"/admin/docs/{first['id']}/reject", json={"reason": "This GSTIN belongs to another company."})).status_code == 200
     assert (await _add(other, type_id=t["gstin"]["id"], value=GSTIN)).status_code == 201
 
 
@@ -185,7 +185,7 @@ async def test_update_entry_goes_back_to_review(client, admin_client):
     await signup_and_login(client, "upd@kaverifoods.in")
     t = await _types(client)
     entry = (await _add(client, type_id=t["fssai"]["id"], value="12345678901234", file=PDF_BYTES)).json()
-    assert (await admin_client.post(f"/admin/docs/{entry['id']}/reject", json={"reason": "Expired"})).status_code == 200
+    assert (await admin_client.post(f"/admin/docs/{entry['id']}/reject", json={"reason": "The certificate has expired."})).status_code == 200
 
     base = f"/me/verification-docs/{entry['id']}"
     assert (await client.patch(base, data={})).status_code == 400

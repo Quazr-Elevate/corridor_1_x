@@ -114,6 +114,13 @@ UNKNOWN_FIELD = "request.unknown_field"
 _HTTP_CODES = {404: "resource.not_found", 405: "request.method_not_allowed"}
 # Where a value came from is not part of the field's name.
 _LOC_PREFIXES = {"body", "query", "path", "header", "cookie"}
+# Pydantic adds the union branch or validator chain it tried to the location
+# ("function-after[...]", "str", "literal['']"); a person needs only the field.
+_LOC_TAGS = {"str", "int", "float", "bool", "list", "dict", "none", "date", "datetime", "decimal"}
+
+
+def _is_loc_tag(part: str) -> bool:
+    return "[" in part or part.lower() in _LOC_TAGS
 
 
 def error_body(detail: str, code: str, fields: list[dict[str, str]] | None = None) -> dict:
@@ -133,6 +140,7 @@ def _validation_fields(exc: RequestValidationError) -> list[dict[str, str]]:
         loc = [str(part) for part in err.get("loc", ())]
         if loc and loc[0] in _LOC_PREFIXES:
             loc = loc[1:]
+        loc = [part for part in loc if not _is_loc_tag(part)]
         if _is_unknown_field(err):
             message = "This field is not accepted."
         else:

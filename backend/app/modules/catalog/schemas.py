@@ -96,6 +96,13 @@ class ProductUpdate(RequestModel):
             raise ValueError("MOQ can't be larger than the available quantity.")
         return moq
 
+    @field_validator("price_min", "price_max")
+    @classmethod
+    def _price_above_zero(cls, price: Decimal | None) -> Decimal | None:
+        if price is not None and price <= 0:
+            raise ValueError("Price must be greater than 0.")
+        return price
+
     @field_validator("price_max")
     @classmethod
     def _max_not_below_min(cls, price_max: Decimal | None, info: ValidationInfo) -> Decimal | None:
@@ -171,6 +178,9 @@ class ProductRead(CamelModel):
     # Edits to a published listing that a reviewer has not approved yet
     # (camelCase field → proposed value); the published values stay live.
     pending_revision: dict | None = None
+    #: True when this save (or an earlier one) is waiting for a reviewer: the
+    #: listing shown is still the approved version (see ``pendingRevision``).
+    has_pending_revision: bool = False
     revision_submitted_at: datetime | None = None
     revision_rejection_reason: str | None = None
     # What is still needed before this listing can be submitted.
