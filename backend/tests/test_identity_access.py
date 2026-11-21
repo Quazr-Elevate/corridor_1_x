@@ -167,7 +167,7 @@ async def test_admin_unlocks_support_lock(client, make_client, admin_client):
         await db.commit()
     c = make_client()
     assert (await _login(c, email)).status_code == 423
-    detail = (await admin_client.get(f"/admin/users/{body['userId']}")).json()
+    detail = (await admin_client.post(f"/admin/users/{body['userId']}/open", json={"reason": "KYB review of this business"})).json()
     assert detail["security"]["lockState"] == "support"
     assert (await admin_client.post(f"/admin/users/{body['userId']}/unlock")).status_code == 200
     assert (await _login(c, email)).status_code == 200

@@ -142,7 +142,7 @@ async def test_review_flow_reject_fix_resubmit_approve(client, make_client, admi
     assert (await admin_client.post(f"/admin/listings/{pid}/approve")).status_code == 409
 
     async with SessionLocal() as db:
-        actions = list(await db.scalars(select(AdminAction).order_by(AdminAction.created_at)))
+        actions = list(await db.scalars(select(AdminAction).where(AdminAction.action != "identity.listed").order_by(AdminAction.created_at)))
     assert [a.action for a in actions] == ["listing.reject", "listing.approve"]
     assert actions[0].reason == "Photo shows a company logo." and actions[0].target_id == pid
 
@@ -402,7 +402,11 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
 
     r = await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "public"})
     assert r.status_code == 422
-    r = await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "downloadable"})
+    vis = f"/admin/listings/{pid}/certificates/{cert['id']}/visibility"
+    # The reviewer has to say the file shows no name, logo or address (C20).
+    r = await admin_client.post(vis, json={"visibility": "downloadable"})
+    assert r.status_code == 400 and "no company name" in r.json()["detail"]
+    r = await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
     assert r.status_code == 200 and r.json()["visibility"] == "downloadable"
 
     # Downloadable: listed by type name only (the filename can name the seller).
@@ -413,6 +417,10 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     assert (await unverified.get(cert["url"])).status_code == 404
     r = await buyer.get(cert["url"])
     assert r.status_code == 200 and r.content == PDF_BYTES and r.headers["cache-control"] == "private, no-store"
+    # The buyer's copy is named for the seller's code, never the seller's own file name.
+    code = (await guest.get(f"/public/products/{pid}")).json()["seller"]["companyCode"]
+    assert f'filename="{code}-coa.pdf"' in r.headers["content-disposition"]
+    assert "Kaveri" not in r.headers["content-disposition"]
 
     async with SessionLocal() as db:
         downloads = list(await db.scalars(select(CertificateDownload)))
@@ -432,7 +440,7 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     assert actions[-2:] == ["listing.certificate_visibility", "listing.certificate_viewed"]
 
     # A paused listing's certificate is out of reach again.
-    await admin_client.post(f"/admin/listings/{pid}/certificates/{cert['id']}/visibility", json={"visibility": "downloadable"})
+    await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
     await client.post(f"/products/{pid}/pause")
     assert (await buyer.get(cert["url"])).status_code == 404
 
@@ -547,3 +555,27 @@ async def test_an_inconsistent_price_or_moq_names_the_field_to_fix(client):
     r = await client.patch(f"/products/{pid}", json={"quantity": "10", "moq": "25"})
     assert r.json()["fields"] == [{"field": "moq", "message": "MOQ can't be larger than the available quantity."}]
     assert r.json()["detail"] == "moq: MOQ can't be larger than the available quantity."
+
+
+async def test_a_flagged_listing_needs_a_super_admins_reason_to_go_out(client, admin_client, make_client):
+    from test_admin_accounts import _new_admin
+
+    await _seller(client, "flagged@kaverifoods.in")
+    p = await complete_listing(client, description="Steam basmati. WhatsApp for samples.")
+    assert (await client.post(f"/products/{p['id']}/submit")).status_code == 200
+    url = f"/admin/listings/{p['id']}/approve"
+
+    _, reviewer = await _new_admin(admin_client, make_client)
+    r = await reviewer.post(url)
+    assert r.status_code == 409 and "may reveal the seller" in r.json()["detail"]
+    assert "description: asks to be contacted directly" in r.json()["detail"]
+    r = await reviewer.post(url, json={"overrideReason": "Checked: samples go through the desk"})
+    assert r.status_code == 403
+    assert (await admin_client.post(url, json={"overrideReason": "short"})).status_code == 422
+
+    r = await admin_client.post(url, json={"overrideReason": "Checked: samples go through the desk"})
+    assert r.status_code == 200 and r.json()["status"] == "published"
+    async with SessionLocal() as db:
+        row = await db.scalar(select(AdminAction).where(AdminAction.action == "listing.approve"))
+    assert row.details["leakOverride"] == "Checked: samples go through the desk"
+    assert row.details["leakFlags"] == ["description"]

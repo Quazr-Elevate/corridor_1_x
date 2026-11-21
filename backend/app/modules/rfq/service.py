@@ -35,6 +35,7 @@ from app.modules.catalog.queries import visible_products_select
 from app.modules.credits import service as credits
 from app.modules.deals import machine
 from app.modules.deals.machine import Actor
+from app.modules.masking import service as masking
 from app.modules.rfq import matching, seed
 from app.modules.rfq.schemas import (
     CertificateNeed,
@@ -136,8 +137,12 @@ async def _clean_certificates(db: AsyncSession, category: str, ids: list[str]) -
     return wanted
 
 
-def _refuse_leaks(values: dict[str, Any]) -> None:
-    found = leakfilter.check_all({f: values.get(f) for f in LEAK_CHECKED if isinstance(values.get(f), str)})
+async def _refuse_leaks(db: AsyncSession, business_id: uuid.UUID, values: dict[str, Any]) -> None:
+    """RFQ text must not carry a way to reach the buyer, or the buyer's own name."""
+    texts = {f: values.get(f) for f in LEAK_CHECKED if isinstance(values.get(f), str)}
+    if not texts:
+        return
+    found = leakfilter.check_all(texts, await masking.legal_name_for_text_check(db, business_id))
     for field, result in found.items():
         if result.blocked:
             reasons = list(result.reasons)
@@ -164,7 +169,7 @@ async def _apply(db: AsyncSession, rfq: Rfq, changes: dict[str, Any], payload: R
     for field in _BLANK_TO_NONE:
         if field in changes:
             changes[field] = (changes[field] or "").strip() or None
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, rfq.buyer_business_id, changes)
     specs = changes.pop("specs", None)
     certificate_ids = changes.pop("certificate_type_ids", None)
     category_changed = "category" in changes and changes["category"] != rfq.category

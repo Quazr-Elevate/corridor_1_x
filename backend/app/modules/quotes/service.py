@@ -38,6 +38,7 @@ from app.modules.credits import service as credits
 from app.modules.deals import machine
 from app.modules.deals.machine import Actor
 from app.modules.fx import service as fx
+from app.modules.masking import service as masking
 from app.modules.quotes.schemas import (
     CostSheetIn,
     CostSheetRead,
@@ -96,8 +97,9 @@ async def save_quote(db: AsyncSession, user: User, rfq_id: uuid.UUID | None, pay
         raise BadRequest(f"Quote per {rfq.unit}, the unit the buyer asked in.")
     notes = (payload.notes or "").strip() or None
     port = (payload.port_of_loading or "").strip() or None
+    own_name = await masking.legal_name_for_text_check(db, user.business_id)
     for label, value in (("notes", notes), ("port of loading", port)):
-        found = leakfilter.check(value)
+        found = leakfilter.check(value, own_name)
         if found.blocked:
             raise BadRequest(f"Remove the {' and '.join(found.reasons)} from the {label}. Buyers reach you through Corridor One X.")
 

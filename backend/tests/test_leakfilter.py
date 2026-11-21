@@ -24,6 +24,12 @@ from app.shared.leakfilter import Verdict, check, check_all, mentions
         ("catalogue on kaverifoods.com/rice", "web address"),
         ("https://wa.me/919876543210", "web address"),
         ("message @kaveri_foods", "messaging handle"),
+        ("IG: kaverifoods", "messaging handle"),
+        ("kaverifoods dot com", "web address"),
+        ("visit kaverifoods (.) in", "web address"),
+        ("w w w . kaverifoods . in", "web address"),
+        ("9 8 7 6 5 / 4 3 2 1 0", "phone number"),
+        ("98765 43210 kg", "phone number"),
     ],
 )
 def test_blocked(text, reason):
@@ -40,6 +46,8 @@ def test_blocked(text, reason):
         ("Milled by Kaveri Foods Pvt Ltd", "may name a company"),
         ("Supplied by Gulf Grain LLC", "may name a company"),
         ("Sharma & Sons quality", "may name a company"),
+        ("Kaveri Foods Limited quality", "may name a company"),
+        ("Reach our team on W h a t s A p p", "asks to be contacted directly"),
     ],
 )
 def test_sent_to_review(text, reason):
@@ -60,6 +68,10 @@ def test_sent_to_review(text, reason):
         "Two grades, one for export and one for domestic. Packed in 5, 10 and 25 kg.",
         "Ships in two to three weeks from the mill at 30 C storage",
         "Grade A at 5% broken; ISO 22000 and FSSAI certified mill",
+        "Packed in 25 kg, 50 kg bags; 1000 2000 5000 MT per month",
+        "Limited stock available this season",
+        "Supplies are limited until March",
+        "Delivery 01/12/2026 - 15/12/2026",
     ],
 )
 def test_ordinary_listing_text_passes(text):
@@ -75,6 +87,13 @@ def test_block_wins_over_review_and_lists_every_reason():
 def test_check_all_returns_only_the_fields_that_fail():
     found = check_all({"name": "1121 Basmati", "description": "call me on 9876543210", "grade": None})
     assert list(found) == ["description"]
+
+
+def test_the_writers_own_name_is_blocked_when_it_has_two_words():
+    assert check("Find us on google: Kaveri Foods Karnal", "Kaveri Foods Pvt Ltd").reasons == ("company name",)
+    # A one-word name is too often a trade word; the reviewer sees it instead.
+    assert check("Basmati at its best", "Basmati Pvt Ltd").verdict is Verdict.PASS
+    assert check("Find us on google: Kaveri Foods Karnal").verdict is Verdict.PASS
 
 
 def test_mentions_finds_the_company_name_without_its_suffix():
@@ -96,10 +115,11 @@ async def test_listing_text_goes_through_the_filter(client, admin_client):
     pid = r.json()["id"]
     r = await client.patch(f"/products/{pid}", json={"description": "see www.kaverifoods.in"})
     assert r.status_code == 400 and "web address" in r.json()["detail"]
+    # The seller's own name is refused as it is written (C25).
+    r = await client.patch(f"/products/{pid}", json={"description": "From the Kaveri Foods mill."})
+    assert r.status_code == 400 and "company name" in r.json()["detail"]
     # Text that only needs a second look is saved, and the reviewer is told why.
-    r = await client.patch(f"/products/{pid}", json={"description": "From the Kaveri Foods mill. WhatsApp for samples."})
+    r = await client.patch(f"/products/{pid}", json={"description": "Our mill. WhatsApp for samples."})
     assert r.status_code == 200, r.text
     detail = (await admin_client.get(f"/admin/listings/{pid}")).json()
-    assert detail["leakFlags"] == [
-        {"field": "description", "reasons": ["asks to be contacted directly", "names the seller"]}
-    ]
+    assert detail["leakFlags"] == [{"field": "description", "reasons": ["asks to be contacted directly"]}]

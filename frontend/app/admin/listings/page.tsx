@@ -13,11 +13,13 @@ import { assetUrl, type ProductCertificate, type ProductRead, type ProductSpec }
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
-import { HoldButton, Segmented } from "@/components/ui/Controls";
+import { Checkbox, HoldButton, Segmented } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
+import { Sheet } from "@/components/ui/Sheet";
 import { useToast } from "@/components/ui/Toast";
 import { RejectSheet } from "@/components/admin/RejectSheet";
+import { useTower } from "@/components/shell/TowerShell";
 import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo, fmtBytes, refId } from "@/components/admin/format";
 import { formatQty, priceRangeFigure, specValue } from "@/components/products/format";
@@ -36,6 +38,11 @@ const REJECT_REASONS = [
   "The specifications don’t match the grade stated.",
   "The price range is not realistic for this product. Check the unit and currency.",
   "A document is unreadable or expired. Upload a current copy.",
+] as const;
+
+const OVERRIDE_REASONS = [
+  "Checked: the flagged words are ordinary trade terms, not contact details.",
+  "Checked: the name is a product or variety name, not the seller's.",
 ] as const;
 
 const FIELD_LABEL: Record<string, string> = {
@@ -62,6 +69,11 @@ export default function ListingReviewPage() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [overriding, setOverriding] = useState(false);
+  // A certificate waiting for the reviewer's "no name, logo or address" before buyers can download it.
+  const [releasing, setReleasing] = useState<ProductCertificate | null>(null);
+  const [checked, setChecked] = useState(false);
+  const { can } = useTower();
 
   const load = useCallback(async (which: Queue) => {
     setError(null);
@@ -118,6 +130,8 @@ export default function ListingReviewPage() {
   };
 
   const waiting = detail?.reviewKind !== null && detail?.reviewKind !== undefined;
+  // Flagged text blocks a plain approval; only a super admin can send it out, with a reason.
+  const flagged = !!detail?.leakFlags.length;
 
   return (
     <div>
@@ -216,21 +230,36 @@ export default function ListingReviewPage() {
             <ListingDetail
               detail={detail}
               busy={busy}
-              onCertificate={(cert, visibility) =>
+              onCertificate={(cert, visibility) => {
+                if (visibility === "downloadable") {
+                  setChecked(false);
+                  setReleasing(cert);
+                  return;
+                }
                 decide(
                   () => adminApi.setCertificateVisibility(detail.listing.id, cert.id, visibility),
-                  visibility === "downloadable" ? "Buyers can now download it" : "Document set to internal",
-                ).catch((e) => toast(errorMessage(e, "Couldn’t change the document.")))
-              }
+                  "Document set to internal",
+                ).catch((e) => toast(errorMessage(e, "Couldn’t change the document.")));
+              }}
               footer={
                 waiting ? (
                   <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-6">
                     <Button variant="danger" onClick={() => setRejecting(true)} disabled={busy}>
                       Reject…
                     </Button>
-                    <HoldButton tone="commit" onCommit={approve} loading={busy}>
-                      {detail.reviewKind === "revision" ? "Approve changes" : "Approve and publish"}
-                    </HoldButton>
+                    {flagged ? (
+                      can("listings.override") ? (
+                        <Button variant="secondary" onClick={() => setOverriding(true)} disabled={busy}>
+                          Approve with a reason…
+                        </Button>
+                      ) : (
+                        <span className="t-sub text-fg-3">Flagged text: reject so the seller can fix it.</span>
+                      )
+                    ) : (
+                      <HoldButton tone="commit" onCommit={approve} loading={busy}>
+                        {detail.reviewKind === "revision" ? "Approve changes" : "Approve and publish"}
+                      </HoldButton>
+                    )}
                   </div>
                 ) : detail.listing.status === "published" || detail.listing.status === "paused" ? (
                   <div className="mt-8 flex justify-end border-t border-line pt-6">
@@ -265,6 +294,56 @@ export default function ListingReviewPage() {
         onSubmit={async (reason) => {
           if (!detail) return;
           await decide(() => adminApi.rejectListing(detail.listing.id, reason), "Seller notified in their listing");
+        }}
+      />
+
+      <Sheet
+        open={!!releasing}
+        onClose={() => setReleasing(null)}
+        title="Let buyers download this document"
+        description="Lab reports and certificates often print the exporter’s name. Open the file and check every page first."
+        footer={
+          <div className="flex justify-end gap-3">
+            <Button variant="quiet" onClick={() => setReleasing(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!checked || busy}
+              onClick={async () => {
+                if (!detail || !releasing) return;
+                const cert = releasing;
+                setReleasing(null);
+                await decide(
+                  () => adminApi.setCertificateVisibility(detail.listing.id, cert.id, "downloadable", true),
+                  "Buyers can now download it",
+                ).catch((e) => toast(errorMessage(e, "Couldn’t change the document.")));
+              }}
+            >
+              Allow download
+            </Button>
+          </div>
+        }
+      >
+        <Checkbox
+          checked={checked}
+          onChange={setChecked}
+          label="I opened this file and it shows no company name, logo, address or contact details."
+        />
+      </Sheet>
+
+      <RejectSheet
+        open={overriding}
+        onClose={() => setOverriding(false)}
+        title="Approve flagged text"
+        description="The filter found text that may reveal the seller. Approve only if you have checked it. Your reason is kept in the audit log."
+        quickReasons={OVERRIDE_REASONS}
+        submitLabel="Approve"
+        onSubmit={async (reason) => {
+          if (!detail) return;
+          await decide(
+            () => adminApi.approveListing(detail.listing.id, reason),
+            detail.reviewKind === "revision" ? "Changes approved" : "Listing published",
+          );
         }}
       />
     </div>

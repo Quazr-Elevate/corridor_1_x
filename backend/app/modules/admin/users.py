@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Query
 from app import notifications
 from app.core.security import parse_uuid
 from app.modules.admin import service
-from app.modules.admin.schemas import StatusChanged, UserDetail, UserList, UserPatchIn, UserRejectIn
+from app.modules.admin.schemas import AccessReasonIn, StatusChanged, UserDetail, UserList, UserPatchIn, UserRejectIn
 from app.modules.auth.deps import DbSession
 from app.modules.admin.deps import CanEditUsers, CanReviewKyb, CanViewUsers
 
@@ -27,10 +27,11 @@ async def list_users(
     return await service.list_users(db, admin, q=q, status=status, limit=limit, offset=offset)
 
 
-@router.get("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
-async def user_detail(user_id: str, admin: CanViewUsers, db: DbSession) -> UserDetail:
-    """An account and its company identity (audited as ``identity.unmasked``)."""
-    detail = await service.user_detail(db, admin, parse_uuid(user_id))
+@router.post("/users/{user_id}/open", response_model=UserDetail, response_model_by_alias=True)
+async def user_detail(user_id: str, payload: AccessReasonIn, admin: CanViewUsers, db: DbSession) -> UserDetail:
+    """An account and its company identity. Needs a reason, stored on the
+    ``identity.unmasked`` audit row (C22). POST so the reason stays out of URLs."""
+    detail = await service.user_detail(db, admin, parse_uuid(user_id), reason=payload.reason)
     await db.commit()
     return detail
 

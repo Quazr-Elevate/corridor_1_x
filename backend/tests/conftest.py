@@ -340,4 +340,21 @@ def png_bytes(size: int = 4) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
 
 
-PDF_BYTES = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+def _clean_pdf() -> bytes:
+    """A one-page PDF as uploads store it: already rewritten without metadata,
+    so a stored copy is byte-for-byte this value."""
+    from io import BytesIO
+
+    from pypdf import PdfWriter
+
+    from app.shared.images import _rebuild_pdf
+
+    writer = PdfWriter()
+    writer.add_blank_page(72, 72)
+    writer.metadata = None
+    out = BytesIO()
+    writer.write(out)
+    return _rebuild_pdf(out.getvalue())
+
+
+PDF_BYTES = _clean_pdf()

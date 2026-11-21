@@ -179,7 +179,9 @@ async def _unmask_rows() -> list[AdminAction]:
     async with SessionLocal() as db:
         return list(
             await db.scalars(
-                select(AdminAction).where(AdminAction.action.like("identity.%")).order_by(AdminAction.created_at)
+                select(AdminAction)
+                .where(AdminAction.action.like("identity.%"), AdminAction.action != "identity.listed")
+                .order_by(AdminAction.created_at)
             )
         )
 
@@ -190,12 +192,22 @@ async def test_opening_an_account_writes_identity_unmasked(client, admin_client)
     listed = (await admin_client.get("/admin/users")).json()["items"]
     assert listed[0]["businessName"] == "Kaveri Foods Pvt Ltd"
     assert await _unmask_rows() == []
+    # ...but the page leaves a trace of how many names it showed (C21).
+    async with SessionLocal() as db:
+        (page,) = list(await db.scalars(select(AdminAction).where(AdminAction.action == "identity.listed")))
+    assert (page.target_type, page.details) == ("admin_user", {"purpose": "directory", "count": 1})
+    assert "Kaveri" not in str(page.details)
 
-    detail = await admin_client.get(f"/admin/users/{me['userId']}")
+    # Opening the account needs a reason (C22), and the old GET is gone.
+    assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={})).status_code == 422
+    assert (await admin_client.get(f"/admin/users/{me['userId']}")).status_code == 405
+    assert await _unmask_rows() == []
+    detail = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
     assert detail.status_code == 200 and detail.json()["businessProfile"]["legalName"] == "Kaveri Foods Pvt Ltd"
     (row,) = await _unmask_rows()
     assert (row.action, row.target_type, row.target_id) == ("identity.unmasked", "business", me["businessId"])
     assert row.details == {"purpose": "account_detail", "company_code": None}
+    assert row.reason == "KYB review of this business"
     assert "Kaveri" not in str(row.details)  # the log says who was opened, never the name
 
 
@@ -230,8 +242,8 @@ async def test_unmask_volume_is_flagged_once_then_stopped(client, admin_client, 
     monkeypatch.setattr(masking, "STAFF_UNMASK", masking.RateLimitRule("identity.unmask:admin", 6, 3600))
 
     for _ in range(6):
-        assert (await admin_client.get(f"/admin/users/{me['userId']}")).status_code == 200
-    blocked = await admin_client.get(f"/admin/users/{me['userId']}")
+        assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})).status_code == 200
+    blocked = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
     assert blocked.status_code == 429 and "retry-after" in blocked.headers
 
     actions = [r.action for r in await _unmask_rows()]

@@ -98,7 +98,7 @@ async def test_reject_flags_items_and_rejects_those_documents(client, admin_clie
     docs = {d["documentTypeCode"]: d for d in (await client.get("/me/verification-docs")).json()["items"]}
     assert docs["gstin"]["status"] == "rejected" and docs["gstin"]["rejectionReason"] == "GSTIN doesn't match the address"
     assert docs["pan"]["status"] == "pending"
-    detail = (await admin_client.get(f"/admin/users/{uid}")).json()
+    detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "KYB review of this business"})).json()
     assert detail["verificationRejectedItems"] == ["addressLine", "kyb:gstin"]
     # A flagged required document must be fixed before anyone can approve.
     r = await admin_client.post(f"/admin/users/{uid}/verify")

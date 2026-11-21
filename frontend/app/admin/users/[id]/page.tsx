@@ -34,7 +34,7 @@ import {
   RejectSheet,
   USER_REJECT_REASONS,
 } from "@/components/admin/RejectSheet";
-import { AccessScope } from "@/components/admin/AccessReason";
+import { AccessReasonCancelled, AccessScope, useAccessReason } from "@/components/admin/AccessReason";
 import { DocCard, KeyValue, StatusChip } from "@/components/admin/parts";
 import { displayValue, fmtDate, fmtDateTime, plural, refId, tradeLabel } from "@/components/admin/format";
 
@@ -174,17 +174,26 @@ export default function AccountDetailPage() {
   const [rejectDoc, setRejectDoc] = useState<VerifyDoc | null>(null);
   const [docBusy, setDocBusy] = useState<string | null>(null);
 
+  const access = useAccessReason(`user:${id}`);
+
   const load = useCallback(async () => {
     try {
-      const u = await adminApi.user(id);
+      const reason = await access.ask();
+      const u = await adminApi.user(id, reason);
+      // The same reason covers this business's files and numbers below.
+      access.remember(u.businessId, reason);
       setUser(u);
       setLoadErr(null);
       return u;
     } catch (e) {
+      if (e instanceof AccessReasonCancelled) {
+        setLoadErr({ msg: "Opening an account needs a reason. It is kept in the audit log." });
+        return null;
+      }
       setLoadErr({ msg: errorMessage(e, "Couldn't load this account."), status: errorStatus(e) });
       return null;
     }
-  }, [id]);
+  }, [id, access]);
 
   useEffect(() => {
     if (id) void load();

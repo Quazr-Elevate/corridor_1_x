@@ -185,7 +185,7 @@ async def stuck_users(db: AsyncSession, admin: Actor, limit: int) -> list[StuckU
             .limit(limit)
         )
     ).all()
-    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="stuck_users")
     return [
         StuckUser(
             user_id=str(u.id),
@@ -237,7 +237,7 @@ async def verify_queue(db: AsyncSession, admin: Actor) -> list[VerifyQueueRow]:
     ).all()
     docs = await _docs_by_business(db, [b.id for _, b in rows])
     missing = {b.id: await missing_keys(db, b) for _, b in rows}
-    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="verify_queue")
 
     def since(b: Business):
         if b.verification_status == BusinessStatus.pending_verification:
@@ -297,7 +297,7 @@ async def list_users(
         )
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = (await db.execute(stmt.order_by(User.created_at.desc()).offset(offset).limit(limit))).all()
-    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="directory")
     return UserList(
         total=total,
         items=[
@@ -372,12 +372,16 @@ async def _account_security(db: AsyncSession, u: User) -> AccountSecurityOut:
     )
 
 
-async def user_detail(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> UserDetail:
-    """One account with its company identity. Stages ``identity.unmasked``;
-    the router commits."""
+async def user_detail(
+    db: AsyncSession, admin: Actor, uid: uuid.UUID | None, *, reason: str | None = None
+) -> UserDetail:
+    """One account with its company identity. Stages ``identity.unmasked``
+    with the admin's reason (none after an edit, which is its own audited
+    action); the router commits."""
     u = await load_user(db, uid)
     b = u.business
-    identity = await masking.unmask_for_staff(db, admin, b.id, purpose="account_detail")
+    purpose = "account_detail" if reason else "account_edit"
+    identity = await masking.unmask_for_staff(db, admin, b.id, purpose=purpose, reason=reason)
     product_count = (
         await db.scalar(
             select(func.count(Product.id)).where(Product.business_id == b.id, Product.deleted_at.is_(None))
@@ -604,7 +608,7 @@ async def pending_docs(db: AsyncSession, admin: Actor) -> list[PendingDocRow]:
             .order_by(BusinessDocument.uploaded_at.asc())
         )
     ).all()
-    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows])
+    names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="pending_documents")
     out = []
     for d, b in rows:
         owner = await get_owner(db, b.id)

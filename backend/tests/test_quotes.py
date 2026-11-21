@@ -102,6 +102,9 @@ async def test_a_quote_needs_the_request_opened_and_every_required_spec_answered
     assert r.status_code == 400
     r = await s.put(url, json=_quote_body(view, notes="call 98765 43210 for a better price"))
     assert r.status_code == 400 and "phone number" in r.json()["detail"]
+    # The seller's own name (signed up as "seller kaverifoods Trading") is refused too (C25).
+    r = await s.put(url, json=_quote_body(view, notes="Milled and packed by Seller Kaverifoods Trading"))
+    assert r.status_code == 400 and "company name" in r.json()["detail"]
     r = await s.put(url, json=_quote_body(view, validUntil=_days(1)))
     assert r.status_code == 400 and "at least 2 more days" in r.json()["detail"]
     assert (await s.put(url, json=_quote_body(view, priceMinor=0))).status_code == 422

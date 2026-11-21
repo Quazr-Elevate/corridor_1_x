@@ -23,6 +23,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import ColumnElement
 
+from app.core.db import SessionLocal
 from app.core.errors import Conflict, NotFound
 from app.core.time import utcnow
 from app.models.admin_action import AdminAction
@@ -67,6 +68,13 @@ async def own_identity(db: AsyncSession, business_id: uuid.UUID) -> BusinessIden
         identity = BusinessIdentity(business_id=business_id)
         db.add(identity)
     return identity
+
+
+async def legal_name_for_text_check(db: AsyncSession, business_id: uuid.UUID) -> str | None:
+    """A company's legal name, only to look for it in that company's own
+    free text (the leak filter). Never returned to anyone, so not an unmask."""
+    identity = await db.get(BusinessIdentity, business_id)
+    return identity.legal_name if identity else None
 
 
 def start_identity(db: AsyncSession, business_id: uuid.UUID, *, legal_name: str) -> BusinessIdentity:
@@ -179,9 +187,12 @@ async def unmask_for_staff(
     return identity
 
 
-async def names_for_staff(db: AsyncSession, staff: Staff, business_ids: list[uuid.UUID]) -> dict[uuid.UUID, str | None]:
+async def names_for_staff(
+    db: AsyncSession, staff: Staff, business_ids: list[uuid.UUID], *, purpose: str
+) -> dict[uuid.UUID, str | None]:
     """Legal names for a page of an admin list. Each page counts against the
-    admin's hourly budget; opening a company is what writes an audit row."""
+    admin's hourly budget and leaves an ``identity.listed`` row with how many
+    names it showed (C21), so bulk reading of names is visible in the log."""
     await get_limiter().check(STAFF_NAME_LISTS, str(staff.id))
     if not business_ids:
         return {}
@@ -190,7 +201,11 @@ async def names_for_staff(db: AsyncSession, staff: Staff, business_ids: list[uui
             BusinessIdentity.business_id.in_(business_ids)
         )
     )
-    return {business_id: name for business_id, name in rows}
+    names = {business_id: name for business_id, name in rows}
+    shown = sum(1 for name in names.values() if name)
+    if shown:
+        await _record_listing(staff, purpose, shown)
+    return names
 
 
 def name_matches(pattern: str) -> ColumnElement[bool]:
@@ -216,6 +231,15 @@ async def _flag_volume(db: AsyncSession, staff: Staff) -> None:
         {"threshold": STAFF_UNMASK_ALERT.limit, "window_sec": STAFF_UNMASK_ALERT.window_sec},
         target_type="admin_user",
     )
+
+
+async def _record_listing(staff: Staff, purpose: str, count: int) -> None:
+    """In its own transaction: list pages are reads and their callers don't
+    commit, but the trace must stay."""
+    async with SessionLocal() as audit_db:
+        _audit(audit_db, staff, "identity.listed", staff.id, None, {"purpose": purpose, "count": count},
+               target_type="admin_user")
+        await audit_db.commit()
 
 
 def _audit(

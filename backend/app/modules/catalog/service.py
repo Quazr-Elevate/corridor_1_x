@@ -495,7 +495,7 @@ async def create_product(db: AsyncSession, user: User, payload: ProductCreate) -
     business; it reaches the market only after :func:`submit_product` and a
     reviewer's approval."""
     changes = await _normalise(db, payload.model_dump(exclude_unset=True, exclude={"specs"}))
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, user.business_id, changes)
     product = Product(
         business_id=user.business_id, created_by_user_id=user.id, name=payload.name, category=payload.category,
         unit=payload.unit or "MT", currency=changes.get("currency") or "INR", status=S.draft, photos=[], incoterms=[],
@@ -520,10 +520,14 @@ LEAK_CHECKED_FIELDS = {
 }
 
 
-def _refuse_leaks(changes: dict[str, Any]) -> None:
-    """Listing text must not carry a way to reach the seller directly
-    (plan 18.5). Text that only looks doubtful is saved for the reviewer."""
-    found = leakfilter.check_all({f: changes.get(f) for f in LEAK_CHECKED_FIELDS if isinstance(changes.get(f), str)})
+async def _refuse_leaks(db: AsyncSession, business_id: uuid.UUID, changes: dict[str, Any]) -> None:
+    """Listing text must not carry a way to reach the seller directly, or
+    the seller's own name (plan 18.5). Text that only looks doubtful is saved
+    for the reviewer."""
+    texts = {f: changes.get(f) for f in LEAK_CHECKED_FIELDS if isinstance(changes.get(f), str)}
+    if not texts:
+        return
+    found = leakfilter.check_all(texts, await masking.legal_name_for_text_check(db, business_id))
     for field, result in found.items():
         if result.blocked:
             raise BadRequest(
@@ -550,7 +554,7 @@ async def update_product(db: AsyncSession, user: User, product_id: uuid.UUID | N
         raise Conflict("This listing is with the reviewer. Withdraw it to make changes.")
     sent = payload.model_fields_set
     changes = await _normalise(db, payload.model_dump(include=sent - {"specs"}))
-    _refuse_leaks(changes)
+    await _refuse_leaks(db, user.business_id, changes)
     for field in ("name", "category", "unit", "currency"):
         if field in changes and changes[field] is None:
             raise BadRequest("Name, category, unit and currency can't be empty.")

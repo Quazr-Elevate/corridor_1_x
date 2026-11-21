@@ -75,6 +75,8 @@ If it changes the build plan's scope, say so to the user.
 | A-055 | The **GST check stays manual** for India; no automated registry lookup for now | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-056 | **PDF metadata is stripped** from uploads, and certificate downloads are renamed to the company code (CX-166) | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-057 | With DEBUG=false the app **refuses the console mailer, SQLite, COOKIE_SECURE=false and disabled rate limiting**, and compares PAYMENT_PROVIDER without case. `TEST_HARNESS` exempts only the first three, for the test suite (CX-151) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-058 | A listing the leak filter flagged is approved only with a reason and the new **`listings.override`** permission (super admin only); the reason is kept on the audit row (CX-165) | 21 Nov 2026 | Built in PR-2 from the approved change list |
+| A-059 | Opening an account in the console is **`POST /admin/users/{id}/open` with a reason**; the GET is removed. Staff list pages that show names write an **`identity.listed`** row with the count (CX-168, CX-169) | 21 Nov 2026 | Built in PR-2 from the approved change list |
 
 ## Proposed: awaiting approval
 

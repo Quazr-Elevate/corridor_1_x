@@ -130,8 +130,8 @@ async def delete_certificate(product_id: str, certificate_id: str, user: Current
 async def certificate_file(product_id: str, certificate_id: str, user: CurrentUser, db: DbSession) -> Response:
     """The listing's own business always; a verified buyer when an admin
     approved the download (each one is logged)."""
-    cert, data = await certificates.open_certificate(db, user, parse_uuid(product_id), parse_uuid(certificate_id))
-    return file_response(data, filename=cert.original_filename, cache_control="private, no-store")
+    filename, data = await certificates.open_certificate(db, user, parse_uuid(product_id), parse_uuid(certificate_id))
+    return file_response(data, filename=filename, cache_control="private, no-store")
 
 
 @products_router.post("/{product_id}/contact-reveal", response_model=RevealedContact, response_model_by_alias=True)

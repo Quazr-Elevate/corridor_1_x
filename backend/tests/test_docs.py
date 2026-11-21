@@ -76,7 +76,7 @@ async def test_doc_access_control(client, make_client, admin_client):
     r = await admin_client.post(f"/admin/docs/{doc['id']}/approve")
     assert r.json()["status"] == "approved"
     async with SessionLocal() as db:
-        rows = list(await db.scalars(select(AdminAction).order_by(AdminAction.created_at)))
+        rows = list(await db.scalars(select(AdminAction).where(AdminAction.action != "identity.listed").order_by(AdminAction.created_at)))
         stored = await db.get(BusinessDocument, uuid.UUID(doc["id"]))
     # The admin's file view is audited first (no file contents in the log).
     assert [a.action for a in rows] == ["kyb.file_viewed", "doc.reject", "doc.approve"]

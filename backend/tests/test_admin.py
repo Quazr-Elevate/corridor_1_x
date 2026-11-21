@@ -8,8 +8,13 @@ from app.models.admin_action import AdminAction
 
 
 async def _actions():
+    """The decisions; list pages' identity.listed rows are tested in test_masking."""
     async with SessionLocal() as db:
-        return list(await db.scalars(select(AdminAction).order_by(AdminAction.created_at)))
+        return list(
+            await db.scalars(
+                select(AdminAction).where(AdminAction.action != "identity.listed").order_by(AdminAction.created_at)
+            )
+        )
 
 
 async def test_admin_login_and_auth(make_client):
@@ -79,7 +84,7 @@ async def test_verify_flow_with_audit_and_email(client, admin_client):
     assert actions[0].reason == "Upload your GST certificate"
     assert actions[0].admin_email == ADMIN_EMAIL
 
-    detail = (await admin_client.get(f"/admin/users/{uid}")).json()
+    detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "KYB review of this business"})).json()
     assert detail["businessId"] == bid and detail["role"] == "owner" and detail["status"] == "verified"
 
 
@@ -154,7 +159,7 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     # The PATCH answers with the account detail, so the edit is followed by
     # the audit row for opening that company's identity.
     assert [a.action for a in actions[-2:]] == ["business.update", "identity.unmasked"]
-    assert actions[-1].target_id == b["businessId"] and actions[-1].details["purpose"] == "account_detail"
+    assert actions[-1].target_id == b["businessId"] and actions[-1].details["purpose"] == "account_edit"
     actions = actions[:-1]
     assert actions[-1].target_type == "business" and actions[-1].target_id == b["businessId"]
     assert set(actions[-1].details["fields"]) == {
@@ -166,8 +171,9 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
         "businessProfile.entity_type",
     }
 
-    assert (await admin_client.get(f"/admin/users/{a['userId']}")).status_code == 200
-    assert (await admin_client.get("/admin/users/not-a-uuid")).status_code == 404
+    assert (await admin_client.post(f"/admin/users/{a['userId']}/open", json={"reason": "KYB review of this business"})).status_code == 200
+    r = await admin_client.post("/admin/users/not-a-uuid/open", json={"reason": "KYB review of this business"})
+    assert r.status_code == 404
 
 
 async def test_dashboard(client, admin_client):

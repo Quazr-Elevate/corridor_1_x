@@ -106,6 +106,8 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | B8 | Admin roles (super admin / reviewer) | Least privilege | ❌ → A | All admins can do everything |
 | B9 | Route-permission matrix test | Every admin route declares a permission | ⏳ A | Not present |
 | B10 | Reason required for admin reveal/download | Purpose-bound access | ✅ | `POST /admin/docs/{id}/reveal` and `/file` refuse a request without a reason (422) and store it on `admin_actions.reason` |
+| B10a | Reason required to open an account; name lists traced | Purpose-bound access | ✅ | `POST /admin/users/{id}/open` needs a reason, stored on `identity.unmasked`; every staff list page that shows names writes `identity.listed` with the count (CX-168, CX-169, 21 Nov 2026) |
+| B10b | Seller identity kept out of listing text and files | Masking | ✅ | Leak flags block approval unless a super admin gives a reason; the writer's own name is refused on listings, RFQs and quotes; PDFs stored without metadata; buyer downloads named by company code; a reviewer confirms a certificate shows no identity before it is downloadable (CX-165–CX-167, CX-170) |
 | B11 | Tenant isolation at database level | Row-level security | ⏳ C | App-level checks only |
 | B12 | Super admin only: countries & admin users | Agreed | ⏳ A | Today any admin can manage countries/doc types |
 

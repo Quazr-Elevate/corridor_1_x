@@ -49,40 +49,66 @@ _MULTIPLIERS = {"double": 2, "triple": 3}
 _PHONE_MIN_DIGITS = 9
 
 _EMAIL = re.compile(r"[a-z0-9._%+-]+\s*(@|\(at\)|\[at\]|\sat\s)\s*[a-z0-9-]+\s*(\.|\(dot\)|\[dot\]|\sdot\s)\s*[a-z]{2,}", re.I)
+_TLD = r"(com|in|ae|net|org|co|io|biz|info|store|shop|online)"
 _URL = re.compile(
-    r"(https?://|www\.)\S+|\b[a-z0-9-]{2,}\.(com|in|ae|net|org|co|io|biz|info|store|shop|online)\b(/\S*)?", re.I
+    r"(https?://|www\.)\S+|\b[a-z0-9-]{2,}\." + _TLD + r"\b(/\S*)?"
+    # The dot written out or boxed: "acmeagro dot com", "acmeagro (.) in".
+    r"|\b[a-z0-9-]{2,}\s*(\(\s*\.\s*\)|\[\s*\.\s*\]|\(dot\)|\[dot\]|\sdot\s)\s*" + _TLD + r"\b",
+    re.I,
 )
-_HANDLE = re.compile(r"(?<![a-z0-9])@[a-z0-9_.]{3,}", re.I)
+_HANDLE = re.compile(
+    r"(?<![a-z0-9])@[a-z0-9_.]{3,}"
+    # A platform's short name and a colon in front of a handle: "IG: acmeagro".
+    r"|\b(ig|fb|tg|wa|insta|telegram|snap)\s*[:\-]\s*[a-z0-9_.]{3,}",
+    re.I,
+)
 #: Digits with the separators people put inside phone numbers.
-_DIGIT_RUN = re.compile(r"\+?\d[\d\s().\-]{6,}\d")
+_DIGIT_RUN = re.compile(r"\+?\d[\d\s().\-/]{6,}\d")
+#: A unit right after a run of numbers makes it a list of quantities
+#: ("1000 2000 5000 MT"), not a phone number.
+_UNIT_AFTER = re.compile(
+    r"\s*(%|mt|kg|kgs|g|gm|tons?|tonnes?|quintals?|qtl|bags?|mm|cm|days?|weeks?|months?|years?|"
+    r"usd|inr|aed|rs|containers?|fcl|lots?|pcs)\b",
+    re.I,
+)
+#: Single letters typed apart to dodge a word check: "W h a t s A p p".
+_SPACED_LETTERS = re.compile(r"\b(?:[a-z]\s){3,}[a-z]\b", re.I)
 _WORD = re.compile(r"[a-z]+|\d+", re.I)
 _CHANNEL = re.compile(
     r"\b(whats\s*app|watsapp|wa\.me|telegram|we\s*chat|skype|signal|instagram|insta|facebook|linkedin|"
     r"call\s+(me|us)|contact\s+(me|us)|dm\s+(me|us)|ping\s+(me|us)|reach\s+(me|us))\b",
     re.I,
 )
+#: Suffixes that only ever end a company name.
 _COMPANY = re.compile(
-    r"\b(pvt\.?\s*ltd|private\s+limited|limited|ltd|llp|llc|l\.l\.c|fzc|fze|fzco|inc|corp)\b\.?"
-    r"|(&|\band)\s+(sons|co)\b\.?",
-    re.I,
+    r"(?i:\b(pvt\.?\s*ltd|private\s+limited|ltd|llp|llc|l\.l\.c|fzc|fze|fzco)\b\.?)"
+    r"|(?i:(&|\band)\s+(sons|co)\b\.?)"
+    # Words that are also ordinary English ("limited stock") count only after
+    # a capitalised word: "Kaveri Foods Limited", "Acme Inc".
+    r"|\b[A-Z][A-Za-z]{1,40}\s+(Limited|LIMITED|Inc|INC|Corp|CORP|Corporation)\b\.?",
 )
 
 
-def check(text: str | None) -> LeakResult:
-    """Classify one piece of free text. Empty text passes."""
+def check(text: str | None, own_name: str | None = None) -> LeakResult:
+    """Classify one piece of free text. Empty text passes. ``own_name`` is
+    the writer's own legal name: naming it is refused (see :func:`names`)."""
     if not text or not text.strip():
         return LeakResult(Verdict.PASS)
     blocked: list[str] = []
     review: list[str] = []
-    if _EMAIL.search(text):
+    # Checked twice: as written, and with letters typed apart closed up.
+    variants = (text, _squeeze(text))
+    if any(_EMAIL.search(t) for t in variants):
         blocked.append("email address")
-    if _URL.search(_EMAIL.sub(" ", text)):
+    if any(_URL.search(_EMAIL.sub(" ", t)) for t in variants):
         blocked.append("web address")
-    if _HANDLE.search(_EMAIL.sub(" ", text)):
+    if any(_HANDLE.search(_EMAIL.sub(" ", t)) for t in variants):
         blocked.append("messaging handle")
     if _has_phone_digits(text) or _has_spelled_number(text):
         blocked.append("phone number")
-    if _CHANNEL.search(text):
+    if names(text, own_name):
+        blocked.append("company name")
+    if any(_CHANNEL.search(t) for t in variants):
         review.append("asks to be contacted directly")
     if _COMPANY.search(text):
         review.append("may name a company")
@@ -93,25 +119,66 @@ def check(text: str | None) -> LeakResult:
     return LeakResult(Verdict.PASS)
 
 
-def check_all(texts: dict[str, str | None]) -> dict[str, LeakResult]:
+def check_all(texts: dict[str, str | None], own_name: str | None = None) -> dict[str, LeakResult]:
     """Check several named fields; only the ones that do not pass are returned."""
-    results = {name: check(value) for name, value in texts.items()}
+    results = {name: check(value, own_name) for name, value in texts.items()}
     return {name: r for name, r in results.items() if r.verdict is not Verdict.PASS}
 
 
 def mentions(text: str | None, name: str | None) -> bool:
     """Does ``text`` contain the company name ``name``, ignoring case, spacing
     and the legal suffix? For the reviewer, who knows whose listing it is."""
-    core = _COMPANY.sub(" ", name or "")
-    words = [w.lower() for w in _WORD.findall(core) if len(w) > 2]
+    words = _core_words(name)
     if not text or not words:
         return False
     needle = r"\W*".join(re.escape(w) for w in words)
     return re.search(needle, text, re.I) is not None
 
 
+def names(text: str | None, own_name: str | None) -> bool:
+    """Does the writer name their own company? Only for names of two or more
+    words once the suffix is gone: a one-word name ("Basmati Pvt Ltd") is
+    too often an ordinary trade word, so that case is left to the reviewer."""
+    return len(_core_words(own_name)) >= 2 and mentions(text, own_name)
+
+
+def _core_words(name: str | None) -> list[str]:
+    core = re.sub(r"\b(pvt\.?\s*ltd|private\s+limited|limited|ltd|llp|llc|l\.l\.c|fzc|fze|fzco|inc|corp)\b\.?", " ",
+                  name or "", flags=re.I)
+    return [w.lower() for w in _WORD.findall(core) if len(w) > 2]
+
+
+def _squeeze(text: str) -> str:
+    """Close up letters typed apart, and a dot with spaces on both sides
+    ("w w w . acmeagro . in"); a sentence's full stop has no space before it."""
+    text = _SPACED_LETTERS.sub(lambda m: m.group().replace(" ", ""), text)
+    return re.sub(r"(?<=\w)\s+\.\s+(?=\w)", ".", text)
+
+
+#: Dates are digit runs too ("01/12/2026 - 15/12/2026"); they are taken out first.
+_DATE = re.compile(r"\b\d{1,2}[/.\-]\d{1,2}[/.\-](\d{4}|\d{2})\b|\b\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}\b")
+
+
 def _has_phone_digits(text: str) -> bool:
-    return any(sum(c.isdigit() for c in run.group()) >= _PHONE_MIN_DIGITS for run in _DIGIT_RUN.finditer(text))
+    text = _DATE.sub(" ; ", text)
+    for run in _DIGIT_RUN.finditer(text):
+        if sum(c.isdigit() for c in run.group()) < _PHONE_MIN_DIGITS:
+            continue
+        if _is_quantity_list(run.group()) and _UNIT_AFTER.match(text, run.end()):
+            continue
+        return True
+    return False
+
+
+def _is_quantity_list(run: str) -> bool:
+    """Two or more short numbers in rising order, the way quantities and
+    pack sizes are listed. A phone number split into groups doesn't rise."""
+    groups = [int(g) for g in re.findall(r"\d+", run)]
+    return (
+        len(groups) >= 2
+        and all(len(str(g)) <= 6 for g in groups)
+        and all(a < b for a, b in zip(groups, groups[1:]))
+    )
 
 
 def _has_spelled_number(text: str) -> bool:

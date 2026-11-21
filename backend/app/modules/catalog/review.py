@@ -10,7 +10,7 @@ from pydantic.alias_generators import to_camel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import BadRequest, Conflict, NotFound
+from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.time import utcnow
 from app.models.business import Business
 from app.models.listing import ProductCertificate
@@ -134,7 +134,7 @@ async def list_listings(
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = list(await db.scalars(stmt.order_by(*order).offset(offset).limit(limit)))
     sellers = await hydrate_businesses(db, [r.business_id for r in rows])
-    names = await masking.names_for_staff(db, admin, list(sellers))
+    names = await masking.names_for_staff(db, admin, list(sellers), purpose="listing_queue")
     return AdminListingList(
         total=total,
         items=[
@@ -175,15 +175,29 @@ async def listing_detail(db: AsyncSession, admin: Actor, product_id: uuid.UUID |
     )
 
 
-async def approve(db: AsyncSession, admin: Actor, product_id: uuid.UUID | None) -> Product:
+async def approve(
+    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, *, override_reason: str | None = None,
+    may_override: bool = False,
+) -> Product:
     """Publish a submitted listing, or apply the edits waiting on a published
-    one."""
+    one. A listing the leak filter flagged can't go out until the seller
+    fixes it, unless someone allowed to override gives a reason (C18)."""
     product = await _listing(db, product_id)
+    flags = _leak_flags(product, await masking.legal_name_for_text_check(db, product.business_id))
+    if flags and not override_reason:
+        found = "; ".join(f"{f.field}: {', '.join(f.reasons)}" for f in flags)
+        raise Conflict(
+            f"This listing may reveal the seller ({found}). Reject it so the seller can fix the text, "
+            "or approve with a reason if you have checked it."
+        )
+    if flags and not may_override:
+        raise Forbidden("Only a super admin can approve a listing the leak filter flagged.")
+    override = {"leakOverride": override_reason.strip(), "leakFlags": [f.field for f in flags]} if flags else {}
     now = utcnow()
     if product.status == S.under_review:
         transition(product, S.published, now=now, admin_id=admin.id)
         record_action(db, admin=admin, action="listing.approve", target_type="product", target_id=product.id,
-                      details={"businessId": str(product.business_id)})
+                      details={"businessId": str(product.business_id), **override})
     elif product.pending_revision:
         revision = dict(product.pending_revision)
         specs = revision.pop("specs", None)
@@ -201,7 +215,11 @@ async def approve(db: AsyncSession, admin: Actor, product_id: uuid.UUID | None) 
         product.reviewed_by = admin.id
         record_action(
             db, admin=admin, action="listing.revision_approve", target_type="product", target_id=product.id,
-            details={"businessId": str(product.business_id), "fields": sorted(to_camel(f) for f in product_fields(revision, specs))},
+            details={
+                "businessId": str(product.business_id),
+                "fields": sorted(to_camel(f) for f in product_fields(revision, specs)),
+                **override,
+            },
         )
     else:
         raise Conflict("This listing has nothing waiting for review.")
@@ -247,16 +265,25 @@ async def _certificate(db: AsyncSession, product_id: uuid.UUID | None, certifica
 
 
 async def set_certificate_visibility(
-    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, certificate_id: uuid.UUID | None, visibility: str
+    db: AsyncSession, admin: Actor, product_id: uuid.UUID | None, certificate_id: uuid.UUID | None, visibility: str,
+    *, checked_no_identity: bool = False,
 ) -> ProductCertificate:
-    """Decide whether verified buyers may download this certificate."""
+    """Decide whether verified buyers may download this certificate. A lab
+    report usually prints the exporter's name, so making one downloadable
+    needs the reviewer's word that this copy shows none (C20)."""
+    if visibility == "downloadable" and not checked_no_identity:
+        raise BadRequest(
+            "Open the document and confirm it shows no company name, logo, address or contact details "
+            "before buyers can download it."
+        )
     product, cert = await _certificate(db, product_id, certificate_id)
     cert.visibility = visibility
     cert.visibility_set_by = admin.id
     cert.visibility_set_at = utcnow()
     record_action(
         db, admin=admin, action="listing.certificate_visibility", target_type="product_certificate",
-        target_id=cert.id, details={"productId": str(product.id), "visibility": visibility},
+        target_id=cert.id,
+        details={"productId": str(product.id), "visibility": visibility, "checkedNoIdentity": checked_no_identity},
     )
     await db.commit()
     await db.refresh(cert)

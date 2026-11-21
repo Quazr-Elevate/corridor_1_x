@@ -1,9 +1,11 @@
-"""Uploaded images are re-encoded before they are stored.
+"""Uploaded files are rebuilt without their metadata before they are stored.
 
 A phone photo carries EXIF: GPS position, device, owner name, capture time.
-On a platform that promises masked identities that is a direct leak, so the
-stored file is rebuilt from the pixels alone. Only the colour profile is
-kept, because dropping it changes how the picture looks.
+A PDF carries an author, a title and an XMP packet, usually the exporter's
+name. On a platform that promises masked identities both are direct leaks,
+so an image is rebuilt from its pixels alone (only the colour profile is
+kept, because dropping it changes how the picture looks) and a PDF is
+rewritten without its document information and XMP (A-056).
 """
 from __future__ import annotations
 
@@ -11,15 +13,19 @@ import asyncio
 import io
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pypdf import PdfReader, PdfWriter
+from pypdf.errors import PdfReadError
 
 from app.core.errors import UnsupportedMediaType
 from app.integrations.storage import IMAGE_TYPES, FileType
+from app.integrations.storage.filetypes import PDF
 
 #: Refuse absurd dimensions before decoding (a small file can inflate to gigabytes).
 MAX_PIXELS = 50_000_000
 
 _FORMATS = {"jpeg": "JPEG", "png": "PNG", "webp": "WEBP"}
 _UNREADABLE = "This image could not be read. Export it again as JPG, PNG or WEBP and retry."
+_PDF_UNREADABLE = "This PDF could not be read. Save it again as a PDF without a password and retry."
 
 
 def _rebuild(content: bytes, ftype: FileType) -> bytes:
@@ -56,10 +62,29 @@ def _rebuild(content: bytes, ftype: FileType) -> bytes:
     return out.getvalue()
 
 
+def _rebuild_pdf(content: bytes) -> bytes:
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        if reader.is_encrypted:
+            raise UnsupportedMediaType(_PDF_UNREADABLE)
+        writer = PdfWriter(clone_from=reader)
+    except UnsupportedMediaType:
+        raise
+    except (PdfReadError, OSError, ValueError, KeyError, TypeError):
+        raise UnsupportedMediaType(_PDF_UNREADABLE) from None
+    writer.metadata = None  # the document information: author, title, producer, dates
+    writer._root_object.pop("/Metadata", None)  # the XMP packet, which repeats them
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 async def strip_metadata(content: bytes, ftype: FileType) -> bytes:
-    """The same picture with EXIF, XMP, GPS and comments removed. Files that
-    are not images (PDF) pass through untouched."""
+    """The same picture with EXIF, XMP, GPS and comments removed, or the
+    same PDF without its document information and XMP."""
+    # Decoding and encoding are CPU work; keep them off the event loop.
+    if ftype == PDF:
+        return await asyncio.to_thread(_rebuild_pdf, content)
     if ftype not in IMAGE_TYPES:
         return content
-    # Decoding and encoding are CPU work; keep them off the event loop.
     return await asyncio.to_thread(_rebuild, content, ftype)

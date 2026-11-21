@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, Response
 
 from app.core.security import parse_uuid
 from app.modules.admin.deps import CanReviewListings
+from app.modules.admin.permissions import Perm
 from app.modules.auth.deps import DbSession
 from app.modules.catalog import review
 from app.modules.catalog.review import AdminListingDetail, AdminListingList
@@ -20,12 +21,18 @@ from app.shared.schemas import CamelModel, RequestModel, text
 router = APIRouter(prefix="/listings")
 
 
+class ListingApproveIn(RequestModel):
+    override_reason: text(500, 10) | None = None  # type: ignore[valid-type]
+
+
 class ListingRejectIn(RequestModel):
     reason: text(500, 1)  # type: ignore[valid-type]
 
 
 class CertificateVisibilityIn(RequestModel):
     visibility: Literal["internal", "downloadable"]
+    #: Required for "downloadable": the reviewer opened the file and it shows no name, logo or address.
+    checked_no_identity: bool = False
 
 
 class ListingStatusChanged(CamelModel):
@@ -68,8 +75,16 @@ async def listing_detail(listing_id: str, admin: CanReviewListings, db: DbSessio
 
 
 @router.post("/{listing_id}/approve", response_model=ListingStatusChanged, response_model_by_alias=True)
-async def approve_listing(listing_id: str, admin: CanReviewListings, db: DbSession) -> ListingStatusChanged:
-    return _changed(await review.approve(db, admin, parse_uuid(listing_id)))
+async def approve_listing(
+    listing_id: str, admin: CanReviewListings, db: DbSession, payload: ListingApproveIn | None = None
+) -> ListingStatusChanged:
+    """No body for a clean listing. One the leak filter flagged needs
+    ``overrideReason`` and the ``listings.override`` permission."""
+    return _changed(await review.approve(
+        db, admin, parse_uuid(listing_id),
+        override_reason=payload.override_reason if payload else None,
+        may_override=Perm.listings_override in admin.permissions,
+    ))
 
 
 @router.post("/{listing_id}/reject", response_model=ListingStatusChanged, response_model_by_alias=True)
@@ -88,7 +103,8 @@ async def set_certificate_visibility(
     listing_id: str, certificate_id: str, payload: CertificateVisibilityIn, admin: CanReviewListings, db: DbSession
 ) -> CertificateVisibilityChanged:
     cert = await review.set_certificate_visibility(
-        db, admin, parse_uuid(listing_id), parse_uuid(certificate_id), payload.visibility
+        db, admin, parse_uuid(listing_id), parse_uuid(certificate_id), payload.visibility,
+        checked_no_identity=payload.checked_no_identity,
     )
     return CertificateVisibilityChanged(id=str(cert.id), visibility=cert.visibility)
 

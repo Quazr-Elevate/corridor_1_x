@@ -15,6 +15,7 @@ export type AdminPermission =
   | "catalog.view"
   | "catalog.manage"
   | "listings.review"
+  | "listings.override"
   | "accounts.security"
   | "admins.manage"
   | "rfqs.triage"
@@ -598,7 +599,9 @@ export const adminApi = {
     req<AdminKybDocType>("/admin/kyb/document-types", { method: "POST", body: JSON.stringify(payload) }),
   updateKybType: (id: string, patch: Partial<Omit<AdminKybDocTypeIn, "country" | "code">>) =>
     req<AdminKybDocType>(`/admin/kyb/document-types/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
-  user: (id: string) => req<UserDetail>(`/admin/users/${id}`),
+  /** Opening an account shows the company's identity, so it needs a reason (audited). */
+  user: (id: string, reason: string) =>
+    req<UserDetail>(`/admin/users/${id}/open`, { method: "POST", body: JSON.stringify({ reason }) }),
   patchUser: (id: string, patch: UserPatch) =>
     req<UserDetail>(`/admin/users/${id}`, {
       method: "PATCH",
@@ -646,13 +649,24 @@ export const adminApi = {
     return req<ItemList<AdminListingRow>>(`/admin/listings${qs.size ? `?${qs}` : ""}`);
   },
   listing: (id: string) => req<AdminListingDetail>(`/admin/listings/${id}`),
-  approveListing: (id: string) => req<ListingStatusChanged>(`/admin/listings/${id}/approve`, { method: "POST" }),
+  /** A listing the leak filter flagged needs ``overrideReason`` and the listings.override permission. */
+  approveListing: (id: string, overrideReason?: string) =>
+    req<ListingStatusChanged>(`/admin/listings/${id}/approve`, {
+      method: "POST",
+      ...(overrideReason ? { body: JSON.stringify({ overrideReason }) } : {}),
+    }),
   rejectListing: (id: string, reason: string) =>
     req<ListingStatusChanged>(`/admin/listings/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
-  setCertificateVisibility: (listingId: string, certificateId: string, visibility: "internal" | "downloadable") =>
+  /** "downloadable" needs checkedNoIdentity: the reviewer opened the file and it shows no name, logo or address. */
+  setCertificateVisibility: (
+    listingId: string,
+    certificateId: string,
+    visibility: "internal" | "downloadable",
+    checkedNoIdentity = false,
+  ) =>
     req<{ id: string; visibility: string }>(`/admin/listings/${listingId}/certificates/${certificateId}/visibility`, {
       method: "POST",
-      body: JSON.stringify({ visibility }),
+      body: JSON.stringify({ visibility, checkedNoIdentity }),
     }),
 
   // ─── Listing templates ───

@@ -468,3 +468,12 @@ async def test_trade_settings_are_placeholders_until_a_super_admin_sets_them(cli
         assert stored.expires_at - stored.submitted_at == timedelta(days=21)
         row = (await db.scalars(select(AdminAction).where(AdminAction.action == "trade_setting.update"))).one()
         assert row.details == {"from": "14.0000", "to": "21"}
+
+
+async def test_rfq_text_may_not_name_the_buyer(client):
+    await _buyer(client)  # legal name "Acme Agro 3 Pvt Ltd"
+    rfq = (await client.post("/rfqs", json={"kind": "open", "category": "Rice", "productName": "1121 Basmati"})).json()
+    r = await client.patch(f"/rfqs/{rfq['id']}", json={"notes": "Deliver to the Acme Agro warehouse"})
+    assert r.status_code == 400 and "company name" in r.json()["detail"]
+    r = await client.patch(f"/rfqs/{rfq['id']}", json={"notes": "Deliver to our warehouse at Jebel Ali"})
+    assert r.status_code == 200
