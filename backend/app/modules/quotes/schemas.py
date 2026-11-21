@@ -20,11 +20,13 @@ Percent = Annotated[Decimal, Field(ge=0, le=1000, max_digits=6, decimal_places=2
 
 
 class SpecAnswer(RequestModel):
-    """The seller's answer to one of the buyer's required limits."""
+    """The seller's value for one of the buyer's required limits. Whether it
+    meets the limit is worked out from the value, not taken from the seller
+    (CX-180); ``meets`` is still accepted from older clients and ignored."""
 
     parameter_id: str
-    meets: bool
     value: text(200) | None = None  # type: ignore[valid-type]
+    meets: bool | None = None
 
 
 class QuoteIn(RequestModel):
@@ -141,8 +143,11 @@ class CostSheetRead(CamelModel):
     fx_buffer_pct: Decimal
     margin_pct: Decimal
     min_margin_pct: Decimal
+    max_margin_pct: Decimal | None
     sell_price_minor: int
     needs_approval: bool
+    #: What a desk manager has to accept: under the floor, over the ceiling, an old rate.
+    approval_reasons: list[str] = []
     approved: bool
 
 
@@ -165,11 +170,18 @@ class DeskQuote(CamelModel):
     notes: str | None
     cost_sheet: CostSheetRead | None
     offer_id: str | None
+    #: The seller quoted less than the buyer asked for (CX-184).
+    part_quote: bool = False
 
 
 class PublishIn(RequestModel):
     #: Defaults to the latest day allowed: two days before the quote runs out.
     valid_until: date | None = None
+
+
+class OfferWithdrawn(CamelModel):
+    id: str
+    status: str
 
 
 class PublishedOffer(CamelModel):

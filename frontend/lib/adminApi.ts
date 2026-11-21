@@ -495,8 +495,11 @@ export interface CostSheet {
   fxBufferPct: string;
   marginPct: string;
   minMarginPct: string;
+  maxMarginPct: string | null;
   sellPriceMinor: number;
   needsApproval: boolean;
+  /** What a desk manager has to accept: under the floor, over the ceiling, an old rate. */
+  approvalReasons: string[];
   approved: boolean;
 }
 
@@ -522,6 +525,8 @@ export interface DeskQuote {
   notes: string | null;
   costSheet: CostSheet | null;
   offerId: string | null;
+  /** The seller quoted less than the buyer asked for. */
+  partQuote: boolean;
 }
 
 export interface DeskStatus {
@@ -713,6 +718,11 @@ export const adminApi = {
   saveCostSheet: (quoteId: string, body: CostSheetInput) =>
     req<CostSheet>(`/admin/quotes/${quoteId}/cost-sheet`, { method: "PUT", body: JSON.stringify(body) }),
   approveCostSheet: (sheetId: string) => req<CostSheet>(`/admin/cost-sheets/${sheetId}/approve`, { method: "POST" }),
+  withdrawOffer: (offerId: string, reason: string) =>
+    req<{ id: string; status: string }>(`/admin/offers/${offerId}/withdraw`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   publishOffer: (sheetId: string) =>
     req<{ id: string; dealCode: string; dealStatus: string; priceMinor: number; currency: string; validUntil: string }>(
       `/admin/cost-sheets/${sheetId}/publish`,

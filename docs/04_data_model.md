@@ -870,3 +870,24 @@ deals are in the seller's currency. That holds for domestic deals only.)
 Selling price = total cost × `fx_rate` × (1 + buffer %) × (1 + margin %),
 rounded up to the minor unit.
 
+
+---
+
+## Desk limits (`0031_desk_limits`)
+
+CX-181, CX-182, CX-183 and CX-186, from the M0–M3 walkthrough review.
+
+| Table | Change | Why |
+|---|---|---|
+| `trade_settings` | Two rows, placeholders until the client sets them: `max_margin_pct` (25) and `fx_max_age_days` (3) | A margin over the ceiling, or a rate older than the limit, needs a desk manager |
+| `cost_sheets` | `max_margin_pct` (the ceiling when the sheet was saved; null on older sheets) and `approval_reasons` (JSON list: under the floor, over the ceiling, an old rate) | `status` is `pending_approval` exactly when the list is not empty |
+| `offers` | `expiry_reminded_at` | The buyer is reminded once, the day before an offer ends |
+| `offers` | `uq_offers_cost_sheet_id` becomes the partial unique index `uq_offers_cost_sheet_live` (`status <> 'withdrawn'`) | One live offer per sheet. Withdrawing an offer reopens its sheet as `draft`, so a corrected offer can follow |
+
+**`fx_as_of`** is now the older of the two rates behind a conversion (for a
+cross-rate such as INR to AED), since that is the one whose age matters.
+
+**Scheduled job.** `scripts/expire_rfqs.py` closes overdue RFQs (refunding
+the buyer when no seller quoted, A-053), expires overdue offers and sends
+the day-before reminders. Run it hourly in production (a Railway cron
+service with the backend's variables).

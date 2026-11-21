@@ -48,7 +48,7 @@ from app.modules.quotes.schemas import (
     QuoteRead,
     SpecAnswerOut,
 )
-from app.modules.rfq import seed
+from app.modules.rfq import matching, seed
 from app.modules.rfq import service as rfqs
 from app.shared import leakfilter
 
@@ -95,6 +95,11 @@ async def save_quote(db: AsyncSession, user: User, rfq_id: uuid.UUID | None, pay
         raise BadRequest("Quote on one of the incoterms the buyer accepts: " + ", ".join(rfq.incoterms or []) + ".")
     if payload.unit != rfq.unit:
         raise BadRequest(f"Quote per {rfq.unit}, the unit the buyer asked in.")
+    if rfq.quantity is not None and payload.quantity > rfq.quantity:
+        raise BadRequest(
+            f"Quote at most the {format(rfq.quantity.normalize(), 'f')} {rfq.unit} the buyer asked for. "
+            "A smaller quantity is fine; the desk sees it as a part quote."
+        )
     notes = (payload.notes or "").strip() or None
     port = (payload.port_of_loading or "").strip() or None
     own_name = await masking.legal_name_for_text_check(db, user.business_id)
@@ -104,12 +109,17 @@ async def save_quote(db: AsyncSession, user: User, rfq_id: uuid.UUID | None, pay
             raise BadRequest(f"Remove the {' and '.join(found.reasons)} from the {label}. Buyers reach you through Corridor One X.")
 
     needed = await _required_limits(db, rfq)
-    answers = {a.parameter_id.strip().lower(): a for a in payload.specs}
-    missing = [name for pid, name in needed.items() if pid not in answers]
+    answers = {a.parameter_id.strip().lower(): (a.value or "").strip() for a in payload.specs}
+    missing = [name for pid, name in needed.items() if not answers.get(pid)]
     if missing:
-        raise BadRequest("Say whether you meet each required specification. Missing: " + ", ".join(missing) + ".")
+        raise BadRequest("Give your value for each required specification. Missing: " + ", ".join(missing) + ".")
+    limits = {s["parameter_id"]: s for s in rfq.specs or []}
     specs = [
-        {"parameter_id": pid, "meets": answers[pid].meets, "value": (answers[pid].value or "").strip() or None}
+        {
+            "parameter_id": pid,
+            "meets": matching.within(answers[pid], limits[pid]["value"], limits[pid]["operator"]),
+            "value": answers[pid],
+        }
         for pid in needed
     ]
 
@@ -235,12 +245,16 @@ async def save_cost_sheet(
         if rate is None:
             raise Conflict(f"There is no exchange rate for {sheet.purchase_currency} yet. Refresh the rates and retry.")
         sheet.fx_rate = _rate(rate)
-        sheet.fx_as_of = rates.as_of_by.get(sheet.purchase_currency) or rates.as_of_by.get(sheet.deal_currency)
+        # The older of the two rates behind the conversion is the one that matters.
+        dates = [d for d in (rates.as_of_by.get(sheet.purchase_currency), rates.as_of_by.get(sheet.deal_currency)) if d]
+        sheet.fx_as_of = min(dates) if dates else None
         sheet.fx_buffer_pct = _pct(await rfqs.setting(db, seed.FX_BUFFER_PCT))
     sheet.margin_pct = _pct(payload.margin_pct)
     sheet.min_margin_pct = _pct(await rfqs.setting(db, seed.MIN_MARGIN_PCT))
+    sheet.max_margin_pct = _pct(await rfqs.setting(db, seed.MAX_MARGIN_PCT))
     sheet.sell_price_minor = sell_price(total_cost(sheet), sheet.fx_rate, sheet.fx_buffer_pct, sheet.margin_pct)
-    sheet.status = "pending_approval" if sheet.margin_pct < sheet.min_margin_pct else "ready"
+    sheet.approval_reasons = await _approval_reasons(db, sheet, today)
+    sheet.status = "pending_approval" if sheet.approval_reasons else "ready"
     sheet.updated_at = utcnow()
     if is_new:
         db.add(sheet)
@@ -248,15 +262,33 @@ async def save_cost_sheet(
     return sheet
 
 
+async def _approval_reasons(db: AsyncSession, sheet: CostSheet, today: date) -> list[str]:
+    """What a desk manager has to accept before this sheet can be offered:
+    a margin under the floor or over the ceiling (CX-182), or an exchange
+    rate older than the desk allows (CX-181)."""
+    reasons = []
+    if sheet.margin_pct < sheet.min_margin_pct:
+        reasons.append(f"Margin {sheet.margin_pct}% is under the {sheet.min_margin_pct}% floor.")
+    if sheet.max_margin_pct is not None and sheet.margin_pct > sheet.max_margin_pct:
+        reasons.append(f"Margin {sheet.margin_pct}% is over the {sheet.max_margin_pct}% ceiling.")
+    if sheet.fx_as_of is not None:
+        max_age = int(await rfqs.setting(db, seed.FX_MAX_AGE_DAYS))
+        age = (today - sheet.fx_as_of).days
+        if age > max_age:
+            reasons.append(f"The exchange rate is from {sheet.fx_as_of.isoformat()}, {age} days old (limit {max_age}).")
+    return reasons
+
+
 async def approve_cost_sheet(db: AsyncSession, admin_id: uuid.UUID, sheet_id: uuid.UUID | None) -> CostSheet:
-    """A desk manager accepts a margin under the floor. Not their own sheet."""
+    """A desk manager accepts what the sheet waits for (``approval_reasons``).
+    Not their own sheet."""
     sheet = await db.get(CostSheet, sheet_id) if sheet_id else None
     if sheet is None:
         raise NotFound("Cost sheet not found.")
     if sheet.status != "pending_approval":
         raise Conflict("This sheet is not waiting for an approval.")
     if sheet.created_by == admin_id:
-        raise Forbidden("Someone other than the sheet's author has to approve a margin under the floor.")
+        raise Forbidden("Someone other than the sheet's author has to approve it.")
     sheet.approved_by, sheet.approved_at, sheet.status = admin_id, utcnow(), "ready"
     return sheet
 
@@ -269,7 +301,8 @@ def sheet_to_read(sheet: CostSheet) -> CostSheetRead:
         freight_quoted_on=sheet.freight_quoted_on, total_cost_minor=total_cost(sheet),
         deal_currency=sheet.deal_currency, fx_rate=sheet.fx_rate, fx_as_of=sheet.fx_as_of,
         fx_buffer_pct=sheet.fx_buffer_pct, margin_pct=sheet.margin_pct, min_margin_pct=sheet.min_margin_pct,
-        sell_price_minor=sheet.sell_price_minor, needs_approval=sheet.status == "pending_approval",
+        max_margin_pct=sheet.max_margin_pct, sell_price_minor=sheet.sell_price_minor,
+        needs_approval=sheet.status == "pending_approval", approval_reasons=list(sheet.approval_reasons or []),
         approved=sheet.approved_by is not None,
     )
 
@@ -282,7 +315,7 @@ async def desk_quotes(db: AsyncSession, rfq_id: uuid.UUID | None) -> list[DeskQu
     out = []
     for q in quotes:
         sheet = await _sheet_of(db, q.id)
-        offer_id = await db.scalar(select(Offer.id).where(Offer.quote_id == q.id))
+        offer_id = await db.scalar(select(Offer.id).where(Offer.quote_id == q.id, Offer.status != "withdrawn"))
         seller = sellers.get(q.seller_business_id)
         out.append(DeskQuote(
             id=str(q.id), seller_code=seller.company_code if seller else None, seller_state=seller.state if seller else None,
@@ -290,6 +323,7 @@ async def desk_quotes(db: AsyncSession, rfq_id: uuid.UUID | None) -> list[DeskQu
             port_of_loading=q.port_of_loading, lead_time_days=q.lead_time_days, payment_terms=list(q.payment_terms),
             valid_until=q.valid_until, specs=await _answers_out(db, q.rfq_id, q.specs), notes=q.notes,
             cost_sheet=sheet_to_read(sheet) if sheet else None, offer_id=str(offer_id) if offer_id else None,
+            part_quote=rfq.quantity is not None and q.quantity < rfq.quantity,
         ))
     return out
 
@@ -308,7 +342,8 @@ async def publish_offer(
     if sheet.status == "published":
         raise Conflict("This sheet's offer is already with the buyer.")
     if sheet.status != "ready":
-        raise Conflict("A margin under the floor needs a desk manager's approval before the offer goes out.")
+        waiting = " ".join(sheet.approval_reasons or []) or "Its margin is under the floor."
+        raise Conflict(f"A desk manager has to approve this sheet before the offer goes out. {waiting}")
     quote, rfq = await _desk_quote(db, sheet.quote_id)
     today = utcnow().date()
     latest = quote.valid_until - timedelta(days=OFFER_GAP_DAYS)
@@ -337,19 +372,62 @@ async def publish_offer(
     return offer, deal
 
 
+async def withdraw_offer(db: AsyncSession, offer_id: uuid.UUID | None) -> Offer:
+    """Pull a published offer (CX-186). A buyer who paid to unlock it gets
+    the credits back. The sheet goes back to draft and the deal stays where
+    it is, so the desk can correct the sheet and publish again. Does not
+    commit."""
+    offer = await db.get(Offer, offer_id) if offer_id else None
+    if offer is None:
+        raise NotFound("Offer not found.")
+    if offer.status != "published":
+        raise Conflict(f"This offer is {offer.status}, so it can't be withdrawn.")
+    offer.status = "withdrawn"
+    # The sheet opens again, so the desk can correct it and publish a new offer.
+    sheet = await db.get(CostSheet, offer.cost_sheet_id)
+    sheet.status, sheet.approved_by, sheet.approved_at = "draft", None, None
+    await credits.refund(
+        db, offer.buyer_business_id, unlock_key(offer.id, offer.buyer_business_id), note="Offer withdrawn by the desk"
+    )
+    return offer
+
+
 # ── Buyer: offers ────────────────────────────────────────────────────
 
 
-async def _expire_offers(db: AsyncSession, rfq_id: uuid.UUID) -> None:
-    """An offer past its date is marked expired the next time it is read."""
+async def _expire_offers(db: AsyncSession, rfq_id: uuid.UUID | None = None) -> int:
+    """Mark offers past their date expired: one RFQ's when it is read, or
+    every one from ``scripts/expire_rfqs.py``."""
     today = utcnow().date()
-    stale = list(await db.scalars(
-        select(Offer).where(Offer.rfq_id == rfq_id, Offer.status == "published", Offer.valid_until < today)
-    ))
+    stmt = select(Offer).where(Offer.status == "published", Offer.valid_until < today)
+    if rfq_id is not None:
+        stmt = stmt.where(Offer.rfq_id == rfq_id)
+    stale = list(await db.scalars(stmt))
     for offer in stale:
         offer.status = "expired"
     if stale:
         await db.commit()
+    return len(stale)
+
+
+async def expire_offers_due(db: AsyncSession) -> int:
+    return await _expire_offers(db)
+
+
+async def offers_to_remind(db: AsyncSession) -> list[tuple[Offer, Rfq]]:
+    """Published offers that end tomorrow and whose buyer hasn't been
+    reminded, marked reminded. The caller commits, then sends."""
+    tomorrow = utcnow().date() + timedelta(days=1)
+    due = list(await db.scalars(
+        select(Offer).where(
+            Offer.status == "published", Offer.valid_until == tomorrow, Offer.expiry_reminded_at.is_(None)
+        )
+    ))
+    out = []
+    for offer in due:
+        offer.expiry_reminded_at = utcnow()
+        out.append((offer, await db.get(Rfq, offer.rfq_id)))
+    return out
 
 
 async def _offer_out(db: AsyncSession, offer: Offer, unlocked: bool, cost: int, seller: Business | None) -> OfferRead:

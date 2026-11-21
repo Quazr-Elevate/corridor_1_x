@@ -95,7 +95,10 @@ async def test_a_quote_needs_the_request_opened_and_every_required_spec_answered
     view = (await s.post(f"/matched-rfqs/{rfq['id']}/open")).json()
 
     r = await s.put(url, json=_quote_body(view, specs=_quote_body(view)["specs"][1:]))
-    assert r.status_code == 400 and r.json()["detail"].startswith("Say whether you meet each required specification.")
+    assert r.status_code == 400 and r.json()["detail"].startswith("Give your value for each required specification.")
+    # More than the buyer asked for is refused; less is a part quote.
+    r = await s.put(url, json=_quote_body(view, quantity="1000"))
+    assert r.status_code == 400 and "at most the 500 MT" in r.json()["detail"]
     r = await s.put(url, json=_quote_body(view, incoterm="CIF"))
     assert r.status_code == 400 and "FOB" in r.json()["detail"]
     r = await s.put(url, json=_quote_body(view, unit="kg"))
@@ -192,6 +195,24 @@ async def test_a_cross_border_sheet_stores_the_rate_and_buffer_it_was_priced_at(
     assert (again["fxRate"], again["sellPriceMinor"]) == ("0.01250000", 106029)
 
 
+async def test_a_high_margin_or_an_old_rate_needs_a_desk_manager(parties, admin_client):
+    async with SessionLocal() as db:
+        await db.execute(update(Business).where(Business.id == uuid.UUID(parties["buyer"]["businessId"])).values(country="AE"))
+        db.add(ExchangeRate(base="USD", quote="INR", rate=Decimal("80"), as_of=TODAY - timedelta(days=30), source="test",
+                            fetched_at=utcnow()))
+        await db.commit()
+    rfq, quote = await _quoted(parties["seller_client"], parties["buyer_client"], admin_client, parties["seller"])
+    url = f"/admin/quotes/{quote['id']}/cost-sheet"
+    sheet = (await admin_client.put(url, json={**SHEET, "marginPct": "250"})).json()
+    assert sheet["status"] == "pending_approval" and sheet["maxMarginPct"] == "25.00"
+    assert sheet["approvalReasons"] == [
+        "Margin 250.00% is over the 25.00% ceiling.",
+        f"The exchange rate is from {(TODAY - timedelta(days=30)).isoformat()}, 30 days old (limit 3).",
+    ]
+    r = await admin_client.post(f"/admin/cost-sheets/{sheet['id']}/publish", json={})
+    assert r.status_code == 409 and "over the 25.00% ceiling" in r.json()["detail"]
+
+
 async def test_no_rate_means_no_sheet(parties, admin_client):
     async with SessionLocal() as db:
         await db.execute(update(Business).where(Business.id == uuid.UUID(parties["buyer"]["businessId"])).values(country="AE"))
@@ -211,7 +232,8 @@ async def test_a_margin_under_the_floor_needs_a_manager_who_is_not_the_author(pa
     sheet = (await manager.put(url, json={**SHEET, "marginPct": "3"})).json()  # the floor is 5
     assert (sheet["status"], sheet["needsApproval"], sheet["approved"]) == ("pending_approval", True, False)
     r = await manager.post(f"/admin/cost-sheets/{sheet['id']}/publish", json={})
-    assert r.status_code == 409 and "desk manager's approval" in r.json()["detail"]
+    assert r.status_code == 409 and "Margin 3.00% is under the 5.00% floor." in r.json()["detail"]
+    assert sheet["approvalReasons"] == ["Margin 3.00% is under the 5.00% floor."]
     assert (await desk.post(f"/admin/cost-sheets/{sheet['id']}/approve")).status_code == 403  # not a manager
     r = await manager.post(f"/admin/cost-sheets/{sheet['id']}/approve")
     assert r.status_code == 403 and "other than the sheet's author" in r.json()["detail"]
@@ -324,6 +346,60 @@ async def test_an_expired_offer_cannot_be_unlocked(parties, admin_client):
     assert (await b.get("/wallet")).json()["balance"] == 5  # nothing charged
 
 
+async def test_the_desk_can_withdraw_an_offer_and_the_unlock_is_refunded(parties, admin_client):
+    b = parties["buyer_client"]
+    rfq, quote = await _quoted(parties["seller_client"], b, admin_client, parties["seller"])
+    sheet = (await admin_client.put(f"/admin/quotes/{quote['id']}/cost-sheet", json=SHEET)).json()
+    offer_id = (await admin_client.post(f"/admin/cost-sheets/{sheet['id']}/publish", json={})).json()["id"]
+    await _credit(parties["buyer"]["businessId"], 5)
+    assert (await b.post(f"/offers/{offer_id}/unlock")).status_code == 200
+    assert (await b.get("/wallet")).json()["balance"] == 3
+
+    url = f"/admin/offers/{offer_id}/withdraw"
+    assert (await admin_client.post(url, json={})).status_code == 422  # a reason is required
+    r = await admin_client.post(url, json={"reason": "Wrong freight on the sheet"})
+    assert r.status_code == 200 and r.json() == {"id": offer_id, "status": "withdrawn"}
+    assert (await admin_client.post(url, json={"reason": "Wrong freight on the sheet"})).status_code == 409
+    assert (await b.get(f"/rfqs/{rfq['id']}/offers")).json()["total"] == 0
+    assert (await b.post(f"/offers/{offer_id}/unlock")).status_code == 404
+    assert (await b.get("/wallet")).json()["balance"] == 5  # the 2 credits came back
+    async with SessionLocal() as db:
+        row = await db.scalar(select(AdminAction).where(AdminAction.action == "offer.withdraw"))
+    assert row.reason == "Wrong freight on the sheet"
+
+    # The sheet is open again: corrected, it goes out as a new offer.
+    (desk,) = (await admin_client.get(f"/admin/rfqs/{rfq['id']}/quotes")).json()["items"]
+    assert desk["offerId"] is None and desk["costSheet"]["status"] == "draft"
+    fixed = (await admin_client.put(f"/admin/quotes/{quote['id']}/cost-sheet", json={**SHEET, "oceanFreightMinor": 200000})).json()
+    assert fixed["status"] == "ready"
+    second = await admin_client.post(f"/admin/cost-sheets/{fixed['id']}/publish", json={})
+    assert second.status_code == 201 and second.json()["id"] != offer_id
+    assert (await b.get(f"/rfqs/{rfq['id']}/offers")).json()["total"] == 1
+
+
+async def test_publishing_tells_the_buyer_and_the_seller_and_the_buyer_is_reminded_once(parties, admin_client):
+    from conftest import sent_emails
+
+    b = parties["buyer_client"]
+    rfq, quote = await _quoted(parties["seller_client"], b, admin_client, parties["seller"])
+    sheet = (await admin_client.put(f"/admin/quotes/{quote['id']}/cost-sheet", json=SHEET)).json()
+    offer = (await admin_client.post(f"/admin/cost-sheets/{sheet['id']}/publish", json={})).json()
+    buyer_mail = [m for m in sent_emails("buyer@gulfgrain.ae") if "offer" in m.subject]
+    seller_mail = [m for m in sent_emails("seller@kaverifoods.in") if "quote" in m.subject]
+    assert [m.subject for m in buyer_mail] == ["You have an offer on your Rice request"]
+    assert [m.subject for m in seller_mail] == ["Your Rice quote has gone to the buyer"]
+    # Neither email carries a price or the other party.
+    for m in buyer_mail + seller_mail:
+        assert str(offer["priceMinor"]) not in m.text and "7200000" not in m.text and "Kaveri" not in m.text
+
+    async with SessionLocal() as db:
+        await db.execute(update(Offer).values(valid_until=TODAY + timedelta(days=1)))
+        await db.commit()
+        assert len(await quotes.offers_to_remind(db)) == 1
+        await db.commit()
+        assert await quotes.offers_to_remind(db) == []  # once
+
+
 # ── The purchase price cannot leave the desk ─────────────────────────
 
 #: Field-name fragments that belong to the quote and the cost sheet.
@@ -372,3 +448,33 @@ def test_no_external_response_model_can_carry_a_cost_or_the_purchase_price():
     from app.modules.rfq.schemas import RfqSellerView
 
     assert not [f for f in RfqSellerView.model_fields if "price" in f]
+
+
+async def test_an_rfq_that_drew_a_quote_is_not_refunded_when_it_expires(parties, admin_client):
+    from app.models import Rfq
+    from app.modules.rfq import service as rfqs
+
+    rfq, _ = await _quoted(parties["seller_client"], parties["buyer_client"], admin_client, parties["seller"])
+    async with SessionLocal() as db:
+        await db.execute(update(Rfq).values(expires_at=utcnow() - timedelta(minutes=1)))
+        await db.commit()
+        assert await rfqs.expire_due(db) == 1
+    wallet = (await parties["buyer_client"].get("/wallet")).json()
+    assert wallet["freeRfqs"]["remaining"] == 9  # a seller did quote; the RFQ was used
+
+
+async def test_the_server_decides_whether_a_spec_is_met_and_flags_a_part_quote(parties, admin_client):
+    s, b = parties["seller_client"], parties["buyer_client"]
+    rfq = await _opened(s, b, admin_client, parties["seller"])
+    body = _quote_body(rfq["view"], quantity="300")
+    moisture = next(x for x in rfq["view"]["specs"] if x["code"] == "moisture")  # buyer: max 12
+    for answer in body["specs"]:
+        if answer["parameterId"] == moisture["parameterId"]:
+            answer.update(value="15", meets=True)  # the seller's tick is ignored (CX-180)
+    r = await s.put(f"/matched-rfqs/{rfq['id']}/quote", json=body)
+    assert r.status_code == 200, r.text
+    met = {a["name"]: a["meets"] for a in r.json()["specs"]}
+    assert met["Moisture"] is False and sum(met.values()) == len(met) - 1
+
+    (desk,) = (await admin_client.get(f"/admin/rfqs/{rfq['id']}/quotes")).json()["items"]
+    assert desk["partQuote"] is True and desk["quantity"] == "300.00"

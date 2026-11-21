@@ -140,7 +140,12 @@ class CostSheet(Base):
     margin_pct: Mapped[Decimal] = mapped_column(Numeric(precision=6, scale=2), nullable=False)
     # The floor in force when the sheet was last saved.
     min_margin_pct: Mapped[Decimal] = mapped_column(Numeric(precision=6, scale=2), nullable=False)
+    # The ceiling in force when the sheet was last saved (null on sheets saved before 0031).
+    max_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(precision=6, scale=2), nullable=True)
     sell_price_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Why the sheet waits for a desk manager: under the floor, over the
+    # ceiling, an old exchange rate. Empty when it is ready.
+    approval_reasons: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("admin_users.id", ondelete="SET NULL", name="fk_cost_sheets_created_by"), nullable=True
@@ -161,7 +166,11 @@ class Offer(Base):
 
     __tablename__ = "offers"
     __table_args__ = (
-        UniqueConstraint("cost_sheet_id", name="uq_offers_cost_sheet_id"),
+        # One live offer per sheet; a withdrawn one can be followed by a corrected one (CX-186).
+        Index(
+            "uq_offers_cost_sheet_live", "cost_sheet_id", unique=True,
+            sqlite_where=text("status <> 'withdrawn'"), postgresql_where=text("status <> 'withdrawn'"),
+        ),
         Index("ix_offers_rfq", "rfq_id"),
         Index("ix_offers_buyer_time", "buyer_business_id", text("published_at DESC")),
         CheckConstraint(f"status IN ({', '.join(repr(s) for s in OFFER_STATUSES)})", name="ck_offers_status"),
@@ -207,6 +216,8 @@ class Offer(Base):
         Uuid, ForeignKey("admin_users.id", ondelete="SET NULL", name="fk_offers_published_by"), nullable=True
     )
     published_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+    # When the buyer was reminded the offer ends tomorrow: once per offer (CX-183).
+    expiry_reminded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class OfferUnlock(Base):

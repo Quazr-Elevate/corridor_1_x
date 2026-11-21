@@ -188,7 +188,8 @@ def test_within_compares_numbers_as_numbers_and_text_as_text():
 async def test_only_listings_that_meet_every_hard_rule_are_proposed(client, make_client, admin_client):
     fits, _ = await _seller(client, admin_client)
     small = make_client()
-    await _seller(small, admin_client, "small@tinymill.in", capacityPerMonth="100")  # 100 MT against 500 asked
+    # 100 MT in stock and 100 MT a month over the two months left: 300 MT against 500 asked.
+    await _seller(small, admin_client, "small@tinymill.in", capacityPerMonth="100", quantity="100")
     slow = make_client()
     await _seller(slow, admin_client, "slow@latemill.in", leadTimeDays=90)  # the window closes in 60 days
     other = make_client()
@@ -202,9 +203,10 @@ async def test_only_listings_that_meet_every_hard_rule_are_proposed(client, make
     match = detail["matches"][0]
     assert match["source"] == "rule" and match["sellerCode"] and match["sellerState"] is None
     assert [(r["rule"], r["ok"]) for r in match["reasons"]] == [
-        ("category", True), ("capacity", True), ("specs", True), ("lead_time", True),
+        ("category", True), ("capacity", True), ("specs", True), ("lead_time", True), ("incoterms", True),
+        ("certificates", True),
     ]
-    assert "Capacity 2000 MT a month against 500 MT asked." in match["reasons"][1]["detail"]
+    assert match["reasons"][1]["detail"] == "Capacity 2000 MT a month over 2 months and 500 MT in stock against 500 MT asked."
 
     # A grain-length limit the listing does not reach: nobody is proposed.
     strict = await _submitted(buyer, specs=await _limits(buyer, grain_length="9"))
@@ -282,14 +284,14 @@ async def test_nothing_reaches_a_seller_until_the_desk_confirms(client, make_cli
 async def test_the_desk_adjusts_matches_but_cannot_break_a_hard_rule(client, make_client, admin_client):
     _, fits = await _seller(client, admin_client)
     small = make_client()
-    _, too_small = await _seller(small, admin_client, "small@tinymill.in", capacityPerMonth="100")
+    _, too_small = await _seller(small, admin_client, "small@tinymill.in", capacityPerMonth="100", quantity="100")
     buyer = make_client()
     await _buyer(buyer)
     rfq = await _submitted(buyer)
     url = f"/admin/rfqs/{rfq['id']}"
 
     r = await admin_client.post(f"{url}/matches", json={"listingId": too_small})
-    assert r.status_code == 409 and "Capacity 100 MT a month against 500 MT asked." in r.json()["detail"]
+    assert r.status_code == 409 and "Capacity 100 MT a month over 2 months against 500 MT asked." in r.json()["detail"]
     r = await admin_client.post(f"{url}/matches", json={"listingId": fits})
     assert r.status_code == 409 and "already matched" in r.json()["detail"]
 
@@ -387,7 +389,7 @@ async def test_desk_roles_see_the_queue_and_nothing_else(client, admin_client, m
 async def test_a_seller_pays_once_to_open_and_never_sees_the_price_or_the_buyer(client, make_client, admin_client, checkout=None):
     seller, _ = await _seller(client, admin_client)
     stranger = make_client()
-    await _seller(stranger, admin_client, "small@tinymill.in", capacityPerMonth="100")  # not matched
+    await _seller(stranger, admin_client, "small@tinymill.in", capacityPerMonth="100", quantity="100")  # not matched
     buyer = make_client()
     me = await _buyer(buyer)
     rfq = await _submitted(buyer)
@@ -447,6 +449,11 @@ async def test_an_rfq_with_no_offer_expires_and_its_deal_is_cancelled(client, ma
         last = (await db.scalars(select(DealEvent).order_by(DealEvent.created_at.desc()))).first()
         assert (last.action, last.actor_type, last.actor_id) == ("cancelled", "system", None)
         assert await rfqs.expire_due(db) == 0  # once
+    # No seller quoted, so the free RFQ comes back (A-053).
+    assert (await buyer.get("/wallet")).json()["freeRfqs"]["remaining"] == 10
+    async with SessionLocal() as db:
+        lines = [(l.entry_type, l.free) for l in await db.scalars(select(CreditLedgerEntry).order_by(CreditLedgerEntry.created_at))]
+    assert lines == [("RFQ_POST", True), ("REVERSAL", True)]
 
 
 async def test_trade_settings_are_placeholders_until_a_super_admin_sets_them(client, admin_client):
@@ -477,3 +484,27 @@ async def test_rfq_text_may_not_name_the_buyer(client):
     assert r.status_code == 400 and "company name" in r.json()["detail"]
     r = await client.patch(f"/rfqs/{rfq['id']}", json={"notes": "Deliver to our warehouse at Jebel Ali"})
     assert r.status_code == 200
+
+
+async def test_capacity_counts_the_months_left_and_incoterms_and_documents_must_fit(client, make_client, admin_client):
+    # 2000 MT a month and 500 MT in stock; the buyer wants 3000 MT within five months.
+    _, pid = await _seller(client, admin_client)
+    buyer = make_client()
+    await _buyer(buyer)
+    long_window = {"quantity": "3000", "deliveryTo": (TODAY + timedelta(days=150)).isoformat()}
+    rfq = await _submitted(buyer, **long_window)
+    (match,) = (await admin_client.get(f"/admin/rfqs/{rfq['id']}")).json()["matches"]
+    assert match["reasons"][1]["ok"] and "over 5 months" in match["reasons"][1]["detail"]
+
+    # The listing offers FOB and CIF; a DAP-only buyer gets no proposal.
+    dap = await _submitted(buyer, incoterms=["DAP"])
+    assert (await admin_client.get(f"/admin/rfqs/{dap['id']}")).json()["matches"] == []
+    r = await admin_client.post(f"/admin/rfqs/{dap['id']}/matches", json={"listingId": pid})
+    assert r.status_code == 409 and "Buyer accepts DAP; listing offers FOB, CIF." in r.json()["detail"]
+
+    # A requested document the listing doesn't carry rules it out.
+    coa = next(t["id"] for t in (await _template(buyer))["certificateTypes"] if t["code"] == "coa")
+    needs_coa = await _submitted(buyer, certificateTypeIds=[coa])
+    assert (await admin_client.get(f"/admin/rfqs/{needs_coa['id']}")).json()["matches"] == []
+    r = await admin_client.post(f"/admin/rfqs/{needs_coa['id']}/matches", json={"listingId": pid})
+    assert r.status_code == 409 and "Not on the listing: Certificate of analysis (COA)." in r.json()["detail"]

@@ -1,0 +1,11 @@
+Hi {{ first_name }},
+
+Corridor One X has taken your quote on the {{ category }} request forward
+and sent the buyer an offer based on it.
+
+We'll tell you when the buyer decides. Your quote is here: {{ rfq_url }}
+
+The buyer doesn't see your name or your price. Corridor One X is the
+counterparty for both sides of the trade.
+
+-- Cor1x

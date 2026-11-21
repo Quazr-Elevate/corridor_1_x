@@ -77,6 +77,11 @@ If it changes the build plan's scope, say so to the user.
 | A-057 | With DEBUG=false the app **refuses the console mailer, SQLite, COOKIE_SECURE=false and disabled rate limiting**, and compares PAYMENT_PROVIDER without case. `TEST_HARNESS` exempts only the first three, for the test suite (CX-151) | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-058 | A listing the leak filter flagged is approved only with a reason and the new **`listings.override`** permission (super admin only); the reason is kept on the audit row (CX-165) | 21 Nov 2026 | Built in PR-2 from the approved change list |
 | A-059 | Opening an account in the console is **`POST /admin/users/{id}/open` with a reason**; the GET is removed. Staff list pages that show names write an **`identity.listed`** row with the count (CX-168, CX-169) | 21 Nov 2026 | Built in PR-2 from the approved change list |
+| A-060 | Matcher hard rules gain **capacity over the months left (or stock)**, **incoterm overlap** and **requested documents on the listing**. Origin and price overlap are not rules yet: the RFQ has no origin field, and price stays a desk-only judgement (CX-175, CX-176) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-061 | A quote gives a **value** per required spec; **whether it meets the limit is worked out by the server**. A quote may be for less than asked (shown to the desk as a part quote), never more (CX-180, CX-184) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-062 | A cost sheet waits for a desk manager when the margin is under the floor, **over `max_margin_pct`**, or the **exchange rate is older than `fx_max_age_days`**; both new settings are placeholders (25%, 3 days) until the client sets them (CX-181, CX-182) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-063 | The desk can **withdraw a published offer** with a reason; a buyer who paid to unlock it is refunded, and the sheet reopens so a corrected offer can follow (CX-186) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
+| A-064 | Emails: the buyer on a new offer and the day before it ends; the seller when their quote goes to the buyer. **'Quote not taken'** waits for the deal to close (M4) (CX-183) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
 
 ## Proposed: awaiting approval
 
