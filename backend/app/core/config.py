@@ -206,10 +206,6 @@ class Settings(BaseSettings):
         # The test suite runs with DEBUG off on SQLite, plain-HTTP cookies and
         # the console mailer; nothing else is exempt.
         if not self.test_harness:
-            if self.email_provider.strip().lower() == "console":
-                problems.append(
-                    "EMAIL_PROVIDER=console writes every email, sign-in codes included, to the log; use resend or brevo"
-                )
             if self.is_sqlite:
                 problems.append("DATABASE_URL points at SQLite; use Postgres")
             if self.cookie_secure is False and not self.cross_site_cookies:
@@ -224,6 +220,17 @@ class Settings(BaseSettings):
         ):
             problems.append("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and a 16+ character RAZORPAY_WEBHOOK_SECRET")
         return problems
+
+    def startup_warnings(self) -> list[str]:
+        """Settings a non-debug server may run with for now, but shouldn't
+        for long (A-068): logged at startup instead of refused."""
+        warnings = []
+        if self.email_provider.strip().lower() == "console":
+            warnings.append(
+                "EMAIL_PROVIDER=console writes every email, sign-in codes included, to the log; "
+                "set resend or brevo before real users sign up"
+            )
+        return warnings
 
     @property
     def frontend_base(self) -> str:

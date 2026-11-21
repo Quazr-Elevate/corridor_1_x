@@ -74,7 +74,7 @@ If it changes the build plan's scope, say so to the user.
 | A-054 | The KYB **approve button stays disabled until the reviewer has opened every required document** (CX-161) | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-055 | The **GST check stays manual** for India; no automated registry lookup for now | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-056 | **PDF metadata is stripped** from uploads, and certificate downloads are renamed to the company code (CX-166) | 21 Nov 2026 | User, M0–M3 walkthrough review |
-| A-057 | With DEBUG=false the app **refuses the console mailer, SQLite, COOKIE_SECURE=false and disabled rate limiting**, and compares PAYMENT_PROVIDER without case. `TEST_HARNESS` exempts only the first three, for the test suite (CX-151) | 21 Nov 2026 | User, M0–M3 walkthrough review |
+| A-057 | With DEBUG=false the app **refuses SQLite (and, until A-068, the console mailer), COOKIE_SECURE=false and disabled rate limiting**, and compares PAYMENT_PROVIDER without case. `TEST_HARNESS` exempts only the first three, for the test suite (CX-151) | 21 Nov 2026 | User, M0–M3 walkthrough review |
 | A-058 | A listing the leak filter flagged is approved only with a reason and the new **`listings.override`** permission (super admin only); the reason is kept on the audit row (CX-165) | 21 Nov 2026 | Built in PR-2 from the approved change list |
 | A-059 | Opening an account in the console is **`POST /admin/users/{id}/open` with a reason**; the GET is removed. Staff list pages that show names write an **`identity.listed`** row with the count (CX-168, CX-169) | 21 Nov 2026 | Built in PR-2 from the approved change list |
 | A-060 | Matcher hard rules gain **capacity over the months left (or stock)**, **incoterm overlap** and **requested documents on the listing**. Origin and price overlap are not rules yet: the RFQ has no origin field, and price stays a desk-only judgement (CX-175, CX-176) | 21 Nov 2026 | Built in PR-3/PR-4 from the approved change list |
@@ -85,6 +85,7 @@ If it changes the build plan's scope, say so to the user.
 | A-065 | Credit **invoice numbers restart each Indian financial year** (April–March, IST): `C1X/2026-27/0001`, taken from a per-year counter in one guarded UPDATE (CX-171) | 21 Nov 2026 | Built in PR-5 to PR-7 |
 | A-066 | Per-country rules, quota and group documents, and per-category required documents are **admin-managed through the API** in this batch (`/admin/kyb/countries/{code}/rules`, `/links`, `/admin/listing-templates/category-requirements/{category}`); their console screens come later | 21 Nov 2026 | Built in PR-5 to PR-7 |
 | A-067 | Credits bought before migration 0034 **do not expire**: they were sold as non-expiring, so `plan_credits` starts at 0 for every wallet | 21 Nov 2026 | Built in PR-5 to PR-7 |
+| A-068 | Until an email provider is set up, a non-debug server **may run on the console mailer**: it is logged as `insecure_setting` at startup instead of refused (it writes sign-in codes to the log). The other A-057 refusals stay | 21 Nov 2026 | User |
 
 ## Proposed: awaiting approval
 

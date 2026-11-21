@@ -322,8 +322,11 @@ def test_production_refuses_development_settings():
         database_url="postgresql://u:p@db/cor1x",
     )
     assert Settings(**ready).insecure_defaults() == []
+    # The console mailer is allowed for now and warned about at startup (A-068).
+    console = Settings(**{**ready, "email_provider": "Console"})
+    assert console.insecure_defaults() == []
+    assert any("EMAIL_PROVIDER=console" in w for w in console.startup_warnings())
     refused = {
-        "EMAIL_PROVIDER=console": {"email_provider": "Console"},
         "SQLite": {"database_url": "sqlite+aiosqlite:///./cor1x.db"},
         "COOKIE_SECURE=false": {"cookie_secure": False},
         "RATE_LIMIT_ENABLED": {"rate_limit_enabled": False},

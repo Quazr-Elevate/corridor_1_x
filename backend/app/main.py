@@ -136,6 +136,9 @@ def create_app(s: Settings = settings) -> FastAPI:
     # Refuse to run a non-debug deployment on development defaults.
     if not s.debug and (problems := s.insecure_defaults()):
         raise RuntimeError("Insecure configuration with DEBUG=false: " + "; ".join(problems))
+    if not s.debug and not s.test_harness:
+        for warning in s.startup_warnings():
+            log.warning("insecure_setting %s", warning)
     # KYB field encryption: refuse to start without real keys in production.
     if crypto.check_keys(s):
         log.warning("KYB encryption is using the DEVELOPMENT key — set KYB_ENC_KEYS and KYB_HASH_KEY in production.")
