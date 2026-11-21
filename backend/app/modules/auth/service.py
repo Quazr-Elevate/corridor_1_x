@@ -17,7 +17,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,7 +80,20 @@ async def _latest_code(db: AsyncSession, email: str, purpose: EmailCodePurpose) 
 
 
 async def _email_taken(db: AsyncSession, email: str) -> bool:
-    return await db.scalar(select(User.id).where(User.email == email)) is not None
+    return await masking.email_taken(db, email)
+
+
+#: Sign-up and reset codes are kept this long, then deleted by the hourly
+#: job: the email is held in plain text until the account exists (CX-149).
+CODE_RETENTION = timedelta(hours=24)
+
+
+async def purge_old_codes(db: AsyncSession, *, now=None) -> int:
+    """Delete email codes created more than :data:`CODE_RETENTION` ago
+    (the caller commits). Returns how many went."""
+    cutoff = (now or utcnow()) - CODE_RETENTION
+    result = await db.execute(delete(EmailCode).where(EmailCode.created_at < cutoff))
+    return result.rowcount or 0
 
 
 # ── Signup ───────────────────────────────────────────────────────────
@@ -207,13 +220,12 @@ async def complete_signup(
 
     business = Business(id=uuid.uuid4(), country="IN", verification_status=BusinessStatus.draft)
     user = User(
+        id=uuid.uuid4(),
         business=business,
         role=UserRole.owner,
-        email=email,
         password_hash=hash_password(password),
         account_status=AccountStatus.active,
         email_verified_at=row.verified_at,
-        full_name=full_name.strip(),
         position=(position or "").strip() or None,
         session_version=0,
         consent_at=now,
@@ -221,8 +233,9 @@ async def complete_signup(
         last_login_at=now,
     )
     db.add_all([business, user])
-    await db.flush()  # the vault row's foreign key needs the business first
+    await db.flush()  # the vault rows' foreign keys need the business and the user first
     masking.start_identity(db, business.id, legal_name=company_name)
+    masking.start_person(db, user.id, full_name=full_name.strip(), email=email)
     row.consumed_at = now
     try:
         await db.commit()
@@ -245,7 +258,7 @@ class SignIn:
 async def authenticate(db: AsyncSession, *, email: str, password: str, client: ClientInfo) -> SignIn:
     """Check the password (with lockout) and stage the sign-in event. The
     caller starts the session, which commits."""
-    user = await db.scalar(select(User).where(User.email == normalize_email(email)))
+    user = await masking.user_by_email(db, normalize_email(email))
     if user is None or user.deleted_at is not None:
         verify_password(password, _dummy_hash())  # equalise timing
         record_event(db, subject_type="user", subject_id=None, event="login_failed", client=client,
@@ -307,10 +320,10 @@ async def request_password_reset(db: AsyncSession, *, email: str, client: Client
     """Email a reset code if the account exists. Always looks the same to
     the caller (no account enumeration). Returns the code (DEBUG devCode)."""
     email = normalize_email(email)
-    user = await db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
+    user = await masking.user_by_email(db, email)
     purpose = EmailCodePurpose.reset_password
     now = utcnow()
-    if user is None or user.account_status != AccountStatus.active:
+    if user is None or user.deleted_at is not None or user.account_status != AccountStatus.active:
         return None
     latest = await _latest_code(db, email, purpose)
     if latest is not None and ensure_aware(latest.created_at) + RESEND_COOLDOWN > now:
@@ -336,7 +349,7 @@ async def request_password_reset(db: AsyncSession, *, email: str, client: Client
     await db.flush()
     try:
         await notifications.send_password_reset_code(
-            to=email, code=code, first_name=notifications.first_name_of(user.full_name),
+            to=email, code=code, first_name=notifications.first_name_of((await masking.own_person(db, user.id)).full_name),
             valid_minutes=int(CODE_TTL.total_seconds() // 60),
         )
     except Exception:
@@ -365,8 +378,8 @@ async def reset_password(db: AsyncSession, *, email: str, code: str, new_passwor
         row.attempts += 1
         await db.commit()
         raise BadRequest(invalid)
-    user = await db.scalar(select(User).where(User.email == email, User.deleted_at.is_(None)))
-    if user is None or user.account_status != AccountStatus.active:
+    user = await masking.user_by_email(db, email)
+    if user is None or user.deleted_at is not None or user.account_status != AccountStatus.active:
         raise BadRequest(invalid)
     row.verified_at = now
     row.consumed_at = now

@@ -364,10 +364,8 @@ async def test_display_currency_default_follows_business_country():
         for country, expected in (("AE", "AED"), ("IN", "INR"), ("SA", "USD")):
             u = User(
                 business=Business(country=country, verification_status=BusinessStatus.draft),
-                email=f"{country.lower()}-{uuid.uuid4().hex[:6]}@acme.in",
                 password_hash="x",
                 email_verified_at=utcnow(),
-                full_name="Test",
             )
             db.add(u)
             await db.commit()

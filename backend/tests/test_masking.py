@@ -11,7 +11,7 @@ from pathlib import Path
 from conftest import fill_mandatory, set_status, signup_and_login, verify_business
 from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from test_admin_accounts import _new_admin
 
 from app.core.db import SessionLocal
@@ -121,10 +121,14 @@ def test_the_guard_sees_nested_and_listed_fields():
 
 
 def test_only_the_masking_module_reads_the_vault():
-    """``BusinessIdentity`` may be named for typing anywhere, but only
-    ``modules/masking`` may query, create or delete it."""
-    query = re.compile(r"(select|delete|update|insert)\(\s*BusinessIdentity|db\.get\(\s*BusinessIdentity|BusinessIdentity\(")
-    allowed = ("modules/masking/", "models/business_identity.py")  # the door, and the table itself
+    """``BusinessIdentity`` and ``UserIdentity`` may be named for typing
+    anywhere, but only ``modules/masking`` may query, create or delete them."""
+    query = re.compile(
+        r"(select|delete|update|insert)\(\s*(BusinessIdentity|UserIdentity)|db\.get\(\s*(BusinessIdentity|UserIdentity)"
+        r"|(BusinessIdentity|UserIdentity)\(|(BusinessIdentity|UserIdentity)\.\w+\s*(==|\.ilike|\.in_)"
+    )
+    # the door, and the tables themselves
+    allowed = ("modules/masking/", "models/business_identity.py", "models/user_identity.py")
     offenders = [
         str(path.relative_to(APP_DIR))
         for path in APP_DIR.rglob("*.py")
@@ -195,9 +199,13 @@ async def test_opening_an_account_writes_identity_unmasked(client, admin_client)
     assert await _unmask_rows() == []
     # ...but the page leaves a trace of how many names it showed (C21).
     async with SessionLocal() as db:
-        (page,) = list(await db.scalars(select(AdminAction).where(AdminAction.action == "identity.listed")))
-    assert (page.target_type, page.details) == ("admin_user", {"purpose": "directory", "count": 1})
-    assert "Kaveri" not in str(page.details)
+        pages = list(await db.scalars(select(AdminAction).where(AdminAction.action == "identity.listed")))
+    # One row for the company names, one for the people (CX-149).
+    assert sorted((p.target_type, tuple(sorted(p.details.items()))) for p in pages) == [
+        ("admin_user", (("count", 1), ("kind", "person"), ("purpose", "directory"))),
+        ("admin_user", (("count", 1), ("purpose", "directory"))),
+    ]
+    assert not any("Kaveri" in str(p.details) or "kaverifoods" in str(p.details) for p in pages)
 
     # Opening the account needs a reason (C22), and the old GET is gone.
     assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={})).status_code == 422
@@ -207,7 +215,8 @@ async def test_opening_an_account_writes_identity_unmasked(client, admin_client)
     assert detail.status_code == 200 and detail.json()["businessProfile"]["legalName"] == "Kaveri Foods Pvt Ltd"
     (row,) = await _unmask_rows()
     assert (row.action, row.target_type, row.target_id) == ("identity.unmasked", "business", me["businessId"])
-    assert row.details == {"purpose": "account_detail", "company_code": None}
+    assert row.details == {"purpose": "account_detail", "company_code": None, "user_id": me["userId"]}
+    assert detail.json()["email"] == "owner@kaverifoods.in"  # the person opens with the company
     assert row.reason == "KYB review of this business"
     assert "Kaveri" not in str(row.details)  # the log says who was opened, never the name
 
@@ -277,3 +286,73 @@ async def test_a_shared_company_name_is_flagged_to_the_reviewer_only(client, mak
     first_detail = (await admin_client.post(f"/admin/users/{first['userId']}/open", json=reason)).json()
     assert first_detail["sameNameAs"] == ["unverified"]
     assert "sameNameAs" not in str((await twin.get("/me")).json())
+
+
+# ── People in the vault (CX-149) ─────────────────────────────────────
+
+
+def test_users_holds_no_name_email_or_phone():
+    """Who the person is lives only in ``user_identities``."""
+    from app.models import PERSON_COLUMNS, User, UserIdentity
+
+    users = {c.name for c in User.__table__.columns}
+    assert not users & {"email", "full_name", "phone", "phone_normalized"}
+    assert set(PERSON_COLUMNS) <= {c.name for c in UserIdentity.__table__.columns}
+
+
+async def test_deleting_an_account_erases_the_person_and_frees_the_email(client, make_client):
+    from app.models import UserIdentity
+
+    me = await signup_and_login(client, "gone@kaverifoods.in")
+    assert (await client.post("/onboarding/contact", json={
+        "fullName": "Asha Rao", "position": "Director", "phone": "+91 98450 00001",
+    })).status_code == 200
+    assert (await client.delete("/me")).status_code == 204
+    async with SessionLocal() as db:
+        assert await db.get(UserIdentity, uuid.UUID(me["userId"])) is None
+        assert await masking.user_by_email(db, "gone@kaverifoods.in") is None
+    # The old password no longer signs in, and the email signs up afresh.
+    again = make_client()
+    r = await again.post("/auth/login", json={"email": "gone@kaverifoods.in", "password": "Sup3r-secret!"})
+    assert r.status_code == 401
+    async with SessionLocal() as db:  # past the old code's resend cooldown
+        from app.models import EmailCode
+
+        await db.execute(delete(EmailCode))
+        await db.commit()
+    fresh = await signup_and_login(again, "gone@kaverifoods.in")
+    assert fresh["userId"] != me["userId"]
+
+
+async def test_sign_in_and_reset_find_the_person_through_the_vault(client, make_client):
+    await signup_and_login(client, "find@kaverifoods.in")
+    other = make_client()
+    r = await other.post("/auth/login", json={"email": " FIND@KaveriFoods.in ", "password": "Sup3r-secret!"})
+    assert r.status_code == 200 and r.json()["email"] == "find@kaverifoods.in"
+    r = await other.post("/auth/password/forgot", json={"email": "find@kaverifoods.in"})
+    assert r.status_code == 200
+
+
+async def test_the_directory_finds_people_by_name_and_email(client, admin_client):
+    await signup_and_login(client, "search@kaverifoods.in")
+    by_email = (await admin_client.get("/admin/users", params={"q": "search@kaveri"})).json()
+    assert [u["email"] for u in by_email["items"]] == ["search@kaverifoods.in"]
+    full_name = by_email["items"][0]["fullName"]
+    by_name = (await admin_client.get("/admin/users", params={"q": full_name.split()[0]})).json()
+    assert "search@kaverifoods.in" in [u["email"] for u in by_name["items"]]
+    assert (await admin_client.get("/admin/users", params={"q": "nobody-matches"})).json()["items"] == []
+
+
+async def test_old_email_codes_are_deleted_after_a_day(client):
+    from datetime import timedelta
+
+    from app.core.time import utcnow
+    from app.models import EmailCode
+    from app.modules.auth.service import purge_old_codes
+
+    await signup_and_login(client, "codes@kaverifoods.in")
+    async with SessionLocal() as db:
+        assert await purge_old_codes(db) == 0  # today's code stays
+        assert await purge_old_codes(db, now=utcnow() + timedelta(hours=25)) == 1
+        await db.commit()
+        assert list(await db.scalars(select(EmailCode))) == []

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from conftest import ROOT_URL, code_from_email, sent_emails, signup_and_login
+from conftest import ROOT_URL, code_from_email, sent_emails, signup_and_login, user_with_email
 from sqlalchemy import select, update
 
 from app.core.db import SessionLocal
@@ -76,7 +76,7 @@ async def test_signup_code_verify_complete_logs_in(client):
         assert gone not in me
 
     async with SessionLocal() as db:
-        user = await db.scalar(select(User).where(User.email == email))
+        user = await db.scalar(select(User).where(user_with_email(email)))
         assert user.consent_at and user.consent_version and user.email_verified_at
         assert user.business.verification_status == BusinessStatus.draft
         row = await db.scalar(select(EmailCode).where(EmailCode.email == email))
@@ -144,7 +144,7 @@ async def test_double_complete_rejected(client, make_client):
     assert r.status_code == 409
     assert "already exists" in r.json()["detail"]
     async with SessionLocal() as db:
-        assert len(list(await db.scalars(select(User).where(User.email == email)))) == 1
+        assert len(list(await db.scalars(select(User).where(user_with_email(email))))) == 1
 
 
 async def test_resend_cooldown_and_hourly_cap(client):
@@ -233,7 +233,7 @@ async def test_disabled_account_cannot_log_in(client, make_client):
     email = "off@kaverifoods.in"
     await signup_and_login(client, email)
     async with SessionLocal() as db:
-        await db.execute(update(User).where(User.email == email).values(account_status="disabled"))
+        await db.execute(update(User).where(user_with_email(email)).values(account_status="disabled"))
         await db.commit()
     assert (await client.get("/me")).status_code == 401
     r = await make_client().post("/auth/login", json={"email": email, "password": "Sup3r-secret!"})

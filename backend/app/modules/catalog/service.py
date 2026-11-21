@@ -932,12 +932,13 @@ async def reveal_contact(db: AsyncSession, user: User, product_id: uuid.UUID | N
     owner = await get_owner(db, seller_id)
     assert seller is not None  # guarded by visible_products_clause
     identity = await masking.identity_for_contact_reveal(db, seller_id)
+    person = await masking.person_for_contact_reveal(db, owner.id if owner else None)
     return RevealedContact(
         seller_id=str(seller.id),
-        full_name=owner.full_name if owner else None,
+        full_name=person.full_name if person else None,
         business_name=identity.legal_name,
         entity_type=seller.entity_type,
-        email=owner.email if owner else None,
+        email=person.email if person else None,
         address_line=identity.address_line,
         city=identity.city,
         state=seller.state,

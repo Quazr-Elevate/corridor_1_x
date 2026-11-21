@@ -19,6 +19,7 @@ from app.models.business_identity import BusinessIdentity
 from app.models.country import Country
 from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
+from app.models.user_identity import UserIdentity
 from app.models.user import User, UserRole
 from app.modules.accounts import completion
 from app.modules.accounts.schemas import (
@@ -62,6 +63,13 @@ async def reload_user(db: AsyncSession, user_id: uuid.UUID) -> User:
     return (
         await db.execute(select(User).where(User.id == user_id).execution_options(populate_existing=True))
     ).scalar_one()
+
+
+async def owner_contact(db: AsyncSession, business_id: uuid.UUID) -> masking.Contact | None:
+    """Where a system email to the business goes: its owner's address and
+    name, from the vault."""
+    owner = await get_owner(db, business_id)
+    return await masking.contact_of(db, owner.id) if owner else None
 
 
 async def get_owner(db: AsyncSession, business_id: uuid.UUID) -> User | None:
@@ -112,8 +120,8 @@ async def _rejected_labels(db: AsyncSession, business: Business) -> list[str]:
     return [fields.get(k) or types.get(k) or entries.get(k) or "A removed document" for k in items]
 
 
-def primary_data(u: User) -> PrimaryData:
-    return PrimaryData(full_name=u.full_name, phone=u.phone, position=u.position)
+def primary_data(u: User, person: UserIdentity) -> PrimaryData:
+    return PrimaryData(full_name=person.full_name, phone=person.phone, position=u.position)
 
 
 def business_data(b: Business, identity: BusinessIdentity) -> BusinessData:
@@ -144,6 +152,7 @@ async def me_view(db: AsyncSession, user: User) -> MeResponse:
     u = await reload_user(db, user.id)
     b = u.business
     identity = await masking.own_identity(db, b.id)
+    person = await masking.own_person(db, u.id)
     product_count = (
         await db.scalar(
             select(func.count(Product.id)).where(Product.business_id == b.id, Product.deleted_at.is_(None))
@@ -154,7 +163,7 @@ async def me_view(db: AsyncSession, user: User) -> MeResponse:
         user_id=str(u.id),
         business_id=str(b.id),
         role=u.role.value,
-        email=u.email,
+        email=person.email,
         email_verified_at=u.email_verified_at,
         business_name=identity.legal_name,
         company_code=b.company_code,
@@ -163,7 +172,7 @@ async def me_view(db: AsyncSession, user: User) -> MeResponse:
         user_type="seller" if product_count > 0 else "buyer",
         status=b.verification_status.value,
         verification=await verification_state(db, b),
-        primary=primary_data(u),
+        primary=primary_data(u, person),
         business=business_data(b, identity),
         branding=branding_data(b),
         show_tour=u.tour_completed_at is None,
@@ -227,9 +236,9 @@ async def delete_account(db: AsyncSession, user: User) -> None:
     u = await reload_user(db, user.id)
     now = utcnow()
     u.deleted_at = now
-    u.email = f"deleted-{u.id}@deleted.local"
-    u.full_name = "Deleted user"
-    u.phone = None
+    # The vault row goes: name, email and phone are erased and the email can
+    # sign up again (CX-149).
+    await masking.erase_person(db, u.id)
     u.position = None
     u.session_version = (u.session_version or 0) + 1
     await revoke_all(db, user_policy(), u.id, "account_deleted")
@@ -259,18 +268,20 @@ async def delete_account(db: AsyncSession, user: User) -> None:
 
 
 def onboarding_status(
-    user: User | None, business: Business | None, identity: BusinessIdentity | None
+    user: User | None, person: UserIdentity | None, business: Business | None, identity: BusinessIdentity | None
 ) -> OnboardingStatus:
     return OnboardingStatus(
         company_info_done=completion.company_info_done(business, identity),
-        primary_contact_done=completion.primary_contact_done(user),
+        primary_contact_done=completion.primary_contact_done(user, person),
         business_profile_done=completion.business_profile_done(business),
     )
 
 
 async def get_onboarding_status(db: AsyncSession, user: User) -> OnboardingStatus:
     u = await reload_user(db, user.id)
-    return onboarding_status(u, u.business, await masking.own_identity(db, u.business_id))
+    return onboarding_status(
+        u, await masking.own_person(db, u.id), u.business, await masking.own_identity(db, u.business_id)
+    )
 
 
 async def _finish_save(db: AsyncSession, user_id: uuid.UUID) -> OnboardingStatus:
@@ -278,7 +289,9 @@ async def _finish_save(db: AsyncSession, user_id: uuid.UUID) -> OnboardingStatus
     verification status — submission is an explicit user action."""
     await commit_or_conflict(db)
     fresh = await reload_user(db, user_id)
-    return onboarding_status(fresh, fresh.business, await masking.own_identity(db, fresh.business_id))
+    return onboarding_status(
+        fresh, await masking.own_person(db, fresh.id), fresh.business, await masking.own_identity(db, fresh.business_id)
+    )
 
 
 async def save_company_info(db: AsyncSession, user: User, payload: CompanyInfoIn) -> OnboardingStatus:
@@ -310,8 +323,9 @@ async def save_primary_contact(db: AsyncSession, user: User, payload: PrimaryCon
     phone = payload.phone or None
     await ensure_phone_available(db, user.id, phone)
     u = await reload_user(db, user.id)
-    u.full_name = payload.full_name
-    u.phone = phone
+    person = await masking.own_person(db, u.id)
+    person.full_name = payload.full_name
+    person.phone = phone
     u.position = payload.position or None
     return await _finish_save(db, u.id)
 

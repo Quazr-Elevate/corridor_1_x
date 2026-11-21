@@ -165,15 +165,19 @@ async def upgrade_placeholder_photo(product: Product) -> bool:
 async def _seller(db, row) -> User:
     email, full_name, phone, city, state, company, _ = row
     now = utcnow()
-    user = await db.scalar(select(User).where(User.email == email))
+    user = await masking.user_by_email(db, email)
     if user is None:
         business = Business(country="IN")
-        user = User(business=business, email=email, role=UserRole.owner)
+        user = User(business=business, role=UserRole.owner)
         db.add_all([business, user])
+        await db.flush()  # the vault row needs the user id
+        masking.start_person(db, user.id, full_name=full_name, email=email)
     user.password_hash = hash_password(PASSWORD)
     user.account_status = AccountStatus.active
     user.email_verified_at = user.email_verified_at or now
-    user.full_name, user.position, user.phone = full_name, "Director", phone
+    person = await masking.own_person(db, user.id)
+    person.full_name, person.phone = full_name, phone
+    user.position = "Director"
     user.consent_at = user.consent_at or now
     user.consent_version = user.consent_version or "2026-08-29"
     user.deleted_at = None

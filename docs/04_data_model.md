@@ -116,7 +116,7 @@ trade_position (on `businesses`).
 | updated_at | timestamptz | no | default now(), on update |
 | deleted_at | timestamptz | yes | soft delete (DPDP erasure; email anonymised) |
 
-Indexes: `uq_users_email`, `uq_users_phone_normalized`, `ix_users_business_id`.
+Indexes: `ix_users_business_id` (`uq_users_email` and `uq_users_phone_normalized` moved to `user_identities` in 0035).
 
 ## 3. `email_codes`
 
@@ -785,8 +785,8 @@ Backfill: every live business gets a vault row with its values; a
 soft-deleted business gets none; every verified business gets a code.
 
 Not moved in M2: `users.full_name`, `users.email` and `users.phone`. Sign-in
-reads the email, so they stay on `users`. They are treated as vault fields
-by the response guard (`tests/test_masking.py`) and by the template lint.
+reads the email, so they stayed on `users` until `0035_user_identity_vault`
+moved them to `user_identities` (CX-149, below).
 
 ### Audit actions added (in `admin_actions`)
 
@@ -920,3 +920,46 @@ service with the backend's variables).
 | `credit_ledger` | Entry type `EXPIRY` (amount ≤ 0) | The write-off line |
 | `plan_purchases` | `invoice_fy`; unique (`invoice_fy`, `invoice_number`) | Invoice numbers restart each Indian financial year: `C1X/2026-27/0001` (A-065) |
 | `invoice_counters` | `fy` (PK), `last_number` | Taken with one guarded UPDATE, so two payments can't share a number |
+
+## User identity vault (`0035_user_identity_vault`)
+
+CX-149 (A-028, A-043, A-070). A trader's name, work email and phone move from
+`users` to a vault table that only `app/modules/masking` reads, as the
+company's identity did in 0027. Same database and plain text for now (A-027);
+encryption and a separate role are CX-054.
+
+### 20. `user_identities` — the vault row of a person
+
+| Column | Type | Notes |
+|---|---|---|
+| `user_id` | uuid, PK, FK `users` (CASCADE) | One row per live account |
+| `full_name` | varchar(100) | |
+| `email` | varchar(200) | The sign-in handle. Lowercase (`ck_user_identities_email_lowercase`), UNIQUE `uq_user_identities_email` |
+| `phone` | varchar(20), null | |
+| `phone_normalized` | varchar(20), null | UNIQUE `uq_user_identities_phone_normalized`; synced by the model |
+| `created_at`, `updated_at` | timestamptz | |
+
+The row is **deleted** when the account is deleted, so both UNIQUE indexes are
+plain and the email can sign up again (A-070).
+
+### Changes to `users`
+
+`email`, `full_name`, `phone`, `phone_normalized` removed, with
+`uq_users_email`, `uq_users_phone_normalized` and `ck_users_email_lowercase`.
+`position` (job title) stays. Backfill: every live user gets a vault row; a
+soft-deleted user gets none. Downgrade restores the columns and gives
+accounts without a vault row the old `deleted-{id}@deleted.local` placeholder.
+
+### Who reads it (all through `app/modules/masking`)
+
+| Read | Audited |
+|---|---|
+| Sign-in, sign-up, password reset: `user_by_email`, `email_taken` | No: the person identifies themselves |
+| The person's own profile: `own_person` | No |
+| System emails: `contact_of` | No: the email log records each send |
+| Console lists (directory, KYB queue, documents, stuck sign-ups): `people_for_staff` | `identity.listed` with `kind: person` |
+| Opening an account: `person_for_staff` after `unmask_for_staff` | The `identity.unmasked` row carries `user_id` |
+| Contact reveal to a paying buyer: `person_for_contact_reveal` | Recorded in `contact_reveals` |
+
+The hourly job (`scripts/expire_rfqs.py`) also deletes `email_codes` older
+than 24 hours, so an email held there before the account exists doesn't stay.

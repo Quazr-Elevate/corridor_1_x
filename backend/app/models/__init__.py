@@ -27,8 +27,11 @@ from app.models.product import INCOTERMS, ListingStatus, Product
 from app.models.quote import CostSheet, Offer, OfferUnlock, Quote
 from app.models.rfq import HeldCountry, Rfq, RfqMatch, RfqStatus, TradeSetting
 from app.models.user import AccountStatus, User, UserRole
+from app.models.user_identity import PERSON_COLUMNS, UserIdentity
 
 __all__ = [
+    "PERSON_COLUMNS",
+    "UserIdentity",
     "CostSheet",
     "Offer",
     "OfferUnlock",

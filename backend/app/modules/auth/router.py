@@ -75,11 +75,12 @@ VISIBLE_EVENTS = (
 
 async def login_response(db: AsyncSession, user: User) -> LoginResponse:
     identity = await masking.own_identity(db, user.business_id)
+    person = await masking.own_person(db, user.id)
     return LoginResponse(
         user_id=str(user.id),
         business_id=str(user.business_id),
         role=user.role.value,
-        email=user.email,
+        email=person.email,
         business_name=identity.legal_name,
     )
 
@@ -156,11 +157,12 @@ async def login(
     await sessions.end_session(db, sessions.user_policy(), cor1x_session, client)
     await _start(db, response, user, client)
     if signin.new_device:
+        person = await masking.own_person(db, user.id)
         background.add_task(
             notifications.deliver_safely,
             notifications.send_new_device_signin,
-            to=user.email,
-            first_name=notifications.first_name_of(user.full_name),
+            to=person.email,
+            first_name=notifications.first_name_of(person.full_name),
             device=sessions.device_label(client.user_agent),
             signed_in_at=utcnow(),
         )
@@ -177,7 +179,7 @@ async def change_password(
         db, user, current_password=payload.current_password, new_password=payload.new_password,
         keep_session=session_id, client=client,
     )
-    _notify_password_changed(background, user)
+    await _notify_password_changed(db, background, user)
     return OkResponse()
 
 
@@ -207,7 +209,7 @@ async def reset_password(
     user = await service.reset_password(
         db, email=payload.email, code=payload.code, new_password=payload.new_password, client=client
     )
-    _notify_password_changed(background, user)
+    await _notify_password_changed(db, background, user)
     clear_cookie(response, SESSION_COOKIE)
     return OkResponse()
 
@@ -277,13 +279,14 @@ async def sign_out_device(
     return Response(status_code=204)
 
 
-def _notify_password_changed(background: BackgroundTasks, user: User) -> None:
+async def _notify_password_changed(db: DbSession, background: BackgroundTasks, user: User) -> None:
     """Tell the account holder, so a change they didn't make is noticed."""
+    person = await masking.own_person(db, user.id)
     background.add_task(
         notifications.deliver_safely,
         notifications.send_password_changed,
-        to=user.email,
-        first_name=notifications.first_name_of(user.full_name),
+        to=person.email,
+        first_name=notifications.first_name_of(person.full_name),
         changed_at=utcnow(),
     )
 
