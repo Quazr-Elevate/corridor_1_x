@@ -536,3 +536,14 @@ def test_0026_publishes_listings_that_were_already_live(tmp_path):
     assert "status" not in {r[1] for r in con.execute("PRAGMA table_info(products)")}
     assert con.execute("SELECT count(*) FROM products").fetchone()[0] == before  # no listing lost
     con.close()
+
+
+async def test_an_inconsistent_price_or_moq_names_the_field_to_fix(client):
+    await _seller(client, "fields@kaverifoods.in", verified=False)
+    pid = (await client.post("/products", json={"name": "1121 Steam Basmati", "category": "Rice"})).json()["id"]
+    r = await client.patch(f"/products/{pid}", json={"priceMin": "90", "priceMax": "80"})
+    assert r.status_code == 422
+    assert r.json()["fields"] == [{"field": "priceMax", "message": "The maximum price can't be lower than the minimum price."}]
+    r = await client.patch(f"/products/{pid}", json={"quantity": "10", "moq": "25"})
+    assert r.json()["fields"] == [{"field": "moq", "message": "MOQ can't be larger than the available quantity."}]
+    assert r.json()["detail"] == "moq: MOQ can't be larger than the available quantity."

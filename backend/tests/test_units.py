@@ -190,7 +190,7 @@ async def test_pincode_endpoint_outage_is_502(client):
         r = await client.get("/pincode/560001")
         assert r.status_code == 502
         assert r.json()["detail"] == "Pincode service unavailable, enter city/state manually"
-        assert (await client.get("/pincode/abc")).status_code == 404
+        assert (await client.get("/pincode/abc")).status_code == 400  # malformed: the caller's input, not a missing PIN
     finally:
         app.dependency_overrides.clear()
 

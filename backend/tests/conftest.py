@@ -31,6 +31,7 @@ os.environ.update(
     {
         "DATABASE_URL": f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
         "DEBUG": "false",
+        "TEST_HARNESS": "true",
         "CROSS_SITE_COOKIES": "false",
         "SESSION_SECRET": "test-session-secret-0123456789abcdef",
         # Tests talk plain http to http://testserver, so no Secure cookies.

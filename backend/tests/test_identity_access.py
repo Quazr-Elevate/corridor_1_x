@@ -269,6 +269,30 @@ def test_insecure_defaults_refused():
         create_app(s)
 
 
+def test_production_refuses_development_settings():
+    from app.core.config import Settings
+
+    ready = dict(
+        debug=False, test_harness=False, cookie_secure=None, session_secret="x" * 40, email_provider="resend",
+        database_url="postgresql://u:p@db/cor1x",
+    )
+    assert Settings(**ready).insecure_defaults() == []
+    refused = {
+        "EMAIL_PROVIDER=console": {"email_provider": "Console"},
+        "SQLite": {"database_url": "sqlite+aiosqlite:///./cor1x.db"},
+        "COOKIE_SECURE=false": {"cookie_secure": False},
+        "RATE_LIMIT_ENABLED": {"rate_limit_enabled": False},
+    }
+    for needle, override in refused.items():
+        problems = Settings(**{**ready, **override}).insecure_defaults()
+        assert any(needle in p for p in problems), (needle, problems)
+    # Cross-site cookies are always Secure, so the explicit setting doesn't matter there.
+    assert Settings(**{**ready, "cookie_secure": False, "cross_site_cookies": True}).insecure_defaults() == []
+    # The test-suite switch never excuses a weak secret or an open payment provider.
+    harness = Settings(**{**ready, "test_harness": True, "session_secret": "short", "payment_provider": "test"})
+    assert len(harness.insecure_defaults()) == 2
+
+
 def test_ip_helpers():
     from app.core.security import ip_allowed, ip_prefix
 

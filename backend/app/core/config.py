@@ -172,6 +172,11 @@ class Settings(BaseSettings):
     # upstream APIs (offline dev). Never enable in production.
     lookups_stub: bool = False
 
+    # ─── Test suite ──────────────────────────────────────────────
+    # Set by tests/conftest.py only. Lets the suite run with DEBUG off on
+    # SQLite, the console mailer and plain-HTTP cookies. Never set it on a server.
+    test_harness: bool = False
+
     # ─── Derived ─────────────────────────────────────────────────
 
     @property
@@ -195,9 +200,23 @@ class Settings(BaseSettings):
             problems.append("SESSION_SECRET (set 32+ random characters)")
         if self.lookups_stub:
             problems.append("LOOKUPS_STUB must be false")
-        if self.payment_provider == "test":
+        # The test suite runs with DEBUG off on SQLite, plain-HTTP cookies and
+        # the console mailer; nothing else is exempt.
+        if not self.test_harness:
+            if self.email_provider.strip().lower() == "console":
+                problems.append(
+                    "EMAIL_PROVIDER=console writes every email, sign-in codes included, to the log; use resend or brevo"
+                )
+            if self.is_sqlite:
+                problems.append("DATABASE_URL points at SQLite; use Postgres")
+            if self.cookie_secure is False and not self.cross_site_cookies:
+                problems.append("COOKIE_SECURE=false sends the session cookie over plain HTTP")
+        if not self.rate_limit_enabled:
+            problems.append("RATE_LIMIT_ENABLED must be true")
+        provider = self.payment_provider.strip().lower()
+        if provider == "test":
             problems.append("PAYMENT_PROVIDER=test accepts self-signed payments; use razorpay or none")
-        if self.payment_provider == "razorpay" and not (
+        if provider == "razorpay" and not (
             self.razorpay_key_id and self.razorpay_key_secret and len(self.razorpay_webhook_secret) >= 16
         ):
             problems.append("RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and a 16+ character RAZORPAY_WEBHOOK_SECRET")

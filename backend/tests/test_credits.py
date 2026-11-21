@@ -386,7 +386,11 @@ def test_webhook_signature_is_hmac_sha256_of_the_raw_body():
 def test_the_test_provider_is_refused_outside_debug():
     from app.core.config import Settings
 
-    base = dict(debug=False, session_secret="x" * 40)
+    base = dict(
+        debug=False, test_harness=False, cookie_secure=None, session_secret="x" * 40, email_provider="resend",
+        database_url="postgresql://u:p@db/cor1x",
+    )
     assert any("PAYMENT_PROVIDER=test" in p for p in Settings(**base, payment_provider="test").insecure_defaults())
+    assert any("PAYMENT_PROVIDER=test" in p for p in Settings(**base, payment_provider=" Test").insecure_defaults())
     assert any("RAZORPAY" in p for p in Settings(**base, payment_provider="razorpay").insecure_defaults())
     assert not Settings(**base, payment_provider="none").insecure_defaults()
