@@ -182,6 +182,9 @@ async def _listings(db, user: User, listings: list[tuple]) -> int:
     today, added = utcnow().date(), 0
     for (name, category, variety, grade, hs, origin, packaging, qty, moq, cap, lead,
          low, high, port, description) in listings:
+        # Written on every run: the test environment keeps uploads in the
+        # container, so a redeploy loses the photo files of listings it seeded.
+        photo = await photo_for(category)
         if name in existing:
             continue
         db.add(Product(
@@ -191,7 +194,7 @@ async def _listings(db, user: User, listings: list[tuple]) -> int:
             capacity_per_month=Decimal(cap), capacity_unit="MT", lead_time_days=lead,
             price_per_unit=Decimal(low), price_max=Decimal(high), currency="USD",
             price_valid_until=today + timedelta(days=90), incoterms=["FOB", "CIF"], port_of_loading=port,
-            description=description, photos=[await photo_for(category)],
+            description=description, photos=[photo],
             # Seeded listings skip the review queue, as seed_demo's do.
             status="published", submitted_at=utcnow(), published_at=utcnow(),
         ))
