@@ -103,16 +103,22 @@ async def verification_state(db: AsyncSession, business: Business) -> Verificati
 
 
 async def _rejected_labels(db: AsyncSession, business: Business) -> list[str]:
-    """Labels for the flagged keys: profile fields, ``kyb:<code>`` (the
-    admin's document name), ``doc:<id>`` (the entry's custom name)."""
-    items = list(business.verification_rejected_items or [])
+    return await item_labels(db, business, list(business.verification_rejected_items or []))
+
+
+async def item_labels(db: AsyncSession, business: Business, items: list[str]) -> list[str]:
+    """Labels for flagged keys: profile fields, ``kyb:<code>`` (the admin's
+    document name), ``doc:<id>`` (the entry's custom name). Also used for
+    past rejections, so a code from a country the business has since left
+    still gets its name (the current country's name wins on a clash)."""
     if not items:
         return []
     fields = {f.key: f.label for f in PROFILE_FIELDS}
-    types = {
-        f"kyb:{t.code}": t.name
-        for t in await db.scalars(select(KybDocumentType).where(KybDocumentType.country == business.country))
-    }
+    types: dict[str, str] = {}
+    for t in await db.scalars(
+        select(KybDocumentType).order_by((KybDocumentType.country == business.country).desc())
+    ):
+        types.setdefault(f"kyb:{t.code}", t.name)
     entries = {
         f"doc:{d.id}": d.doc_type
         for d in await db.scalars(select(BusinessDocument).where(BusinessDocument.business_id == business.id))
@@ -133,9 +139,7 @@ def business_data(b: Business, identity: BusinessIdentity) -> BusinessData:
         operating_countries=b.operating_countries,
         website_url=identity.website_url,
         address_line=identity.address_line,
-        city=identity.city,
         state=b.state,
-        pincode=identity.pincode,
         country=b.country,
         google_business_url=identity.google_business_url,
         facebook_url=identity.facebook_url,
@@ -392,28 +396,17 @@ async def save_profile(db: AsyncSession, user: User, payload: BusinessProfileSav
     for field in PROFILE_OPTIONAL_FIELDS:
         if field in sent:
             masking.set_company_field(b, identity, field, getattr(payload, field) or None)
-    await _check_postcode(db, b, identity)
     if kyb_snapshot(b, identity) != before:
         reopen_review(b)
     await commit_or_conflict(db)
     return await me_view(db, u)
 
 
-async def _check_postcode(db: AsyncSession, b: Business, identity: BusinessIdentity) -> None:
-    """Postcode must match the country's pattern when one is set."""
-    if not identity.pincode:
-        return
-    country = await db.get(Country, b.country)
-    if country is not None and country.postal_pattern:
-        if not re.fullmatch(country.postal_pattern, identity.pincode.strip().upper()):
-            raise BadRequest(f"That doesn’t look like a valid {country.postal_label} for {country.name}.")
-
-
 def kyb_snapshot(b: Business, identity: BusinessIdentity) -> tuple:
     """The company fields KYB verifies — a change on a verified business
     sends it back to review."""
     norm = lambda v: " ".join((v or "").split()).lower()  # noqa: E731
-    return (norm(identity.legal_name), norm(identity.address_line), norm(identity.city), (b.country or "").upper())
+    return (norm(identity.legal_name), norm(identity.address_line), (b.country or "").upper())
 
 
 # ── Branding images (logo / banner) ──────────────────────────────────

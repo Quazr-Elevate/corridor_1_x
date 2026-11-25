@@ -111,7 +111,7 @@ async def test_submit_success_once_all_filled(client, admin_client):
     assert r.status_code == 200
     state = r.json()
     assert state["status"] == "pending_verification" and state["missing"] == []
-    assert state["mandatoryTotal"] == 4 + 3  # profile fields + GSTIN, PAN, QA500 OK
+    assert state["mandatoryTotal"] == 3 + 3  # profile fields + GSTIN, PAN, QA500 OK
 
 
 # QA-500.3 — mandatoryTotal follows the live list

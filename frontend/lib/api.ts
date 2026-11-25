@@ -48,11 +48,9 @@ export interface BusinessData {
   industry?: string | null;
   operatingCountries?: string[] | null;
   websiteUrl?: string | null;
-  // Company address (country is ISO alpha-2, defaults to "IN")
+  // Company address: one free-text block (vault) + the public region.
   addressLine?: string | null;
-  city?: string | null;
   state?: string | null;
-  pincode?: string | null;
   country?: string | null;
   // Socials
   googleBusinessUrl?: string | null;
@@ -184,19 +182,10 @@ export interface RevealedContact {
   entityType: string | null;
   email: string | null;
   addressLine: string | null;
-  city: string | null;
   state: string | null;
-  pincode: string | null;
   country: string | null;
   websiteUrl: string | null;
   revealedAt: string;
-}
-
-export interface PincodeLookup {
-  pincode: string;
-  city: string;
-  district?: string;
-  state: string;
 }
 
 /** One KYB entry: a document type (or "Other") + a number and/or a file.
@@ -230,9 +219,6 @@ export interface KybCountry {
   flag: string | null;
   dialCode: string | null;
   defaultCurrency: string;
-  regionLabel: string;
-  postalLabel: string;
-  postalPattern: string | null;
 }
 
 /** An option of the KYB dropdown (admin-defined, per country). */
@@ -269,10 +255,10 @@ export interface KybEntryPatch {
 export interface BusinessProfileSaveIn {
   legalName: string;
   country: string;
+  /** The whole registered address, as the company writes it. */
   addressLine?: string;
-  city?: string;
+  /** The region the market shows on a listing. */
   state?: string;
-  pincode?: string;
   websiteUrl?: string;
 }
 
@@ -412,6 +398,9 @@ export interface SignupCompleteIn {
   email: string;
   fullName: string;
   companyName: string;
+  /** ISO-3166 alpha-2, picked on the first sign-up screen. It decides the
+   *  mandatory KYB documents, so it cannot wait for the business profile. */
+  country: string;
   position?: string;
   password: string;
   acceptTerms: true;
@@ -441,9 +430,7 @@ export interface CompanyInfoIn {
   entityType?: EntityType | null;
   /** Company address + socials. Each is only changed when sent; "" clears. */
   addressLine?: string;
-  city?: string;
   state?: string;
-  pincode?: string;
   /** ISO 3166-1 alpha-2. */
   country?: string;
   googleBusinessUrl?: string;
@@ -622,7 +609,6 @@ export const api = {
     }),
 
   // ─── Lookups ───
-  lookupPincode: (pincode: string) => jsonFetch<PincodeLookup>(`/pincode/${pincode}`),
 
   // ─── Me ───
   me: () => jsonFetch<Me>("/me"),

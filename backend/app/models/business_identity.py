@@ -15,8 +15,6 @@ VAULT_COLUMNS = (
     "legal_name",
     "website_url",
     "address_line",
-    "city",
-    "pincode",
     "google_business_url",
     "facebook_url",
 )
@@ -44,9 +42,9 @@ class BusinessIdentity(Base):
     legal_name_normalized: Mapped[str | None] = mapped_column(String(200), nullable=True)
     website_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     website_normalized: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    address_line: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    pincode: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    #: The whole registered address as the company writes it (0036). The
+    #: split into line / city / postcode only ever fitted India.
+    address_line: Mapped[str | None] = mapped_column(String(400), nullable=True)
     google_business_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     facebook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())

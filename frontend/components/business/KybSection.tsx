@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, assetUrl, type KybDocType, type VerificationDoc } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/verification";
+import { countryName } from "@/components/account/countries";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { Input, Select } from "@/components/ui/Field";
@@ -45,13 +46,23 @@ function statusChip(doc: VerificationDoc) {
  */
 export function KybSection({
   country,
+  savedCountry,
   rejectedItems = [],
   onChanged,
+  onRequiredDocs,
 }: {
+  /** The country picked in the Company form — possibly not saved yet. The
+   *  list always follows it, so a change of country shows its documents
+   *  straight away. */
   country: string;
+  /** The business's saved country. Documents can only be added for it (the
+   *  API checks), so while the two differ the list is a preview. */
+  savedCountry: string;
   /** Keys Corridor ops flagged on the last rejection (kyb:<code> / doc:<id>). */
   rejectedItems?: string[];
   onChanged: () => void;
+  /** The required documents of ``country``, each time its list loads. */
+  onRequiredDocs?: (docs: KybDocType[]) => void;
 }) {
   const flagged = new Set(rejectedItems);
   const toast = useToast();
@@ -63,17 +74,23 @@ export function KybSection({
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [t, e] = await Promise.all([api.kybDocTypes(), api.listVerificationDocs()]);
+      // Ask for the picked country explicitly: without it the API answers
+      // with the saved country's list, and a change of country showed nothing.
+      const [t, e] = await Promise.all([api.kybDocTypes(country), api.listVerificationDocs()]);
       setTypes(t);
       setEntries(e);
+      setAdding(null); // an open form belonged to the previous list
+      onRequiredDocs?.(t.filter((x) => x.isMandatory)); // the API lists active types only
     } catch (err) {
       setLoadError(errorText(err, "Could not load your documents."));
     }
-  }, []);
+  }, [country, onRequiredDocs]);
 
   useEffect(() => {
     void load();
-  }, [load, country]);
+  }, [load]);
+
+  const preview = country !== savedCountry;
 
   const byType = useMemo(() => {
     const m = new Map<string, VerificationDoc>();
@@ -82,6 +99,10 @@ export function KybSection({
   }, [entries]);
 
   const others = (entries ?? []).filter((e) => e.isOther || (e.documentTypeId && !types?.some((t) => t.id === e.documentTypeId)));
+  // While previewing another country: listed entries of the saved country.
+  // The API refuses the switch until they are gone, so they are called out.
+  const blocking = preview ? others.filter((e) => !e.isOther && e.documentTypeId) : [];
+  const rest = preview ? others.filter((e) => !blocking.includes(e)) : others;
   const available = (types ?? []).filter((t) => !byType.has(t.id));
 
   function changed(next: VerificationDoc[] | ((prev: VerificationDoc[]) => VerificationDoc[])) {
@@ -105,8 +126,19 @@ export function KybSection({
     );
   }
 
+  const from = countryName(savedCountry) || savedCountry;
+  const to = countryName(country) || country;
+
   return (
     <div className="space-y-3">
+      {preview ? (
+        <Notice tone="move" title={`Documents for ${to}`}>
+          {blocking.length
+            ? `Remove your ${from} ${blocking.length === 1 ? "entry" : "entries"} below, then save your company details to switch to ${to}. You can add these documents once the switch is saved.`
+            : `Save your company details to switch to ${to}, then add these documents.`}
+        </Notice>
+      ) : null}
+
       {types.length === 0 ? (
         <Notice tone="info">No documents are listed for this country yet. Add any certificate with “Other”.</Notice>
       ) : null}
@@ -142,11 +174,26 @@ export function KybSection({
             }}
           />
         ) : (
-          <MissingRow key={t.id} anchor={`kyb-${t.code}`} type={t} onAdd={() => setAdding(t.id)} />
+          <MissingRow key={t.id} anchor={`kyb-${t.code}`} type={t} disabled={preview} onAdd={() => setAdding(t.id)} />
         );
       })}
 
-      {others.map((e) => (
+      {blocking.length ? (
+        <p className="t-label pt-2 text-fg-3">From {from} — remove before switching</p>
+      ) : null}
+      {blocking.map((e) => (
+        <EntryRow
+          key={e.id}
+          anchor={`doc-${e.id}`}
+          doc={e}
+          type={null}
+          flagged
+          onUpdated={(d) => changed((xs) => xs.map((x) => (x.id === d.id ? d : x)))}
+          onDeleted={() => changed((xs) => xs.filter((x) => x.id !== e.id))}
+        />
+      ))}
+
+      {rest.map((e) => (
         <EntryRow
           key={e.id}
           anchor={`doc-${e.id}`}
@@ -158,7 +205,7 @@ export function KybSection({
         />
       ))}
 
-      {adding === OTHER || (adding && !types.find((t) => t.id === adding)?.isMandatory) ? (
+      {preview ? null : adding === OTHER || (adding && !types.find((t) => t.id === adding)?.isMandatory) ? (
         <AddEntryForm
           types={available.filter((t) => !t.isMandatory)}
           initialType={adding}
@@ -187,7 +234,18 @@ export function KybSection({
 
 // ── Rows ───────────────────────────────────────────────────────────────
 
-function MissingRow({ anchor, type, onAdd }: { anchor: string; type: KybDocType; onAdd: () => void }) {
+function MissingRow({
+  anchor,
+  type,
+  disabled,
+  onAdd,
+}: {
+  anchor: string;
+  type: KybDocType;
+  /** Previewing a country that isn't saved yet. */
+  disabled?: boolean;
+  onAdd: () => void;
+}) {
   return (
     <div
       id={anchor}
@@ -201,7 +259,7 @@ function MissingRow({ anchor, type, onAdd }: { anchor: string; type: KybDocType;
         </p>
         <p className="t-sub mt-0.5 text-fg-3">{type.helpText ?? requirementText(type)}</p>
       </div>
-      <Button size="sm" variant="secondary" icon="plus" onClick={onAdd}>
+      <Button size="sm" variant="secondary" icon="plus" onClick={onAdd} disabled={disabled}>
         Add
       </Button>
     </div>

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.time import ensure_aware, utcnow
 from app.models.admin_action import AdminAction
+from app.models.admin_user import AdminUser
 from app.models.business import Business, BusinessStatus
 from app.models.business_identity import BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
@@ -27,6 +28,7 @@ from app.modules.admin.schemas import (
     SessionOut,
     DashboardStats,
     PendingDocRow,
+    ReviewEvent,
     StuckUser,
     TimelinePoint,
     UserDetail,
@@ -44,7 +46,7 @@ from app.modules.verification.rules import (
     requirements,
 )
 from app.modules.verification.schemas import DocOut, doc_to_out
-from app.modules.accounts.service import change_country, get_owner, kyb_snapshot, owner_contact
+from app.modules.accounts.service import change_country, get_owner, item_labels, kyb_snapshot, owner_contact
 from app.modules.auth.lockout import lock_state
 from app.modules.auth.sessions import live_sessions, user_policy
 
@@ -313,6 +315,7 @@ async def list_users(
     rows = (await db.execute(stmt.order_by(User.created_at.desc()).offset(offset).limit(limit))).all()
     names = await masking.names_for_staff(db, admin, [b.id for _, b in rows], purpose="directory")
     people = await masking.people_for_staff(db, admin, [u.id for u, _ in rows], purpose="directory")
+    last = await last_business_reviews(db, [b for _, b in rows])
     return UserList(
         total=total,
         items=[
@@ -326,6 +329,7 @@ async def list_users(
                 status=b.verification_status.value,
                 email_verified=u.email_verified_at is not None,
                 created_at=u.created_at,
+                last_review=last.get(b.id),
             )
             for u, b in rows
         ],
@@ -344,9 +348,7 @@ def _business_dict(b: Business, identity: BusinessIdentity) -> dict[str, Any]:
         "operatingCountries": b.operating_countries,
         "websiteUrl": identity.website_url,
         "addressLine": identity.address_line,
-        "city": identity.city,
         "state": b.state,
-        "pincode": identity.pincode,
         "country": b.country,
         "googleBusinessUrl": identity.google_business_url,
         "facebookUrl": identity.facebook_url,
@@ -387,6 +389,86 @@ async def _account_security(db: AsyncSession, u: User) -> AccountSecurityOut:
         active_session_count=len(live),
         last_login_at=u.last_login_at,
     )
+
+
+# ── Review history (who decided what, from the audit trail) ──────────
+
+_BUSINESS_DECISIONS = {"business.verify": "business_approved", "business.reject": "business_rejected"}
+_DOC_DECISIONS = {"doc.approve": "document_approved", "doc.reject": "document_rejected"}
+
+
+async def _reviewer_names(db: AsyncSession, rows: list[AdminAction]) -> dict[uuid.UUID, str]:
+    ids = {r.admin_user_id for r in rows if r.admin_user_id}
+    if not ids:
+        return {}
+    return dict((await db.execute(select(AdminUser.id, AdminUser.full_name).where(AdminUser.id.in_(ids)))).all())
+
+
+async def _events(db: AsyncSession, b: Business, rows: list[AdminAction]) -> list[ReviewEvent]:
+    names = await _reviewer_names(db, rows)
+    out: list[ReviewEvent] = []
+    for r in rows:
+        details = r.details or {}
+        kind = _BUSINESS_DECISIONS.get(r.action) or _DOC_DECISIONS[r.action]
+        out.append(ReviewEvent(
+            at=r.created_at,
+            kind=kind,
+            # Rows from before named admin accounts (0024) carry only the email.
+            reviewer_name=names.get(r.admin_user_id) if r.admin_user_id else None,
+            reviewer_email=r.admin_email,
+            reason=r.reason,
+            items=await item_labels(db, b, list(details.get("failed_items") or [])),
+            document=details.get("docType") if r.action in _DOC_DECISIONS else None,
+            documents_approved=details.get("documents_approved"),
+        ))
+    return out
+
+
+async def review_history(db: AsyncSession, b: Business) -> list[ReviewEvent]:
+    """Every approve / reject of the business and of its documents, newest
+    first. Document decisions are matched by the business id they carry, so
+    a decision on a document deleted since still shows."""
+    rows = list(await db.scalars(
+        select(AdminAction)
+        .where(or_(
+            and_(
+                AdminAction.target_type == "business",
+                AdminAction.target_id == str(b.id),
+                AdminAction.action.in_(_BUSINESS_DECISIONS),
+            ),
+            and_(
+                AdminAction.target_type == "document",
+                AdminAction.action.in_(_DOC_DECISIONS),
+                AdminAction.details["businessId"].as_string() == str(b.id),
+            ),
+        ))
+        .order_by(AdminAction.created_at.desc())
+    ))
+    return await _events(db, b, rows)
+
+
+async def last_business_reviews(db: AsyncSession, businesses: list[Business]) -> dict[uuid.UUID, ReviewEvent]:
+    """The latest approve / reject of each business (directory rows)."""
+    if not businesses:
+        return {}
+    by_id = {str(b.id): b for b in businesses}
+    rows = list(await db.scalars(
+        select(AdminAction)
+        .where(
+            AdminAction.target_type == "business",
+            AdminAction.target_id.in_(by_id),
+            AdminAction.action.in_(_BUSINESS_DECISIONS),
+        )
+        .order_by(AdminAction.created_at.desc())
+    ))
+    latest: dict[str, AdminAction] = {}
+    for r in rows:
+        latest.setdefault(r.target_id, r)
+    out: dict[uuid.UUID, ReviewEvent] = {}
+    for target, r in latest.items():
+        b = by_id[target]
+        out[b.id] = (await _events(db, b, [r]))[0]
+    return out
 
 
 async def user_detail(
@@ -435,6 +517,7 @@ async def user_detail(
         verification_rejected_items=list(b.verification_rejected_items or []),
         missing_mandatory_fields=await missing_keys(db, b),
         security=await _account_security(db, u),
+        review_history=await review_history(db, b),
     )
 
 

@@ -176,7 +176,7 @@ async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_c
     # Owner contact + business address in the reveal.
     r = await admin_client.patch(
         f"/admin/users/{seller['userId']}",
-        json={"businessProfile": {"city": "Karnal", "state": "Haryana", "entityType": "private_ltd"}},
+        json={"businessProfile": {"state": "Haryana", "entityType": "private_ltd"}},
     )
     assert r.status_code == 200
 
@@ -203,7 +203,9 @@ async def test_contact_reveal_gates_and_idempotency(client, make_client, admin_c
     contact = r.json()
     assert contact["email"] == "seller@kaverifoods.in" and contact["fullName"] == "Asha Rao"
     assert contact["sellerId"] == seller["businessId"]
-    assert (contact["city"], contact["entityType"], contact["country"]) == ("Karnal", "private_ltd", "IN")
+    assert (contact["addressLine"], contact["entityType"], contact["country"]) == (
+        "1 Market Road, Karnal 132001", "private_ltd", "IN"
+    )
     assert "businessType" not in contact
     again = await buyer.post(f"/products/{pid}/contact-reveal")
     assert again.json()["revealedAt"] == contact["revealedAt"]

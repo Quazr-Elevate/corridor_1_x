@@ -219,6 +219,20 @@ export interface CategoryTemplate {
   certificateTypes: CertificateType[];
 }
 
+/**
+ * A country Corridor One X onboards businesses from. Admin ops decides the
+ * list (active + at least one required KYB document); the sign-up form reads
+ * it anonymously, before any account exists, because the country picked
+ * there decides which KYB documents the business must bring.
+ */
+export interface OpenCountry {
+  code: string;
+  name: string;
+  flag: string | null;
+  dialCode: string | null;
+  defaultCurrency: string;
+}
+
 export const publicApi = {
   listProducts: (filters: CatalogFilters = {}, viewer?: ViewerInit) =>
     get<PublicProductList>("/public/products", { ...filters }, viewer),
@@ -227,6 +241,7 @@ export const publicApi = {
   facets: (viewer?: ViewerInit) => get<CatalogFacets>("/public/catalog/facets", undefined, viewer),
   fxRates: () => get<FxRates>("/public/fx/rates"),
   categoryTemplate: (category: string) => get<CategoryTemplate>("/public/catalog/template", { category }),
+  countries: () => get<{ items: OpenCountry[] }>("/public/countries").then((r) => r.items),
 };
 
 /**

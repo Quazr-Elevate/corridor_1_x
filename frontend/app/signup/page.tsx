@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
+import { publicApi, type OpenCountry } from "@/lib/publicApi";
 import {
   NightCard,
   NightCardFoot,
@@ -14,7 +15,7 @@ import {
 import { SignupSteps } from "@/components/auth/SignupSteps";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Field";
+import { Input, Select } from "@/components/ui/Field";
 import { Checkbox } from "@/components/ui/Controls";
 import { Icon } from "@/components/ui/Icon";
 import { Notice } from "@/components/ui/Surface";
@@ -60,6 +61,10 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
+  // Asked on the first screen, not on the business profile: the country
+  // decides which KYB documents are mandatory, so the account is created
+  // with it and the document list is right from the start.
+  const [country, setCountry] = useState("");
   const [sent, setSent] = useState<CodeSent | null>(null);
   const [restartNote, setRestartNote] = useState<ReactNode>(null);
 
@@ -77,6 +82,8 @@ export default function SignupPage() {
             onFullNameChange={setFullName}
             companyName={companyName}
             onCompanyNameChange={setCompanyName}
+            country={country}
+            onCountryChange={setCountry}
             note={restartNote}
             onSent={(s) => {
               setRestartNote(null);
@@ -100,6 +107,7 @@ export default function SignupPage() {
             fullName={fullName}
             companyName={companyName}
             onCompanyNameChange={setCompanyName}
+            country={country}
             onRestart={(note) => {
               setRestartNote(note);
               setSent(null);
@@ -114,7 +122,7 @@ export default function SignupPage() {
 
 /* ─────────────────────────────── 1 · Email ─────────────────────────────── */
 
-type StartKey = "fullName" | "companyName" | "email";
+type StartKey = "fullName" | "companyName" | "country" | "email";
 
 function EmailStep({
   email,
@@ -123,6 +131,8 @@ function EmailStep({
   onFullNameChange,
   companyName,
   onCompanyNameChange,
+  country,
+  onCountryChange,
   note,
   onSent,
 }: {
@@ -132,6 +142,8 @@ function EmailStep({
   onFullNameChange: (v: string) => void;
   companyName: string;
   onCompanyNameChange: (v: string) => void;
+  country: string;
+  onCountryChange: (v: string) => void;
   note: ReactNode;
   onSent: (s: CodeSent) => void;
 }) {
@@ -140,6 +152,26 @@ function EmailStep({
   const fieldError = errors.email;
   const setFieldError = (msg: string | undefined) => setErrors((e) => ({ ...e, email: msg }));
   const [formError, setFormError] = useState<ReactNode>(null);
+  // The countries admin ops currently onboards from — never a hard-coded
+  // list, so opening or pausing a country in /admin changes this form.
+  const [countries, setCountries] = useState<OpenCountry[] | null>(null);
+  const [countriesFailed, setCountriesFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    publicApi
+      .countries()
+      .then((items) => {
+        if (!live) return;
+        setCountries(items);
+        // One corridor open → nothing to choose.
+        if (items.length === 1) onCountryChange(items[0].code);
+      })
+      .catch(() => live && setCountriesFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [onCountryChange]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -150,6 +182,7 @@ function EmailStep({
     if (!fullName.trim()) fe.fullName = "Enter your full name.";
     else if (/\d/.test(fullName)) fe.fullName = "Names can’t contain numbers.";
     if (companyName.trim().length < 2) fe.companyName = "Enter your company’s registered name.";
+    if (!country) fe.country = "Pick the country your business is registered in.";
     if (!clean) fe.email = "Enter your work email.";
     setErrors(fe);
     if (Object.keys(fe).length) return;
@@ -220,6 +253,31 @@ function EmailStep({
           onChange={(e) => {
             onCompanyNameChange(e.target.value);
             setErrors((x) => ({ ...x, companyName: undefined }));
+          }}
+        />
+        <Select
+          night
+          size="lg"
+          label="Country of registration"
+          name="country"
+          autoComplete="country"
+          required
+          placeholder={countries ? "Select a country" : "Loading…"}
+          disabled={!countries || countries.length === 0}
+          hint={
+            countriesFailed
+              ? "We couldn’t load the list. Refresh the page and try again."
+              : "Where your business is registered. It decides which documents we’ll ask for."
+          }
+          error={errors.country}
+          value={country}
+          options={(countries ?? []).map((c) => ({
+            value: c.code,
+            label: `${c.flag ? `${c.flag} ` : ""}${c.name}${c.dialCode ? ` (${c.dialCode})` : ""}`,
+          }))}
+          onChange={(e) => {
+            onCountryChange(e.target.value);
+            setErrors((x) => ({ ...x, country: undefined }));
           }}
         />
         <Input
@@ -453,12 +511,15 @@ function DetailsStep({
   fullName,
   companyName,
   onCompanyNameChange,
+  country,
   onRestart,
 }: {
   email: string;
   fullName: string;
   companyName: string;
   onCompanyNameChange: (v: string) => void;
+  /** Picked on step 1; the business is created with it. */
+  country: string;
   onRestart: (note: ReactNode) => void;
 }) {
   const router = useRouter();
@@ -502,6 +563,7 @@ function DetailsStep({
         email,
         fullName: fullName.trim(),
         companyName: companyName.trim(),
+        country,
         password,
         acceptTerms: true,
       });

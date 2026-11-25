@@ -29,7 +29,7 @@ async def _company(client, **over):
     biz = (await client.get("/me")).json()["business"]
     body = {
         "legalName": biz["legalName"], "industry": biz["industry"], "operatingCountries": biz["operatingCountries"],
-        "addressLine": biz["addressLine"], "city": biz["city"], "country": biz["country"],
+        "addressLine": biz["addressLine"], "country": biz["country"],
     } | over
     return await client.post("/onboarding/company", json=body)
 
@@ -81,6 +81,6 @@ async def test_address_edit_flips(client, admin_client):
     biz = (await client.get("/me")).json()["business"]
     r = await client.put(
         "/me/business-profile",
-        json={"legalName": biz["legalName"], "country": "IN", "addressLine": "99 New Market Road", "city": biz["city"]},
+        json={"legalName": biz["legalName"], "country": "IN", "addressLine": "99 New Market Road, Testville"},
     )
     assert r.status_code == 200 and r.json()["verification"]["status"] == "pending_verification"

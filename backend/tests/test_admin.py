@@ -122,7 +122,7 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     b = await signup_and_login(other, "pb@othermill.in")
     await fill_mandatory(other, n=2)
 
-    r = await admin_client.patch(f"/admin/users/{b['userId']}", json={"businessProfile": {"pincode": "12AB"}})
+    r = await admin_client.patch(f"/admin/users/{b['userId']}", json={"businessProfile": {"addressLine": "x" * 401}})
     assert r.status_code == 422
     r = await admin_client.patch(
         f"/admin/users/{b['userId']}", json={"businessProfile": {"tradePosition": "pirate"}}
@@ -155,8 +155,7 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
             # Address / socials / country are business fields now.
             "businessProfile": {
                 "industry": "Spices",
-                "city": "Pune",
-                "pincode": "411001",
+                "addressLine": "9 Pune Road, Pune 411001",
                 "entityType": "llp",
             },
         },
@@ -166,8 +165,8 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     assert d["businessId"] == b["businessId"]
     assert d["profile"] == {"fullName": "Asha Rao", "phone": "+91 98765 00002", "position": "CEO"}
     bp = d["businessProfile"]
-    assert (bp["industry"], bp["city"], bp["pincode"], bp["country"], bp["entityType"]) == (
-        "Spices", "Pune", "411001", "IN", "llp"
+    assert (bp["industry"], bp["addressLine"], bp["country"], bp["entityType"]) == (
+        "Spices", "9 Pune Road, Pune 411001", "IN", "llp"
     )
     actions = await _actions()
     # The PATCH answers with the account detail, so the edit is followed by
@@ -179,8 +178,7 @@ async def test_admin_patch_typed_and_unique(client, make_client, admin_client):
     assert set(actions[-1].details["fields"]) == {
         "profile.position",
         "businessProfile.industry",
-        "businessProfile.city",
-        "businessProfile.pincode",
+        "businessProfile.address_line",
         "businessProfile.entity_type",
     }
 

@@ -145,9 +145,6 @@ export interface AdminCountry {
   flag: string | null;
   dialCode: string | null;
   defaultCurrency: string;
-  regionLabel: string;
-  postalLabel: string;
-  postalPattern: string | null;
   active: boolean;
   documents: number;
   requiredDocuments: number;
@@ -159,9 +156,6 @@ export interface AdminCountryFields {
   flag?: string | null;
   dialCode?: string | null;
   defaultCurrency?: "INR" | "AED" | "USD" | null;
-  regionLabel?: string | null;
-  postalLabel?: string | null;
-  postalPattern?: string | null;
 }
 
 export interface AdminKybDocTypeIn {
@@ -239,6 +233,24 @@ export interface UserDetail {
   verificationRejectedItems: string[];
   missingMandatoryFields: string[];
   security?: AccountSecurity | null;
+  /** Every KYB decision on the business and its documents, newest first. */
+  reviewHistory: ReviewEvent[];
+}
+
+/** One KYB decision — who, when, and why (from the audit trail). */
+export interface ReviewEvent {
+  at: string;
+  kind: "business_approved" | "business_rejected" | "document_approved" | "document_rejected";
+  /** Null for decisions made before named admin accounts existed. */
+  reviewerName: string | null;
+  reviewerEmail: string;
+  reason: string | null;
+  /** Flagged on a business rejection, as labels. */
+  items: string[];
+  /** The document a document decision was about. */
+  document: string | null;
+  /** Required documents approved together with the business. */
+  documentsApproved: number | null;
 }
 
 /* ── Patch keys — mirror the backend's editable whitelists exactly. ── */
@@ -261,9 +273,7 @@ export const BUSINESS_PATCH_KEYS = [
   "operatingCountries",
   "websiteUrl",
   "addressLine",
-  "city",
   "state",
-  "pincode",
   "country",
   "googleBusinessUrl",
   "facebookUrl",
@@ -321,6 +331,8 @@ export interface UserRow {
   status: string;
   emailVerified: boolean;
   createdAt: string;
+  /** The latest approve / reject of the business, if any. */
+  lastReview: ReviewEvent | null;
 }
 
 export interface UsersListOut {

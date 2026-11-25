@@ -13,8 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api, ApiError, ENTITY_TYPE_SHORT, entityTypeShort, type EntityType, type Me, type VerificationDoc } from "@/lib/api";
-import { INDIA_STATES, normalizeState } from "@/lib/indiaStates";
+import { api, ApiError, ENTITY_TYPE_SHORT, entityTypeShort, type EntityType, type KybCountry, type Me, type VerificationDoc } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useMe } from "@/lib/useMe";
 import { useFocusField } from "@/lib/useFocusField";
@@ -365,12 +364,13 @@ function Passport() {
 
 // ─── As counterparties see it ────────────────────────────────────────
 // Derived from what the public catalog and the contact reveal actually
-// expose: the seller's city/state and Verified badge on every lot; the
-// company name and contact only through a verified buyer's reveal.
+// expose: the seller's state / region and Verified badge on every lot
+// (never the address); the company name and contact only through a
+// verified buyer's reveal.
 
 function CounterpartyView({ me }: { me: Me }) {
   const verified = me.verification.status === "verified";
-  const place = [me.business.city, me.business.state].filter(Boolean).join(", ");
+  const place = me.business.state ?? "";
   return (
     <section aria-labelledby="counterparty-title" className="relief rounded-[26px] p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -396,9 +396,9 @@ function CounterpartyView({ me }: { me: Me }) {
         <SeenRow
           icon="pin"
           label="Location"
-          note={place ? "Shown as “Seller · city” on every lot." : "Lots show India until a city is on file."}
+          note={place ? "Shown as “Seller · state” on every lot." : "Lots show your country until a state or region is on file."}
         >
-          <span className="t-headline text-fg">{place || "India"}</span>
+          <span className="t-headline text-fg">{place || countryName(me.business.country) || "—"}</span>
         </SeenRow>
         <SeenRow
           icon="shield"
@@ -877,9 +877,7 @@ const COMPANY_FIELDS = [
   "websiteUrl",
   "entityType",
   "addressLine",
-  "city",
   "state",
-  "pincode",
   "country",
   "googleBusinessUrl",
   "facebookUrl",
@@ -890,9 +888,14 @@ const ENTITY_OPTIONS = (Object.keys(ENTITY_TYPE_SHORT) as EntityType[]).map((val
   label: ENTITY_TYPE_SHORT[value],
 }));
 
+/**
+ * Operating countries and target markets: where a business trades, which is
+ * wider than where we onboard from. The business's *own* country is not
+ * taken from here — it comes from admin ops (``GET /kyb/countries``), the
+ * same list the sign-up form uses, because it decides the KYB documents.
+ */
 const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ value: c.code, label: c.name }));
 
-type PincodeState = "idle" | "loading" | "found" | "not-found" | "down";
 
 const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanySection({ onDirtyChange }, ref) {
   const { me } = useMe();
@@ -902,17 +905,19 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
   const [operatingCountries, setOperatingCountries] = useState<string[]>([]);
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [addressLine, setAddressLine] = useState("");
-  const [city, setCity] = useState("");
   const [state, setState] = useState("");
-  const [pincode, setPincode] = useState("");
   const [country, setCountry] = useState("IN");
   const [googleBusinessUrl, setGoogleBusinessUrl] = useState("");
   const [facebookUrl, setFacebookUrl] = useState("");
-  const [pinState, setPinState] = useState<PincodeState>("idle");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const pinRequest = useRef(0);
+  //: The countries admin ops onboards from — never a hard-coded list.
+  const [openCountries, setOpenCountries] = useState<KybCountry[] | null>(null);
+
+  useEffect(() => {
+    api.kybCountries().then(setOpenCountries).catch(() => setOpenCountries(null));
+  }, []);
 
   useEffect(() => {
     if (hydrated || !me) return;
@@ -923,9 +928,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
     setOperatingCountries(toCountryCodes(b.operatingCountries));
     setWebsiteUrl(b.websiteUrl ?? "");
     setAddressLine(b.addressLine ?? "");
-    setCity(b.city ?? "");
     setState(b.state ?? "");
-    setPincode(b.pincode ?? "");
     setCountry(toCountryCodes(b.country ? [b.country] : [])[0] ?? "IN");
     setGoogleBusinessUrl(b.googleBusinessUrl ?? "");
     setFacebookUrl(b.facebookUrl ?? "");
@@ -940,9 +943,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
       operatingCountries,
       websiteUrl,
       addressLine,
-      city,
       state,
-      pincode,
       country,
       googleBusinessUrl,
       facebookUrl,
@@ -955,52 +956,15 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
 
   // Older rows may hold an industry outside today's list — keep it selectable.
   const industryOptions = industry && !INDUSTRIES.includes(industry) ? [industry, ...INDUSTRIES] : INDUSTRIES;
-  const india = country === "IN";
-  // Keep a state typed before (or returned by the lookup) selectable.
-  const stateOptions = state && !INDIA_STATES.includes(state) ? [state, ...INDIA_STATES] : INDIA_STATES;
-  const countryOptions = COUNTRY_OPTIONS.some((c) => c.value === country)
-    ? COUNTRY_OPTIONS
-    : [{ value: country, label: country }, ...COUNTRY_OPTIONS];
-
-  /** Indian pincodes: look up city/state once six digits are in. */
-  async function lookupPincode(code: string) {
-    const id = ++pinRequest.current;
-    setPinState("loading");
-    try {
-      const r = await api.lookupPincode(code);
-      if (id !== pinRequest.current) return;
-      setCity(r.city || r.district || "");
-      setState(normalizeState(r.state) ?? r.state ?? "");
-      clear("city");
-      clear("state");
-      setPinState("found");
-    } catch (e) {
-      if (id !== pinRequest.current) return;
-      setPinState(e instanceof ApiError && e.status === 404 ? "not-found" : "down");
-    }
-  }
-
-  const onPincode = (raw: string) => {
-    const next = india ? raw.replace(/\D/g, "").slice(0, 6) : raw.slice(0, 10);
-    setPincode(next);
-    clear("pincode");
-    pinRequest.current++;
-    if (india && next.length === 6) void lookupPincode(next);
-    else setPinState("idle");
-  };
-
-  const pinHint =
-    pinState === "loading"
-      ? "Looking up city and state…"
-      : pinState === "found"
-        ? "City and state filled from the pincode."
-        : pinState === "not-found"
-          ? <span className="text-amber">Pincode not found — check it, or enter city/state manually.</span>
-          : pinState === "down"
-            ? <span className="text-amber">Pincode service unavailable — enter city/state manually</span>
-            : india
-              ? "Six digits — fills city and state."
-              : undefined;
+  // Admin-defined, with the stored country kept selectable even when it has
+  // been paused for new businesses (it still has to be saveable).
+  const openOptions = (openCountries ?? []).map((c) => ({
+    value: c.code,
+    label: `${c.flag ? `${c.flag} ` : ""}${c.name}`,
+  }));
+  const countryOptions = openOptions.some((c) => c.value === country)
+    ? openOptions
+    : [{ value: country, label: countryName(country) || country }, ...openOptions];
 
   useImperativeHandle(
     ref,
@@ -1011,7 +975,6 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
         if (legalName.trim().length < 2) local.legalName = "Enter your registered company name.";
         if (!industry) local.industry = "Pick the closest industry.";
         if (operatingCountries.length === 0) local.operatingCountries = "Pick at least one country.";
-        if (india && pincode && !/^\d{6}$/.test(pincode)) local.pincode = "Indian pincodes have six digits.";
         setErrors(local);
         const firstLocal = Object.values(local)[0];
         if (firstLocal) throw new Error(`Company info: ${firstLocal}`);
@@ -1023,9 +986,7 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
             operatingCountries,
             websiteUrl: websiteUrl.trim() || undefined,
             addressLine: addressLine.trim(),
-            city: city.trim(),
             state: state.trim(),
-            pincode: pincode.trim(),
             country,
             googleBusinessUrl: googleBusinessUrl.trim(),
             facebookUrl: facebookUrl.trim(),
@@ -1046,13 +1007,10 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
       operatingCountries,
       websiteUrl,
       addressLine,
-      city,
       state,
-      pincode,
       country,
       googleBusinessUrl,
       facebookUrl,
-      india,
       markClean,
     ],
   );
@@ -1138,24 +1096,38 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
             Company address
           </p>
           <p className="t-sub mt-1.5 text-fg-3">
-            City and state show on your lots; the full address opens only in a contact reveal.
+            Your state or region shows on your lots; the address itself stays private.
           </p>
         </div>
-        <Input
+        <Textarea
           id="address-line"
-          label="Address line"
+          label="Registered address"
           optional
-          maxLength={200}
+          maxLength={400}
           autoComplete="street-address"
           value={addressLine}
           onChange={(e) => {
             setAddressLine(e.target.value);
             clear("addressLine");
           }}
-          placeholder="Building, street, area"
+          placeholder="Building, street, area, city, postal code — as on your registration"
           error={errors.addressLine}
         />
         <div className="grid gap-5 sm:grid-cols-2">
+          <Input
+            id="state"
+            label="State / region"
+            optional
+            maxLength={100}
+            autoComplete="address-level1"
+            value={state}
+            onChange={(e) => {
+              setState(e.target.value);
+              clear("state");
+            }}
+            placeholder="e.g. Haryana, Dubai"
+            error={errors.state}
+          />
           <Select
             id="country"
             label="Country"
@@ -1163,80 +1135,10 @@ const CompanySection = forwardRef<SectionHandle, SectionProps>(function CompanyS
             onChange={(e) => {
               setCountry(e.target.value);
               clear("country");
-              setPinState("idle");
-              pinRequest.current++;
             }}
             options={countryOptions}
             error={errors.country}
           />
-          <Input
-            id="pincode"
-            label={india ? "Pincode" : "Postal code"}
-            optional
-            inputMode={india ? "numeric" : "text"}
-            autoComplete="postal-code"
-            maxLength={india ? 6 : 10}
-            value={pincode}
-            onChange={(e) => onPincode(e.target.value)}
-            placeholder={india ? "e.g. 380015" : "Postal code"}
-            hint={errors.pincode ? undefined : pinHint}
-            error={errors.pincode}
-            trailing={
-              pinState === "loading" ? (
-                <span className="t-code text-fg-3" aria-hidden="true">
-                  …
-                </span>
-              ) : pinState === "found" ? (
-                <Icon name="check" size={16} className="text-accent" />
-              ) : undefined
-            }
-          />
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Input
-            id="city"
-            label="City"
-            optional
-            maxLength={100}
-            autoComplete="address-level2"
-            value={city}
-            onChange={(e) => {
-              setCity(e.target.value);
-              clear("city");
-            }}
-            placeholder="e.g. Ahmedabad"
-            error={errors.city}
-          />
-          {india ? (
-            <Select
-              id="state"
-              label="State"
-              optional
-              value={state}
-              onChange={(e) => {
-                setState(e.target.value);
-                clear("state");
-              }}
-              placeholder="Choose a state"
-              options={stateOptions}
-              error={errors.state}
-            />
-          ) : (
-            <Input
-              id="state"
-              label="State / region"
-              optional
-              maxLength={100}
-              autoComplete="address-level1"
-              value={state}
-              onChange={(e) => {
-                setState(e.target.value);
-                clear("state");
-              }}
-              placeholder="State, emirate or region"
-              error={errors.state}
-            />
-          )}
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
           <Input

@@ -28,7 +28,6 @@ from app.models.kyb_document_type import KybDocumentType, KybInputKind
 from app.modules.admin.service import record_action
 from app.modules.auth.deps import DbSession
 from app.modules.verification.schemas import CountryOut, DocTypeOut, country_to_out, doc_type_to_out
-from app.modules.verification.seed import COUNTRY_REFERENCE
 from app.shared.schemas import RequestModel, CountryCode, text
 from app.modules.admin.deps import CanManageCatalog, CanViewCatalog
 from app.shared.schemas import ItemList, item_list
@@ -111,7 +110,7 @@ class CountryDocType(RequestModel):
 
 
 Currency = Literal["INR", "AED", "USD"]
-_COUNTRY_FIELDS = ("name", "flag", "dial_code", "default_currency", "region_label", "postal_label", "postal_pattern")
+_COUNTRY_FIELDS = ("name", "flag", "dial_code", "default_currency")
 
 
 def _check_dial(v: str | None) -> str | None:
@@ -124,19 +123,17 @@ def _check_dial(v: str | None) -> str | None:
 
 
 class CountryFields(RequestModel):
-    """Country details. Omitted fields fall back to the built-in reference
-    for known countries; ``name`` is required for others."""
+    """Country details, as the admin types them — no built-in list of
+    countries. ``name`` is required when adding one; a blank currency falls
+    back to USD. There are no address-form labels: the registered address is
+    one free-text field everywhere (0036)."""
 
     name: text(100, 2) | None = None  # type: ignore[valid-type]
     flag: text(8) | None = None  # type: ignore[valid-type]
     dial_code: str | None = Field(None, max_length=6)
     default_currency: Currency | None = None
-    region_label: text(30, 2) | None = None  # type: ignore[valid-type]
-    postal_label: text(30, 2) | None = None  # type: ignore[valid-type]
-    postal_pattern: str | None = Field(None, max_length=100)
 
     _dial = field_validator("dial_code")(classmethod(lambda cls, v: _check_dial(v)))
-    _postal = field_validator("postal_pattern")(classmethod(lambda cls, v: _check_pattern(v)))
 
 
 class CountryCreate(CountryFields):
@@ -239,7 +236,7 @@ async def update_country(code: str, payload: CountryUpdate, admin: CanManageCata
     before = _country_snapshot(c)
     for field in sent:
         value = getattr(payload, field)
-        if value is None and field in {"name", "default_currency", "region_label", "postal_label", "active"}:
+        if value is None and field in {"name", "default_currency", "active"}:
             raise BadRequest(f"{field} can't be empty.")
         setattr(c, field, value)
     c.updated_by = admin.email
@@ -280,17 +277,17 @@ async def create_country(payload: CountryCreate, admin: CanManageCatalog, db: Db
     """Add a country **with** its documents in one go (≥ 1 required).
 
     A country row left over from old data (no documents yet) is reused and
-    completed; a country that already has documents is refused."""
+    completed; a country that already has documents is refused.
+
+    Every country is added the same way, from what the admin types — there
+    is no built-in list of countries and no per-country special case. The
+    only fallback is the currency, which defaults to USD."""
     if await _country_exists(db, payload.country):
         raise Conflict(f"{payload.country} is already set up — add documents to it instead.")
-    ref = COUNTRY_REFERENCE.get(payload.country)
-    defaults = dict(zip(_COUNTRY_FIELDS, ref)) if ref else {}
-    fields = {f: getattr(payload, f) if getattr(payload, f) is not None else defaults.get(f) for f in _COUNTRY_FIELDS}
+    fields = {f: getattr(payload, f) for f in _COUNTRY_FIELDS}
     if not fields["name"]:
         raise BadRequest("Enter the country's name.")
     fields["default_currency"] = fields["default_currency"] or "USD"
-    fields["region_label"] = fields["region_label"] or "State / region"
-    fields["postal_label"] = fields["postal_label"] or "Postal code"
     if fields["default_currency"] not in SUPPORTED_CURRENCIES:
         raise BadRequest("Unsupported currency.")
     country = await db.get(Country, payload.country)

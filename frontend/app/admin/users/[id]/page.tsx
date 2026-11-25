@@ -29,6 +29,7 @@ import { Input, Select, Textarea } from "@/components/ui/Field";
 import { Card, EmptyState, Notice, SectionTitle, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { OnboardingTimeline } from "@/components/admin/OnboardingTimeline";
+import { ReviewTrail } from "@/components/admin/ReviewTrail";
 import {
   DOC_REJECT_REASONS,
   RejectSheet,
@@ -54,8 +55,7 @@ type FieldKind = "text" | "textarea" | "list" | "trade" | "entity" | "tel" | "ur
 /** Profile fields required for KYB (required documents come from the server). */
 const MANDATORY_FIELDS: FieldDef[] = [
   { key: "legalName", label: "Company name", source: "business" },
-  { key: "addressLine", label: "Registered address", source: "business", wide: true },
-  { key: "city", label: "City", source: "business" },
+  { key: "addressLine", label: "Registered address", source: "business", kind: "textarea", wide: true },
   { key: "country", label: "Country", source: "business", kind: "country" },
 ];
 
@@ -68,8 +68,7 @@ const OPTIONAL_FIELDS: FieldDef[] = [
   { key: "tradePosition", label: "Trade position", source: "business", kind: "trade" },
   { key: "entityType", label: "Entity type", source: "business", kind: "entity" },
   { key: "websiteUrl", label: "Website", source: "business", kind: "url" },
-  { key: "state", label: "State", source: "business" },
-  { key: "pincode", label: "Pincode", source: "business", mono: true },
+  { key: "state", label: "State / region", source: "business", hint: "Shown on the seller's listings." },
   { key: "googleBusinessUrl", label: "Google Business", source: "business", kind: "url" },
   { key: "facebookUrl", label: "Facebook", source: "business", kind: "url" },
   { key: "sellerType", label: "Seller type", source: "business" },
@@ -350,7 +349,7 @@ export default function AccountDetailPage() {
   const MANDATORY_TOTAL = MANDATORY_FIELDS.length + missing.filter((k) => k.startsWith("kyb:")).length;
   const filled = MANDATORY_TOTAL - missing.length;
   const title = user.businessName || displayValue(user.businessProfile?.legalName) || user.email;
-  const passportPlace = [displayValue(user.businessProfile?.city), displayValue(user.businessProfile?.country)]
+  const passportPlace = [displayValue(user.businessProfile?.state), displayValue(user.businessProfile?.country)]
     .filter(Boolean)
     .join(", ");
   const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing && unopened.length === 0;
@@ -591,6 +590,13 @@ export default function AccountDetailPage() {
               Onboarding
             </h2>
             <OnboardingTimeline user={user} className="mt-5" />
+          </Card>
+
+          <Card as="section" aria-labelledby="rev-h" className="p-6">
+            <h2 id="rev-h" className="t-label text-fg-3">
+              Review history
+            </h2>
+            <ReviewTrail events={user.reviewHistory ?? []} className="mt-5" />
           </Card>
 
           <Card as="section" aria-labelledby="acct-h" className="p-6">

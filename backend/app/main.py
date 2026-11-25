@@ -31,6 +31,7 @@ from app.modules.fx.scheduler import FxRefresher
 from app.modules.health.router import router as health_router
 from app.modules.lookups.router import router as lookups_router
 from app.modules.verification.router import router as verification_router
+from app.modules.verification.router import public_router as kyb_public_router
 from app.modules.verification.router import types_router as kyb_types_router
 from app.ratelimit import MemoryRateLimitBackend, RateLimiter, configure_limiter
 
@@ -184,6 +185,7 @@ def create_app(s: Settings = settings) -> FastAPI:
         me_router,
         verification_router,
         kyb_types_router,
+        kyb_public_router,
         products_router,
         public_router,
         fx_router,

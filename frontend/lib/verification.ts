@@ -2,7 +2,7 @@
 //
 // The server reports it as ordered keys (``me.verification.missing``) with
 // matching labels (``missingLabels``):
-//   * profile fields — legalName, addressLine, city, country
+//   * profile fields — legalName, addressLine, country
 //   * mandatory documents of the business's country — ``kyb:<code>``
 //     (``kyb:gstin``), defined by admins per country.
 // The frontend owns the deep links into the Business profile page
@@ -29,7 +29,6 @@ export interface MandatoryField {
 export const MANDATORY_FIELDS: readonly MandatoryField[] = [
   { key: "legalName",   label: "Company name",       section: "company", tab: "company", anchor: "legal-name" },
   { key: "addressLine", label: "Registered address", section: "company", tab: "company", anchor: "address-line" },
-  { key: "city",        label: "City",               section: "company", tab: "company", anchor: "city" },
   { key: "country",     label: "Country",            section: "company", tab: "company", anchor: "country" },
 ];
 
@@ -97,6 +96,29 @@ export function sectionProgress(
 ): { filled: number; total: number } {
   const fields = MANDATORY_FIELDS.filter((f) => f.tab === tab);
   return { filled: fields.filter((f) => !missing.includes(f.key)).length, total: fields.length };
+}
+
+/**
+ * The verification state as it would be for a country picked but not saved
+ * yet: the server's missing profile fields (they don't depend on the
+ * country) plus every required document of the picked country — none can be
+ * on file, since documents are only added for the saved country.
+ */
+export function previewVerification(
+  v: VerificationState,
+  requiredDocs: readonly { code: string; name: string }[],
+): VerificationState {
+  const profile = v.missing
+    .map((key, i) => ({ key, label: v.missingLabels?.[i] }))
+    .filter((x) => MANDATORY_KEYS.has(x.key));
+  const docs = requiredDocs.map((d) => ({ key: `${KYB_PREFIX}${d.code}`, label: d.name }));
+  const all = [...profile, ...docs];
+  return {
+    ...v,
+    missing: all.map((x) => x.key),
+    missingLabels: all.map((x) => x.label ?? x.key),
+    mandatoryTotal: MANDATORY_FIELDS.length + requiredDocs.length,
+  };
 }
 
 export function verificationCounts(v: VerificationState): { filled: number; total: number } {

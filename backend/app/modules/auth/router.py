@@ -127,6 +127,7 @@ async def signup_complete(
         email=payload.email,
         full_name=payload.full_name,
         company_name=payload.company_name,
+        country=payload.country,
         position=payload.position,
         password=payload.password,
     )

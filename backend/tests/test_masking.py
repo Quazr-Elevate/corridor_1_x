@@ -42,8 +42,6 @@ ALLOWED = {
     ("GET", "/me"): OWN,
     ("PATCH", "/me"): OWN,
     ("PUT", "/me/business-profile"): OWN,
-    ("GET", "/pincode/{pincode}"): "postal reference data: the city of a PIN code, not of a company",
-    ("GET", "/ifsc/{code}"): "bank branch reference data",
     # Off by default (A-030) and deleted with the reveal code (CX-083).
     ("POST", "/products/{product_id}/contact-reveal"): "retired contact reveal, refused unless the setting is on",
 }
@@ -132,7 +130,7 @@ def test_only_the_masking_module_reads_the_vault():
     offenders = [
         str(path.relative_to(APP_DIR))
         for path in APP_DIR.rglob("*.py")
-        if not any(a in path.as_posix() for a in allowed) and query.search(path.read_text())
+        if not any(a in path.as_posix() for a in allowed) and query.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
 
@@ -158,7 +156,7 @@ async def test_a_code_is_issued_at_verification_and_kept_for_life(client, admin_
 
     # A profile change sends the business back to review; approving it again
     # must not hand out a second code.
-    r = await client.put("/me/business-profile", json={"legalName": "Kaveri Foods Renamed", "country": "IN", "city": "Pune"})
+    r = await client.put("/me/business-profile", json={"legalName": "Kaveri Foods Renamed", "country": "IN", "addressLine": "3 Pune Road, Pune"})
     assert r.status_code == 200, r.text
     await set_status(me["userId"], BusinessStatus.pending_verification)
     assert (await verify_business(admin_client, me['userId'])).status_code == 200
@@ -251,15 +249,25 @@ async def test_unmask_volume_is_flagged_once_then_stopped(client, admin_client, 
     monkeypatch.setattr(masking, "STAFF_UNMASK_ALERT", masking.RateLimitRule("identity.unmask_alert:admin", 3, 3600))
     monkeypatch.setattr(masking, "STAFF_UNMASK", masking.RateLimitRule("identity.unmask:admin", 6, 3600))
 
-    for _ in range(6):
-        assert (await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})).status_code == 200
+    async def _open() -> int:
+        r = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
+        return r.status_code
+
+    # Up to the alert line: views are audited, nothing is flagged.
+    for _ in range(3):
+        assert await _open() == 200
+    actions = [r.action for r in await _unmask_rows()]
+    assert actions.count("identity.unmasked") == 3 and "identity.bulk_access" not in actions
+
+    # Past it: flagged once, however many more views follow.
+    for _ in range(3):
+        assert await _open() == 200
     blocked = await admin_client.post(f"/admin/users/{me['userId']}/open", json={"reason": "KYB review of this business"})
     assert blocked.status_code == 429 and "retry-after" in blocked.headers
 
     actions = [r.action for r in await _unmask_rows()]
     assert actions.count("identity.unmasked") == 6
     assert actions.count("identity.bulk_access") == 1  # one alert, not one per view
-    assert actions.index("identity.bulk_access") == 4  # raised on the fourth view
 
 
 # ── Erasure ──────────────────────────────────────────────────────────

@@ -39,15 +39,8 @@ class Country(Base):
     dial_code: Mapped[str | None] = mapped_column(String(6), nullable=True)
     # A new user's display currency (business country → INR / AED / USD).
     default_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False, default="USD", server_default="USD")
-    # Address form labels: "State" / "Emirate"; "PIN code" / "PO Box".
-    region_label: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="State / region", server_default="State / region"
-    )
-    postal_label: Mapped[str] = mapped_column(
-        String(30), nullable=False, default="Postal code", server_default="Postal code"
-    )
-    # Optional format check for the postcode (Python ``re`` full match).
-    postal_pattern: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # No address-form labels: the address is one free-text block (0036), and
+    # the business's region is the plain "State / region" field everywhere.
     # Open for onboarding. False = paused (existing businesses unaffected).
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     # The KYB document whose number keys the free-RFQ quota (A-052): India's

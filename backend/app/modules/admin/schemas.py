@@ -182,14 +182,29 @@ class UnmaskedCompany(CamelModel):
     business_id: str
     legal_name: str | None
     address_line: str | None
-    city: str | None
     state: str | None
-    pincode: str | None
     country: str
     website_url: str | None
 
 
 # ── Users ────────────────────────────────────────────────────────────
+
+
+class ReviewEvent(CamelModel):
+    """One KYB decision on a business or one of its documents — who, when,
+    and why. Read from the audit trail (``admin_actions``)."""
+
+    at: datetime
+    kind: Literal["business_approved", "business_rejected", "document_approved", "document_rejected"]
+    reviewer_name: str | None
+    reviewer_email: str
+    reason: str | None = None
+    #: Flagged on a business rejection, as labels ("Registered address", "GSTIN").
+    items: list[str] = []
+    #: The document a document decision was about.
+    document: str | None = None
+    #: Required documents approved together with the business.
+    documents_approved: int | None = None
 
 
 class UserRow(CamelModel):
@@ -202,6 +217,8 @@ class UserRow(CamelModel):
     status: str  # the business's verification status
     email_verified: bool
     created_at: datetime
+    #: The latest approve / reject of the business, if any.
+    last_review: ReviewEvent | None = None
 
 
 class UserList(CamelModel):
@@ -236,9 +253,10 @@ class UserDetail(CamelModel):
     verification_rejected_items: list[str] = []
     missing_mandatory_fields: list[str]
     security: AccountSecurityOut | None = None
+    #: Every KYB decision on this business and its documents, newest first.
+    review_history: list[ReviewEvent] = []
 
 
-Pincode = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^(|[1-9][0-9]{5})$")]
 
 
 class AdminProfilePatch(RequestModel):
@@ -258,10 +276,8 @@ class AdminBusinessPatch(RequestModel):
     industry: text(120) | None = None
     operating_countries: CountryList | None = None
     website_url: text(300) | None = None
-    address_line: text(200) | None = None
-    city: text(100) | None = None
+    address_line: text(400) | None = None
     state: text(100) | None = None
-    pincode: Pincode | None = None
     country: CountryCode | Literal[""] | None = None
     google_business_url: text(300) | None = None
     facebook_url: text(300) | None = None

@@ -32,9 +32,7 @@ class BusinessData(CamelModel):
     operating_countries: list[str] | None = None
     website_url: str | None = None
     address_line: str | None = None
-    city: str | None = None
     state: str | None = None
-    pincode: str | None = None
     country: str | None = None
     google_business_url: str | None = None
     facebook_url: str | None = None
@@ -117,16 +115,16 @@ class BusinessProfileSaveIn(RequestModel):
 
     legal_name: text(200, 2)  # type: ignore[valid-type]
     country: CountryCode
-    address_line: text(200) | None = None  # type: ignore[valid-type]
-    city: text(100) | None = None  # type: ignore[valid-type]
+    #: The whole registered address, as the company writes it (0036).
+    address_line: text(400) | None = None  # type: ignore[valid-type]
+    #: The region the market shows on a listing — never a street.
     state: text(100) | None = None  # type: ignore[valid-type]
-    pincode: text(10) | None = None  # type: ignore[valid-type]
     website_url: text(300) | None = None  # type: ignore[valid-type]
     entity_type: EntityType | None = None
 
 
 #: Optional profile fields saved only when present in the payload.
-PROFILE_OPTIONAL_FIELDS = ("address_line", "city", "state", "pincode", "entity_type")
+PROFILE_OPTIONAL_FIELDS = ("address_line", "state", "entity_type")
 
 
 class ImageUploaded(CamelModel):
@@ -146,10 +144,8 @@ class CompanyInfoIn(RequestModel):
     entity_type: EntityType | None = None
     # Company address + socials (docs/04_data_model.md → businesses). Each is
     # only changed when sent, so older clients don't wipe them.
-    address_line: text(200) | None = None  # type: ignore[valid-type]
-    city: text(100) | None = None  # type: ignore[valid-type]
+    address_line: text(400) | None = None  # type: ignore[valid-type]
     state: text(100) | None = None  # type: ignore[valid-type]
-    pincode: text(10) | None = None  # type: ignore[valid-type]
     country: CountryCode | None = None
     google_business_url: text(300) | None = None  # type: ignore[valid-type]
     facebook_url: text(300) | None = None  # type: ignore[valid-type]
@@ -158,9 +154,7 @@ class CompanyInfoIn(RequestModel):
 #: Optional company fields saved only when present in the payload.
 COMPANY_OPTIONAL_FIELDS = (
     "address_line",
-    "city",
     "state",
-    "pincode",
     "google_business_url",
     "facebook_url",
 )

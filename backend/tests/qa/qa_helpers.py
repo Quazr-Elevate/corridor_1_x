@@ -59,7 +59,7 @@ async def set_country(c: httpx.AsyncClient, country: str, *, name: str = "QA Tra
     """Save the business profile with ``country`` (country lives on the profile)."""
     return await c.put(
         "/me/business-profile",
-        json={"legalName": f"{name} {uuid.uuid4().hex[:6]}", "country": country, "addressLine": "1 Test Road", "city": "Testville"},
+        json={"legalName": f"{name} {uuid.uuid4().hex[:6]}", "country": country, "addressLine": "1 Test Road, Testville"},
     )
 
 

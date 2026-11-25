@@ -64,7 +64,7 @@ async def test_6_a_verified_business_keeps_its_country_while_it_holds_that_count
 
 async def test_6_7_a_console_edit_to_a_kyb_field_sends_a_verified_business_back_to_review(client, admin_client):
     me = await _verified(client, admin_client, "b6@kaverifoods.in")
-    r = await _patch(admin_client, me["userId"], city="Pune")
+    r = await _patch(admin_client, me["userId"], addressLine="2 Pune Road, Pune")
     assert r.status_code == 200 and r.json()["status"] == "pending_verification"
     async with SessionLocal() as db:
         row = (await db.scalars(
@@ -79,7 +79,7 @@ async def test_6_7_a_console_edit_to_a_kyb_field_sends_a_verified_business_back_
 
 async def test_7_a_mandatory_field_cant_be_blanked(client, admin_client):
     me = await _verified(client, admin_client, "b7@kaverifoods.in")
-    for field, label in (("addressLine", "Registered address"), ("legalName", "Company name"), ("city", "City")):
+    for field, label in (("addressLine", "Registered address"), ("legalName", "Company name")):
         r = await _patch(admin_client, me["userId"], **{field: ""})
         assert r.status_code == 400 and r.json()["detail"].startswith(f"{label} is required"), field
 

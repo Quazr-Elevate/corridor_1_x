@@ -22,7 +22,7 @@ export function BusinessHero({ me }: { me: Me }) {
   const banner = me.branding?.bannerUrl ? assetUrl(me.branding.bannerUrl) : null;
   const logo = me.branding?.logoUrl ? assetUrl(me.branding.logoUrl) : null;
   const meta = statusMeta(me.verification.status);
-  const place = [me.business.city, countryName(me.business.country)].filter(Boolean).join(", ");
+  const place = [me.business.state, countryName(me.business.country)].filter(Boolean).join(", ");
   const verified = me.verification.status === "verified";
 
   const inner = (

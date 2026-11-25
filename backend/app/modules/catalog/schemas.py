@@ -326,9 +326,7 @@ class RevealedContact(CamelModel):
     entity_type: str | None
     email: str | None
     address_line: str | None
-    city: str | None
     state: str | None
-    pincode: str | None
     country: str | None
     website_url: str | None
     revealed_at: datetime

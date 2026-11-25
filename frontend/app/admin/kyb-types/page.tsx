@@ -10,7 +10,7 @@ import {
   type KybInputKind,
 } from "@/lib/adminApi";
 import { cn } from "@/lib/cn";
-import { COUNTRIES, countryName } from "@/components/account/countries";
+import { countryName } from "@/components/account/countries";
 import { LaneHeader } from "@/components/admin/tower";
 import { useTower } from "@/components/shell/TowerShell";
 import { Button } from "@/components/ui/Button";
@@ -142,8 +142,8 @@ export default function KybTypesPage() {
             </p>
             <p className="t-sub mt-1 text-fg-3">
               <span className="t-code text-[11.5px]">{current.code}</span>
-              {current.dialCode ? ` · ${current.dialCode}` : ""} · {current.defaultCurrency} · {current.regionLabel} /{" "}
-              {current.postalLabel} · {current.requiredDocuments} required of {current.documents} ·{" "}
+              {current.dialCode ? ` · ${current.dialCode}` : ""} · {current.defaultCurrency} ·{" "}
+              {current.requiredDocuments} required of {current.documents} ·{" "}
               {current.businesses} business{current.businesses === 1 ? "" : "es"}
             </p>
           </div>
@@ -457,6 +457,15 @@ interface DraftDoc {
   isMandatory: boolean;
 }
 
+/** A new country is typed in full — there is no built-in list to pick from. */
+const blankCountry = () => ({
+  code: "",
+  name: "",
+  flag: "",
+  dialCode: "",
+  currency: "USD" as "INR" | "AED" | "USD",
+});
+
 let draftSeq = 0;
 const blankDoc = (mandatory: boolean): DraftDoc => ({
   key: ++draftSeq,
@@ -485,23 +494,21 @@ function CountrySheet({
   onClose: () => void;
   onSaved: (rows: AdminKybDocType[]) => void;
 }) {
-  const options = COUNTRIES.filter((c) => !existing.includes(c.code));
-  const [country, setCountry] = useState(options[0]?.code ?? "");
-  const [other, setOther] = useState({ code: "", name: "", flag: "", dialCode: "", currency: "USD" as "INR" | "AED" | "USD" });
-  const isOther = country === OTHER_COUNTRY;
+  const [c, setC] = useState(() => blankCountry());
   const [docs, setDocs] = useState<DraftDoc[]>(() => [blankDoc(true)]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setCountry(COUNTRIES.find((c) => !existing.includes(c.code))?.code ?? OTHER_COUNTRY);
-      setOther({ code: "", name: "", flag: "", dialCode: "", currency: "USD" });
+      setC(blankCountry());
       setDocs([blankDoc(true)]);
       setError(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  const set = (k: keyof ReturnType<typeof blankCountry>, value: string) =>
+    setC((x) => ({ ...x, [k]: value }) as typeof x);
 
   const update = (key: number, patch: Partial<DraftDoc>) =>
     setDocs((xs) =>
@@ -518,10 +525,11 @@ function CountrySheet({
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!country) return setError("Pick a country.");
-    const code = isOther ? other.code.trim().toUpperCase() : country;
-    if (isOther && !/^[A-Z]{2}$/.test(code)) return setError("Enter the 2-letter ISO country code (e.g. KE).");
-    if (isOther && other.name.trim().length < 2) return setError("Enter the country’s name.");
+    const code = c.code.trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code)) return setError("Enter the 2-letter ISO country code (e.g. KE).");
+    if (existing.includes(code)) return setError(`${code} is already set up — add documents to it instead.`);
+    if (c.name.trim().length < 2) return setError("Enter the country’s name.");
+    if (c.dialCode.trim() && !/^\+[0-9]{1,4}$/.test(c.dialCode.trim())) return setError("Dial code looks like +91.");
     if (docs.some((d) => d.name.trim().length < 2)) return setError("Every document needs a name.");
     if (!required) return setError("Mark at least one document as required.");
     if (docs.some((d) => /aadh?aa?r/i.test(d.name + d.code))) return setError("Aadhaar can’t be a KYB document.");
@@ -552,14 +560,12 @@ function CountrySheet({
             isUnique: true,
             sortOrder: (i + 1) * 10,
           })),
-          isOther
-            ? {
-                name: other.name.trim(),
-                flag: other.flag.trim() || null,
-                dialCode: other.dialCode.trim() || null,
-                defaultCurrency: other.currency,
-              }
-            : {},
+          {
+            name: c.name.trim(),
+            flag: c.flag.trim() || null,
+            dialCode: c.dialCode.trim() || null,
+            defaultCurrency: c.currency,
+          },
         ),
       );
     } catch (err) {
@@ -575,40 +581,43 @@ function CountrySheet({
       onClose={onClose}
       size="lg"
       title="Add a country"
-      description="Enter the documents businesses from this country must provide. At least one is required."
+      description="Type the country’s details, then the documents businesses from it must provide. At least one is required."
     >
       <form onSubmit={submit} noValidate className="space-y-5">
-        <Select
-          label="Country"
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-          options={[
-            ...options.map((c) => ({ value: c.code, label: `${c.flag} ${c.name}` })),
-            { value: OTHER_COUNTRY, label: "Other country…" },
-          ]}
-          hint={isOther ? undefined : "Name, dial code, currency and address labels are filled in for you — edit them later."}
-        />
-        {isOther ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input
-              label="ISO code"
-              placeholder="KE"
-              maxLength={2}
-              value={other.code}
-              onChange={(e) => setOther((o) => ({ ...o, code: e.target.value.toUpperCase() }))}
-              inputClassName="t-code"
-            />
-            <Input label="Name" placeholder="Kenya" value={other.name} onChange={(e) => setOther((o) => ({ ...o, name: e.target.value }))} maxLength={100} />
-            <Input label="Flag" optional placeholder="🇰🇪" value={other.flag} onChange={(e) => setOther((o) => ({ ...o, flag: e.target.value }))} maxLength={8} />
-            <Input label="Dial code" optional placeholder="+254" value={other.dialCode} onChange={(e) => setOther((o) => ({ ...o, dialCode: e.target.value }))} maxLength={6} />
-            <Select
-              label="Default currency"
-              value={other.currency}
-              onChange={(e) => setOther((o) => ({ ...o, currency: e.target.value as "INR" | "AED" | "USD" }))}
-              options={["USD", "INR", "AED"]}
-            />
-          </div>
-        ) : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            label="ISO code"
+            placeholder="KE"
+            maxLength={2}
+            value={c.code}
+            onChange={(e) => set("code", e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+            inputClassName="t-code"
+            hint="Two letters, ISO-3166 (IN, AE, KE)."
+          />
+          <Input
+            label="Name"
+            placeholder="Kenya"
+            maxLength={100}
+            value={c.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
+          <Input label="Flag" optional placeholder="🇰🇪" maxLength={8} value={c.flag} onChange={(e) => set("flag", e.target.value)} />
+          <Input
+            label="Dial code"
+            optional
+            placeholder="+254"
+            maxLength={6}
+            value={c.dialCode}
+            onChange={(e) => set("dialCode", e.target.value)}
+          />
+          <Select
+            label="Default currency"
+            value={c.currency}
+            onChange={(e) => set("currency", e.target.value)}
+            options={["USD", "INR", "AED"]}
+            hint="What new businesses here see prices in."
+          />
+        </div>
 
         <div className="space-y-3">
           {docs.map((d, i) => (
@@ -703,7 +712,6 @@ function CountrySheet({
   );
 }
 
-const OTHER_COUNTRY = "__other__";
 
 /** Edit a country's details (code is fixed); pausing is on the country header. */
 function CountryEditSheet({
@@ -720,9 +728,6 @@ function CountryEditSheet({
     flag: country?.flag ?? "",
     dialCode: country?.dialCode ?? "",
     defaultCurrency: (country?.defaultCurrency ?? "USD") as "INR" | "AED" | "USD",
-    regionLabel: country?.regionLabel ?? "",
-    postalLabel: country?.postalLabel ?? "",
-    postalPattern: country?.postalPattern ?? "",
   }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -733,13 +738,6 @@ function CountryEditSheet({
     if (!country) return;
     setError(null);
     if (v.name.trim().length < 2) return setError("Enter the country’s name.");
-    if (v.postalPattern) {
-      try {
-        new RegExp(v.postalPattern);
-      } catch {
-        return setError("The postcode pattern isn’t a valid regular expression.");
-      }
-    }
     setSaving(true);
     try {
       onSaved(
@@ -748,9 +746,6 @@ function CountryEditSheet({
           flag: v.flag.trim() || null,
           dialCode: v.dialCode.trim() || null,
           defaultCurrency: v.defaultCurrency,
-          regionLabel: v.regionLabel.trim() || "State / region",
-          postalLabel: v.postalLabel.trim() || "Postal code",
-          postalPattern: v.postalPattern.trim() || null,
         }),
       );
     } catch (err) {
@@ -780,17 +775,7 @@ function CountryEditSheet({
             onChange={(e) => set("defaultCurrency")(e.target.value)}
             options={["USD", "INR", "AED"]}
           />
-          <Input label="Region label" placeholder="State" value={v.regionLabel} onChange={(e) => set("regionLabel")(e.target.value)} maxLength={30} />
-          <Input label="Postcode label" placeholder="PIN code" value={v.postalLabel} onChange={(e) => set("postalLabel")(e.target.value)} maxLength={30} />
         </div>
-        <Input
-          label="Postcode format"
-          optional
-          hint="Regular expression, e.g. [1-9][0-9]{5}"
-          value={v.postalPattern}
-          onChange={(e) => set("postalPattern")(e.target.value)}
-          inputClassName="t-code"
-        />
         {error ? <Notice tone="frozen">{error}</Notice> : null}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="quiet" onClick={onClose}>

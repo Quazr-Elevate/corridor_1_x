@@ -28,9 +28,7 @@ async def unmask_company(
         business_id=str(business.id),
         legal_name=identity.legal_name,
         address_line=identity.address_line,
-        city=identity.city,
         state=business.state,
-        pincode=identity.pincode,
         country=business.country,
         website_url=identity.website_url,
     )

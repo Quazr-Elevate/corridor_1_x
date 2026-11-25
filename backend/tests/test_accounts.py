@@ -146,10 +146,8 @@ async def test_company_address_and_socials(client):
         json={
             **base,
             "entityType": "private_ltd",
-            "addressLine": " 12 Market Road ",
-            "city": "Mysuru",
+            "addressLine": " 12 Market Road, Mysuru 570001 ",
             "state": "Karnataka",
-            "pincode": "570001",
             "country": "IND",
             "googleBusinessUrl": "https://g.page/addr",
             "facebookUrl": "https://facebook.com/addr",
@@ -157,16 +155,16 @@ async def test_company_address_and_socials(client):
     )
     assert r.status_code == 200, r.text
     b = (await client.get("/me")).json()["business"]
-    assert b["addressLine"] == "12 Market Road" and b["city"] == "Mysuru" and b["state"] == "Karnataka"
-    assert b["pincode"] == "570001" and b["country"] == "IN" and b["entityType"] == "private_ltd"
+    assert b["addressLine"] == "12 Market Road, Mysuru 570001" and b["state"] == "Karnataka"
+    assert b["country"] == "IN" and b["entityType"] == "private_ltd"
     assert b["googleBusinessUrl"] == "https://g.page/addr" and b["facebookUrl"] == "https://facebook.com/addr"
 
     # Omitted fields are left alone; blank strings clear optional ones.
     r = await client.post("/onboarding/company", json={**base, "facebookUrl": "", "country": "ae"})
     assert r.status_code == 200, r.text
     b = (await client.get("/me")).json()["business"]
-    assert b["city"] == "Mysuru" and b["facebookUrl"] is None and b["country"] == "AE"
+    assert b["addressLine"] == "12 Market Road, Mysuru 570001" and b["facebookUrl"] is None and b["country"] == "AE"
 
-    for bad in ({"pincode": "1" * 11}, {"country": "XX"}, {"city": "x" * 101}, {"googleBusinessUrl": "u" * 301}):
+    for bad in ({"addressLine": "x" * 401}, {"country": "XX"}, {"state": "x" * 101}, {"googleBusinessUrl": "u" * 301}):
         r = await client.post("/onboarding/company", json={**base, **bad})
         assert r.status_code == 422, bad

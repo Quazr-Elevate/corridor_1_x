@@ -31,6 +31,7 @@ from app.models.business import Business, BusinessStatus
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.user import AccountStatus, User, UserRole
 from app.modules.masking import service as masking
+from app.modules.verification import rules as kyb_rules
 from app.modules.auth import lockout, sessions
 from app.modules.auth.sessions import ClientInfo, record_event
 
@@ -198,12 +199,20 @@ async def complete_signup(
     email: str,
     full_name: str,
     company_name: str,
+    country: str,
     position: str | None,
     password: str,
 ) -> User:
     """One transaction: business (draft, named) + owner user + code consumed.
-    Country defaults to IN until set on the business profile."""
+
+    The country comes from the sign-up form and must be one admin ops has
+    opened for onboarding — it decides the mandatory KYB documents, so the
+    business carries it from the first screen. The owner's display currency
+    follows it (``default_display_currency``)."""
     email = normalize_email(email)
+    country = (country or "").strip().upper()
+    if not await kyb_rules.is_configured(db, country):
+        raise BadRequest("Pick a country we currently onboard from.")
     if await _email_taken(db, email):
         raise Conflict(ACCOUNT_EXISTS)
     # The name is not checked against other businesses (A-046): a duplicate
@@ -218,7 +227,7 @@ async def complete_signup(
     if ensure_aware(row.verified_at) + VERIFIED_WINDOW < now:
         raise BadRequest("Your email verification expired. Request a new code.")
 
-    business = Business(id=uuid.uuid4(), country="IN", verification_status=BusinessStatus.draft)
+    business = Business(id=uuid.uuid4(), country=country, verification_status=BusinessStatus.draft)
     user = User(
         id=uuid.uuid4(),
         business=business,

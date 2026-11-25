@@ -5,6 +5,7 @@
  */
 import { priceFigure } from "@/components/products/format";
 import type { Me } from "@/lib/api";
+import { countryName } from "@/components/account/countries";
 
 type Num = string | number | null | undefined;
 
@@ -56,9 +57,9 @@ export function roleLabel(me: Me): string {
   }
 }
 
-/** "Ahmedabad, Gujarat" — empty when neither is set. */
+/** "Gujarat, India" — the region and country; the address itself stays private. */
 export function placeLine(me: Me): string {
-  return [me.business.city, me.business.state].filter(Boolean).join(", ");
+  return [me.business.state, countryName(me.business.country)].filter(Boolean).join(", ");
 }
 
 /** "member since Oct 2026" — empty when unknown. */

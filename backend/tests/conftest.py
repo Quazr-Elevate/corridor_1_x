@@ -210,6 +210,7 @@ async def signup_and_login(
     password: str = "Sup3r-secret!",
     full_name: str = "Asha Rao",
     company_name: str | None = None,
+    country: str = "IN",
     position: str | None = None,
 ) -> dict:
     """Code → verify → complete; the client ends up signed in."""
@@ -221,6 +222,7 @@ async def signup_and_login(
         "email": email,
         "fullName": full_name,
         "companyName": company_name or f"{email.split('@')[0]} {email.split('@')[1].split('.')[0]} Trading",
+        "country": country,
         "password": password,
         "acceptTerms": True,
     }
@@ -240,8 +242,7 @@ async def fill_mandatory(c: httpx.AsyncClient, *, n: int = 1) -> None:
             "legalName": f"Acme Agro {n} Pvt Ltd",
             "industry": "Rice",
             "operatingCountries": ["IN"],
-            "addressLine": f"{n} Market Road",
-            "city": "Karnal",
+            "addressLine": f"{n} Market Road, Karnal 132001",
             "country": "IN",
         },
     )

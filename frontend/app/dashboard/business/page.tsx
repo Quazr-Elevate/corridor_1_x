@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { api, ApiError, type KybCountry, type Me } from "@/lib/api";
+import { api, ApiError, type KybCountry, type KybDocType, type Me } from "@/lib/api";
 import { useFocusField } from "@/lib/useFocusField";
 import { useMe } from "@/lib/useMe";
 import { useDirtyFlag } from "@/lib/useUnsavedGuard";
-import { DETAILS_PATH, fieldByKey, statusMeta } from "@/lib/verification";
+import { DETAILS_PATH, fieldByKey, previewVerification, statusMeta } from "@/lib/verification";
 import { focusField } from "@/lib/useFocusField";
 import { ReviewConfirmProvider, useReviewConfirm } from "@/components/business/ReviewConfirm";
 import { COUNTRIES, countryName } from "@/components/account/countries";
@@ -16,7 +16,7 @@ import { BrandingSection } from "@/components/business/BrandingSection";
 import { KybSection } from "@/components/business/KybSection";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
-import { Input, Select } from "@/components/ui/Field";
+import { Input, Select, Textarea } from "@/components/ui/Field";
 import { Notice, PageHeader, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 
@@ -71,6 +71,18 @@ function BusinessProfileBody({
 }) {
   const meta = statusMeta(me.verification.status);
   const name = me.business.legalName || me.businessName || "Your company";
+  const savedCountry = me.business.country ?? "IN";
+  // The country picked in the Company form, saved or not: the document list
+  // below follows it so a change of country shows its documents at once.
+  const [pickedCountry, setPickedCountry] = useState(savedCountry);
+  const [pickedRequired, setPickedRequired] = useState<KybDocType[]>([]);
+  const preview =
+    pickedCountry !== savedCountry
+      ? {
+          countryName: countryName(pickedCountry) || pickedCountry,
+          verification: previewVerification(me.verification, pickedRequired),
+        }
+      : undefined;
 
   return (
     <div className="space-y-8 pb-24">
@@ -101,7 +113,7 @@ function BusinessProfileBody({
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         <div className="space-y-8">
           <Section n="01" title="Company" sub="Your registered business name and address.">
-            <CompanyForm me={me} onSaved={refetch} onDirty={setCompanyDirty} />
+            <CompanyForm me={me} onSaved={refetch} onDirty={setCompanyDirty} onCountryChange={setPickedCountry} />
           </Section>
 
           <Section n="02" title="Branding" sub="Shown on your dashboard and, later, your company page.">
@@ -120,7 +132,9 @@ function BusinessProfileBody({
             sub="The documents Corridor ops checks for your country. Required ones are marked."
           >
             <KybSection
-              country={me.business.country ?? "IN"}
+              country={pickedCountry}
+              savedCountry={savedCountry}
+              onRequiredDocs={setPickedRequired}
               rejectedItems={me.verification.status === "rejected" ? me.verification.rejectedItems ?? [] : []}
               onChanged={() => void refetch()}
             />
@@ -136,7 +150,7 @@ function BusinessProfileBody({
         </div>
 
         <aside className="lg:sticky lg:top-24">
-          <SendForVerificationBar dirty={companyDirty} />
+          <SendForVerificationBar dirty={companyDirty} preview={preview} />
           {welcome ? (
             <Button variant="quiet" block className="mt-3" onClick={() => router.push("/dashboard")}>
               I’ll finish this later
@@ -207,13 +221,17 @@ function Section({
 
 // ── Company ────────────────────────────────────────────────────────────
 
+/**
+ * The address is one free-text block, the way the company writes it on its
+ * letterhead — no India-shaped split into city / PIN code. The state or
+ * region stays its own small field: it is the only location the market shows
+ * on a listing (never the street), so it can't live inside the address.
+ */
 interface CompanyValues {
   legalName: string;
   country: string;
   addressLine: string;
-  city: string;
   state: string;
-  pincode: string;
 }
 
 function fromMe(me: Me): CompanyValues {
@@ -222,9 +240,7 @@ function fromMe(me: Me): CompanyValues {
     legalName: b.legalName ?? me.businessName ?? "",
     country: b.country ?? "IN",
     addressLine: b.addressLine ?? "",
-    city: b.city ?? "",
     state: b.state ?? "",
-    pincode: b.pincode ?? "",
   };
 }
 
@@ -234,10 +250,13 @@ function CompanyForm({
   me,
   onSaved,
   onDirty,
+  onCountryChange,
 }: {
   me: Me;
   onSaved: () => Promise<void>;
   onDirty: (dirty: boolean) => void;
+  /** Every change of the Country select, before it is saved. */
+  onCountryChange: (code: string) => void;
 }) {
   const toast = useToast();
   const confirmReview = useReviewConfirm();
@@ -258,6 +277,7 @@ function CompanyForm({
   useDirtyFlag(dirty);
 
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  useEffect(() => onCountryChange(v.country), [v.country, onCountryChange]);
   useEffect(() => setV(initial), [initial]);
 
   const set = (k: keyof CompanyValues) => (value: string) => {
@@ -271,15 +291,10 @@ function CompanyForm({
     const fe: CompanyErrors = {};
     if (v.legalName.trim().length < 2) fe.legalName = "Enter the registered company name.";
     if (!v.addressLine.trim()) fe.addressLine = "Enter the registered address.";
-    if (!v.city.trim()) fe.city = "Enter the city.";
-    const pattern = countries?.find((c) => c.code === v.country)?.postalPattern;
-    if (pattern && v.pincode.trim() && !new RegExp(`^(?:${pattern})$`).test(v.pincode.trim().toUpperCase())) {
-      fe.pincode = `That doesn’t look like a valid ${countries?.find((c) => c.code === v.country)?.postalLabel ?? "postal code"}.`;
-    }
     setErrors(fe);
     if (Object.keys(fe).length) return;
     const norm = (x: string) => x.trim().replace(/\s+/g, " ").toLowerCase();
-    const kybChanged = (["legalName", "addressLine", "city", "country"] as const).some((k) => norm(v[k]) !== norm(initial[k]));
+    const kybChanged = (["legalName", "addressLine", "country"] as const).some((k) => norm(v[k]) !== norm(initial[k]));
     if (kybChanged && !(await confirmReview("your company details"))) return;
     setSaving(true);
     try {
@@ -287,9 +302,7 @@ function CompanyForm({
         legalName: v.legalName.trim(),
         country: v.country,
         addressLine: v.addressLine.trim(),
-        city: v.city.trim(),
         state: v.state.trim(),
-        pincode: v.pincode.trim(),
       });
       await onSaved();
       toast("Company details saved", "verified");
@@ -309,9 +322,6 @@ function CompanyForm({
       : []),
   ];
   if (!countries) countryOptions.push({ value: initial.country, label: countryName(initial.country) });
-  const selected = countries?.find((c) => c.code === v.country);
-  const regionLabel = selected?.regionLabel ?? "State / region";
-  const postalLabel = selected?.postalLabel ?? "Postal code";
   /** Red hint while a field the admin flagged still holds the rejected value. */
   const flag = (key: keyof CompanyValues): string | undefined =>
     flagged.has(key) && v[key].trim() === initial[key].trim() ? "Flagged by Corridor ops — please correct this." : undefined;
@@ -328,7 +338,30 @@ function CompanyForm({
         value={v.legalName}
         onChange={(e) => set("legalName")(e.target.value)}
       />
+      <Textarea
+        id="address-line"
+        label="Registered address"
+        required
+        maxLength={400}
+        autoComplete="street-address"
+        placeholder="Building, street, area, city, postal code — as on your registration"
+        hint="Kept private. Buyers never see it."
+        error={errors.addressLine ?? flag("addressLine")}
+        value={v.addressLine}
+        onChange={(e) => set("addressLine")(e.target.value)}
+      />
       <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          id="state"
+          label="State / region"
+          optional
+          maxLength={100}
+          autoComplete="address-level1"
+          placeholder="e.g. Haryana, Dubai"
+          hint="Shown on your listings instead of your address."
+          value={v.state}
+          onChange={(e) => set("state")(e.target.value)}
+        />
         <Select
           id="country"
           label="Country"
@@ -338,46 +371,6 @@ function CompanyForm({
           options={countryOptions}
           error={flag("country")}
           hint={countryChanged ? "The document list below changes with the country." : "Countries Corridor One X onboards today."}
-        />
-        <Input
-          id="city"
-          label="City"
-          required
-          maxLength={100}
-          autoComplete="address-level2"
-          error={errors.city ?? flag("city")}
-          value={v.city}
-          onChange={(e) => set("city")(e.target.value)}
-        />
-      </div>
-      <Input
-        id="address-line"
-        label="Registered address"
-        required
-        maxLength={200}
-        autoComplete="street-address"
-        placeholder="Building, street, area"
-        error={errors.addressLine ?? flag("addressLine")}
-        value={v.addressLine}
-        onChange={(e) => set("addressLine")(e.target.value)}
-      />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input
-          label={regionLabel}
-          optional
-          maxLength={100}
-          autoComplete="address-level1"
-          value={v.state}
-          onChange={(e) => set("state")(e.target.value)}
-        />
-        <Input
-          label={postalLabel}
-          error={errors.pincode}
-          optional
-          maxLength={10}
-          autoComplete="postal-code"
-          value={v.pincode}
-          onChange={(e) => set("pincode")(e.target.value)}
         />
       </div>
       {formError ? <Notice tone="frozen">{formError}</Notice> : null}

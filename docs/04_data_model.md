@@ -535,7 +535,7 @@ Approved 2026-10-31.
 
 * `businesses.verification_rejected_items` — JSON list, nullable. Keys the
   admin ticked when rejecting: profile fields (`legalName`, `addressLine`,
-  `city`, `country`) and KYB entries (`kyb:<code>` for listed documents,
+  `country`) and KYB entries (`kyb:<code>` for listed documents,
   `doc:<entry id>` for "Other"). Flagged entries are rejected with the same
   reason. Cleared on resubmit and on approval.
 
@@ -550,7 +550,7 @@ Rules (API, not schema):
   verified businesses with new pending documents (reviewed per document; the
   business stays verified).
 * **Re-review** — a verified business that changes its company name,
-  address, city or country, or adds / changes / removes a *required*
+  address or country, or adds / changes / removes a *required*
   document, goes back to `pending_verification` (its listings leave the
   market until re-approved). The UI asks for confirmation first.
 
@@ -569,9 +569,6 @@ Approved 2026-10-31.
 | `flag` | varchar(8) | yes | emoji |
 | `dial_code` | varchar(6) | yes | `+91`; `ck_countries_dial_code` |
 | `default_currency` | char(3) | no | INR / AED / USD (`ck_countries_default_currency`) — a new user's display currency |
-| `region_label` | varchar(30) | no | "State", "Emirate"… (address form) |
-| `postal_label` | varchar(30) | no | "PIN code", "PO Box"… |
-| `postal_pattern` | varchar(100) | yes | postcode format check |
 | `active` | bool | no | open for onboarding; false = paused (existing businesses unaffected) |
 | `created_by` / `updated_by` | varchar(200) | no | admin email or `system` |
 | `created_at` / `updated_at` | timestamptz | no | |
@@ -590,8 +587,9 @@ paused placeholder named by its code).
 Rules: a country is offered to businesses when `active` **and** it has an
 active required document. `POST /admin/kyb/countries` creates (or completes a
 seeded) country together with its documents; `PATCH /admin/kyb/countries/{code}`
-edits details or pauses / resumes. Postcodes are checked against
-`postal_pattern`. Changes are audited (`kyb_country.create` / `kyb_country.update`).
+edits details or pauses / resumes. Every country is typed in full by the
+admin — there is no built-in country list and no address-form labels
+(dropped in 0036). Changes are audited (`kyb_country.create` / `kyb_country.update`).
 
 ## Identity & access (`0024_identity_access`)
 
@@ -766,7 +764,7 @@ other module holds `businesses.company_code`.
 | `legal_name_normalized` | varchar(200), null | UNIQUE `uq_business_identities_legal_name_normalized`; synced by the model |
 | `website_url` | varchar(300), null | |
 | `website_normalized` | varchar(300), null | UNIQUE `uq_business_identities_website_normalized` |
-| `address_line`, `city`, `pincode` | varchar, null | The street address. `state` and `country` stay on `businesses` for the market |
+| `address_line` | varchar(400), null | The whole registered address in one block (0036 folded `city` and `pincode` into it). `state` and `country` stay on `businesses` for the market |
 | `google_business_url`, `facebook_url` | varchar(300), null | |
 | `created_at`, `updated_at` | timestamptz | |
 
@@ -963,3 +961,21 @@ accounts without a vault row the old `deleted-{id}@deleted.local` placeholder.
 
 The hourly job (`scripts/expire_rfqs.py`) also deletes `email_codes` older
 than 24 hours, so an email held there before the account exists doesn't stay.
+
+## One address field (`0036_single_address`)
+
+The registered address is one free-text block, written the way the company
+writes it. The split into address line / city / PIN code fitted India and
+nothing else, and the per-country labels that tried to rename those fields
+(`region_label`, `postal_label`, `postal_pattern`) went with it.
+
+| Table | Change |
+|---|---|
+| `business_identities` | `address_line` widened to varchar(400); `city` and `pincode` folded into it (`line, city, pincode`, blanks skipped) and dropped |
+| `countries` | `region_label`, `postal_label`, `postal_pattern` dropped |
+| `businesses` | unchanged — `state` stays: it is the region the market shows on a listing, and it is not in the vault |
+
+KYB now needs company name, registered address and country (city is no
+longer a separate requirement). The merge is one-way: downgrade restores the
+columns empty and the labels with their old defaults.
+

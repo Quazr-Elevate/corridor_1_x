@@ -548,7 +548,7 @@ function DetailPanel({
           <PaperRow label="Entity type" value={entityTypeLabel(str(b.entityType)) || null} />
           <PaperRow
             label="Address"
-            value={[str(b.addressLine), str(b.city), str(b.state), str(b.pincode), str(b.country)].filter(Boolean).join(", ")}
+            value={[str(b.addressLine), str(b.state), str(b.country)].filter(Boolean).join(", ")}
           />
           <PaperRow label="Country" value={str(b.country) ?? row.country} />
           <PaperRow label="Website" value={website ? link(website, website) : null} />

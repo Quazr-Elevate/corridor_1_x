@@ -45,16 +45,30 @@ class SignupVerifyResponse(CamelModel):
 class SignupCompleteRequest(RequestModel):
     """POST /auth/signup/complete — step 3: create business + owner.
 
-    Sign-up asks only for the person, the company and a password; country,
-    address and KYB live on the business profile (skippable)."""
+    Sign-up asks for the person, the company, the country and a password.
+    The country is here (and not only on the business profile) because it
+    decides which KYB documents are mandatory: asking for it first means
+    the document list is right from the first screen. It must be a country
+    admin ops has opened for onboarding (``GET /public/countries``).
+    Address and the documents themselves live on the business profile."""
 
     email: EmailStr
     full_name: text(100, 2)  # type: ignore[valid-type]
     company_name: text(200, 2)  # type: ignore[valid-type]
+    #: ISO-3166 alpha-2, checked against the open countries.
+    country: str = Field(min_length=2, max_length=2)
     # Optional — collected on the business profile; kept for older clients.
     position: text(120) | None = None  # type: ignore[valid-type]
     password: str = Field(min_length=8, max_length=200)
     accept_terms: bool
+
+    @field_validator("country")
+    @classmethod
+    def _upper_country(cls, v: str) -> str:
+        v = v.strip().upper()
+        if not v.isalpha():
+            raise ValueError("Pick your country.")
+        return v
 
     @field_validator("full_name")
     @classmethod

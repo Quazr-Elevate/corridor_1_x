@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useMe } from "@/lib/useMe";
+import type { VerificationState } from "@/lib/api";
 import { focusField } from "@/lib/useFocusField";
 import {
   canSubmit,
@@ -34,14 +35,24 @@ import { useToast } from "@/components/ui/Toast";
  * `dirty` blocks sending while the page holds unsaved edits — the review
  * reads what's saved, not what's on screen.
  */
-export function SendForVerificationBar({ dirty, className }: { dirty: boolean; className?: string }) {
+export function SendForVerificationBar({
+  dirty,
+  preview,
+  className,
+}: {
+  dirty: boolean;
+  /** A country picked on the page but not saved yet: show what *it* needs
+   *  instead of the saved country's list. */
+  preview?: { countryName: string; verification: VerificationState };
+  className?: string;
+}) {
   const { me, refetch } = useMe();
   const toast = useToast();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!me) return null;
-  const v = me.verification;
+  const v = preview?.verification ?? me.verification;
   const { filled, total } = verificationCounts(v);
   const meta = statusMeta(v.status);
   const missing: MandatoryField[] = missingItems(v);
@@ -108,7 +119,7 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
       </div>
 
       <div className="p-5 sm:p-6">
-        {v.status === "verified" ? (
+        {v.status === "verified" && !preview ? (
           <div>
             <p className="t-title3 text-fg">Your passport is verified.</p>
             <p className="t-callout mt-1.5 text-fg-2">
@@ -116,7 +127,7 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
               Buyers see the badge on every lot you list.
             </p>
           </div>
-        ) : v.status === "pending_verification" ? (
+        ) : v.status === "pending_verification" && !preview ? (
           <div>
             <p className="t-title3 text-fg">
               In review{v.submittedAt ? ` since ${formatDay(v.submittedAt)}` : ""}
@@ -150,6 +161,17 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
               </div>
               <Progress value={filled} max={total} label="Verification fields filled" className="mt-3" />
             </div>
+
+            {preview ? (
+              <p className="t-sub flex items-start gap-2 text-amber">
+                <Icon name="info" size={15} className="mt-px shrink-0" />
+                {v.status === "verified"
+                  ? `What ${preview.countryName} needs. Saving the switch takes your verified badge off until Corridor ops reviews the new documents.`
+                  : v.status === "pending_verification"
+                    ? `What ${preview.countryName} needs. Saving the switch restarts your review with the new documents.`
+                    : `What ${preview.countryName} needs. Save your company details to switch.`}
+              </p>
+            ) : null}
 
             {missing.length ? (
               <div>
@@ -185,11 +207,11 @@ export function SendForVerificationBar({ dirty, className }: { dirty: boolean; c
             <HoldButton
               onCommit={send}
               loading={sending}
-              disabled={!submittable || dirty}
+              disabled={!submittable || dirty || Boolean(preview)}
               icon="shield"
               className="w-full px-4"
             >
-              {v.status === "rejected" ? "Resubmit for verification" : "Send for verification"}
+              {v.status === "rejected" || (preview && v.status !== "draft") ? "Resubmit for verification" : "Send for verification"}
             </HoldButton>
             {dirty && submittable ? (
               <p className="t-sub -mt-1 text-center text-fg-3">Save your changes first.</p>

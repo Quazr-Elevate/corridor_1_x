@@ -2,7 +2,7 @@
 
 A business may send its profile for KYB review once it has:
 
-  * the company basics — legal name, registered address (line + city) and
+  * the company basics — legal name, registered address (one field) and
     country (:data:`PROFILE_FIELDS`), and
   * an entry for every **mandatory** KYB document type the admin defined for
     its country (``kyb_document_types.is_mandatory``), carrying the parts
@@ -43,7 +43,6 @@ class ProfileField:
 PROFILE_FIELDS: tuple[ProfileField, ...] = (
     ProfileField("legalName", "Company name", "legal_name"),
     ProfileField("addressLine", "Registered address", "address_line"),
-    ProfileField("city", "City", "city"),
     ProfileField("country", "Country", "country"),
 )
 

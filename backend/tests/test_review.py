@@ -31,9 +31,9 @@ async def test_only_set_up_countries_can_be_picked(client):
     countries = (await client.get("/kyb/countries")).json()["items"]
     assert [c["code"] for c in countries] == ["IN", "AE"]  # by name: India, United Arab Emirates
     india = countries[0]
-    assert india["name"] == "India" and india["defaultCurrency"] == "INR" and india["postalLabel"] == "PIN code"
+    assert india["name"] == "India" and india["defaultCurrency"] == "INR" and india["dialCode"] == "+91"
     r = await client.put(
-        "/me/business-profile", json={"legalName": "C Foods Pvt Ltd", "country": "SA", "addressLine": "1 Road", "city": "Riyadh"}
+        "/me/business-profile", json={"legalName": "C Foods Pvt Ltd", "country": "SA", "addressLine": "1 Road, Riyadh"}
     )
     assert r.status_code == 400 and "isn't onboarded yet" in r.json()["detail"]
 
@@ -41,17 +41,18 @@ async def test_only_set_up_countries_can_be_picked(client):
 async def test_admin_adds_country_with_required_documents(client, admin_client):
     doc = {"code": "cr", "name": "Commercial registration", "inputKind": "value_and_file", "isMandatory": True}
     # At least one required document; distinct codes; never Aadhaar.
-    r = await admin_client.post("/admin/kyb/countries", json={"country": "SA", "documents": [doc | {"isMandatory": False}]})
+    sa = {"country": "SA", "name": "Saudi Arabia"}
+    r = await admin_client.post("/admin/kyb/countries", json=sa | {"documents": [doc | {"isMandatory": False}]})
     assert r.status_code == 422 and "at least one document as required" in r.text
-    assert (await admin_client.post("/admin/kyb/countries", json={"country": "SA", "documents": []})).status_code == 422
-    assert (await admin_client.post("/admin/kyb/countries", json={"country": "SA", "documents": [doc, doc]})).status_code == 422
+    assert (await admin_client.post("/admin/kyb/countries", json=sa | {"documents": []})).status_code == 422
+    assert (await admin_client.post("/admin/kyb/countries", json=sa | {"documents": [doc, doc]})).status_code == 422
     r = await admin_client.post(
         "/admin/kyb/countries",
-        json={"country": "SA", "documents": [doc, {"code": "vat", "name": "VAT certificate", "inputKind": "file", "isMandatory": False}]},
+        json=sa | {"documents": [doc, {"code": "vat", "name": "VAT certificate", "inputKind": "file", "isMandatory": False}]},
     )
     assert r.status_code == 201, r.text
     assert [d["code"] for d in r.json()] == ["cr", "vat"]
-    assert (await admin_client.post("/admin/kyb/countries", json={"country": "SA", "documents": [doc]})).status_code == 409
+    assert (await admin_client.post("/admin/kyb/countries", json=sa | {"documents": [doc]})).status_code == 409
     # Single types can only join a country that's already set up.
     r = await admin_client.post("/admin/kyb/document-types", json={"country": "QA", "code": "cr", "name": "CR", "inputKind": "file"})
     assert r.status_code == 400 and "Add QA as a country first" in r.json()["detail"]
@@ -60,7 +61,7 @@ async def test_admin_adds_country_with_required_documents(client, admin_client):
     assert "SA" in [c["code"] for c in (await client.get("/kyb/countries")).json()["items"]]
     r = await client.put(
         "/me/business-profile",
-        json={"legalName": "Gulf Grain Co", "country": "SA", "addressLine": "1 Olaya St", "city": "Riyadh"},
+        json={"legalName": "Gulf Grain Co", "country": "SA", "addressLine": "1 Olaya St, Riyadh"},
     )
     assert r.status_code == 200 and r.json()["verification"]["missing"] == ["kyb:cr"]
 
@@ -168,13 +169,13 @@ async def test_verified_business_goes_back_to_review_on_kyb_changes(client, admi
     # Non-KYB detail: no change of status.
     r = await client.put(
         "/me/business-profile",
-        json={"legalName": "Acme Agro 1 Pvt Ltd", "country": "IN", "addressLine": "1 Market Road", "city": "Karnal", "state": "Haryana"},
+        json={"legalName": "Acme Agro 1 Pvt Ltd", "country": "IN", "addressLine": "1 Market Road, Karnal 132001", "state": "Haryana"},
     )
     assert r.json()["status"] == "verified"
-    # City changed → back to review.
+    # The registered address changed → back to review.
     r = await client.put(
         "/me/business-profile",
-        json={"legalName": "Acme Agro 1 Pvt Ltd", "country": "IN", "addressLine": "1 Market Road", "city": "Panipat"},
+        json={"legalName": "Acme Agro 1 Pvt Ltd", "country": "IN", "addressLine": "1 Market Road, Panipat"},
     )
     assert r.json()["status"] == "pending_verification"
     [row] = (await admin_client.get("/admin/verify/queue")).json()["items"]
@@ -192,18 +193,36 @@ async def test_changing_a_required_document_reopens_review(client, admin_client)
 # ── countries table ──────────────────────────────────────────────────
 
 
+async def test_a_country_is_stored_exactly_as_it_was_typed(admin_client):
+    """No presets: adding a country takes what the admin typed, even for a
+    country the seed data happens to know. Only blank optional fields fall
+    back, and to the same neutral defaults for every country."""
+    doc = {"code": "cr", "name": "Commercial registration", "inputKind": "file", "isMandatory": True}
+    r = await admin_client.post(
+        "/admin/kyb/countries",
+        json={"country": "QA", "name": "Qatar (Doha desk)", "flag": "🏳", "dialCode": "+9741", "documents": [doc]},
+    )
+    assert r.status_code == 201, r.text
+    listed = {c["code"]: c for c in (await admin_client.get("/admin/kyb/countries")).json()["items"]}
+    qa = listed["QA"]
+    assert (qa["name"], qa["flag"], qa["dialCode"]) == ("Qatar (Doha desk)", "🏳", "+9741")
+    # An untouched currency: the same default any country would get.
+    assert qa["defaultCurrency"] == "USD"
+
+
 async def test_country_details_pause_and_new_country(client, make_client, admin_client):
     doc = {"code": "reg", "name": "Business registration", "inputKind": "file", "isMandatory": True}
-    # Known country: details come from the reference; unknown (to the reference) needs a name.
+    # Every country is added the same way: the name is always typed.
     r = await admin_client.post("/admin/kyb/countries", json={"country": "KE", "documents": [doc]})
     assert r.status_code == 400 and "name" in r.json()["detail"]
     r = await admin_client.post(
         "/admin/kyb/countries",
-        json={"country": "KE", "name": "Kenya", "flag": "🇰🇪", "dialCode": "+254", "postalLabel": "Postal code",
-              "postalPattern": "[0-9]{5}", "documents": [doc]},
+        json={"country": "KE", "name": "Kenya", "flag": "🇰🇪", "dialCode": "+254", "documents": [doc]},
     )
     assert r.status_code == 201, r.text
-    assert (await admin_client.post("/admin/kyb/countries", json={"country": "OM", "dialCode": "968", "documents": [doc]})).status_code == 422
+    assert (await admin_client.post(
+        "/admin/kyb/countries", json={"country": "OM", "name": "Oman", "dialCode": "968", "documents": [doc]}
+    )).status_code == 422
 
     listed = {c["code"]: c for c in (await admin_client.get("/admin/kyb/countries")).json()["items"]}
     assert listed["KE"]["name"] == "Kenya" and listed["KE"]["requiredDocuments"] == 1 and listed["KE"]["active"]
@@ -211,9 +230,8 @@ async def test_country_details_pause_and_new_country(client, make_client, admin_
 
     # A business picks Kenya; postcode follows Kenya's pattern; currency default stays per user.
     await signup_and_login(client, "k@nairobigrain.co.ke")
-    body = {"legalName": "Nairobi Grain Ltd", "country": "KE", "addressLine": "1 Moi Ave", "city": "Nairobi"}
-    assert (await client.put("/me/business-profile", json=body | {"pincode": "12"})).status_code == 400
-    r = await client.put("/me/business-profile", json=body | {"pincode": "00100"})
+    body = {"legalName": "Nairobi Grain Ltd", "country": "KE", "addressLine": "1 Moi Ave, Nairobi 00100"}
+    r = await client.put("/me/business-profile", json=body)
     assert r.status_code == 200 and r.json()["business"]["country"] == "KE"
 
     # Pause Kenya: new businesses can't pick it; the existing one keeps working.
@@ -224,12 +242,12 @@ async def test_country_details_pause_and_new_country(client, make_client, admin_
     await signup_and_login(other, "x@mombasatrade.co.ke")
     r = await other.put("/me/business-profile", json=body | {"legalName": "Mombasa Trade Ltd"})
     assert r.status_code == 400
-    r = await client.put("/me/business-profile", json=body | {"pincode": "00100", "state": "Nairobi County"})
+    r = await client.put("/me/business-profile", json=body | {"state": "Nairobi County"})
     assert r.status_code == 200  # same country, still allowed
 
     # Edits are audited; names stay unique.
     assert (await admin_client.patch("/admin/kyb/countries/KE", json={"name": "India"})).status_code == 409
-    assert (await admin_client.patch("/admin/kyb/countries/KE", json={"active": True, "regionLabel": "County"})).status_code == 200
+    assert (await admin_client.patch("/admin/kyb/countries/KE", json={"active": True, "dialCode": "+2540"})).status_code == 200
     async with SessionLocal() as db:
         actions = [a.action for a in await db.scalars(select(AdminAction).order_by(AdminAction.created_at))]
     assert actions.count("kyb_country.create") == 1 and actions.count("kyb_country.update") == 2
@@ -275,3 +293,68 @@ async def test_approval_waits_until_the_reviewer_opened_every_required_document(
     assert (await admin_client.post(f"/admin/users/{uid}/open", json=reason)).json()["unopenedDocIds"] == [second]
     await admin_client.post(f"/admin/docs/{second}/reveal", json=reason)
     assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 200
+
+
+# ── who reviewed it ──────────────────────────────────────────────────
+
+
+async def test_the_account_shows_who_decided_what_and_why(client, admin_client, make_client):
+    """Several admins review KYB: the account detail lists every decision on
+    the business and its documents — reviewer, time, reason, flagged items —
+    newest first, and the directory row carries the latest one."""
+    from test_admin_accounts import _new_admin
+
+    body = await _submitted(client, admin_client)
+    uid = body["userId"]
+    first = (await admin_client.get("/admin/me")).json()
+
+    # Admin 1 rejects, flagging the address and the GSTIN.
+    r = await admin_client.post(
+        f"/admin/users/{uid}/reject",
+        json={"reason": "The address doesn't match the GST certificate.", "failedItems": ["addressLine", "kyb:gstin"]},
+    )
+    assert r.status_code == 200, r.text
+
+    # The trader re-enters the documents and resubmits; admin 2 (a reviewer) approves.
+    for d in (await client.get("/me/verification-docs")).json()["items"]:
+        assert (await client.delete(f"/me/verification-docs/{d['id']}")).status_code == 204
+    await fill_mandatory(client)
+    assert (await client.post("/me/submit-verification")).status_code == 200
+    _, riya = await _new_admin(admin_client, make_client)
+    assert (await verify_business(riya, uid)).status_code == 200
+
+    detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "Checking the review trail"})).json()
+    history = detail["reviewHistory"]
+    assert [e["kind"] for e in history] == ["business_approved", "business_rejected"]
+    approved, rejected = history
+    assert (approved["reviewerName"], approved["reviewerEmail"]) == ("Riya Reviewer", "rev@cor1x.test")
+    assert approved["documentsApproved"] == 2  # GSTIN and PAN, approved with the business
+    assert rejected["reviewerEmail"] == first["email"] and rejected["reviewerName"] == first["fullName"]
+    assert rejected["reason"] == "The address doesn't match the GST certificate."
+    assert rejected["items"] == ["Registered address", "GSTIN"]
+    assert approved["at"] >= rejected["at"]
+
+    # A later decision on a single document joins the trail, with its name.
+    t = await _types(client)
+    r = await client.post("/me/verification-docs", data={"documentTypeId": t["iec"]["id"], "value": "AAACS1234K"})
+    doc_id = r.json()["id"]
+    r = await admin_client.post(f"/admin/docs/{doc_id}/reject", json={"reason": "Unreadable number."})
+    assert r.status_code == 200, r.text
+    detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "Checking the review trail"})).json()
+    latest = detail["reviewHistory"][0]
+    assert (latest["kind"], latest["document"], latest["reason"]) == (
+        "document_rejected", "Import Export Code (IEC)", "Unreadable number."
+    )
+
+    # Directory: the latest decision on the business itself (not on a document).
+    rows = {row["userId"]: row for row in (await admin_client.get("/admin/users")).json()["items"]}
+    last = rows[uid]["lastReview"]
+    assert (last["kind"], last["reviewerName"]) == ("business_approved", "Riya Reviewer")
+
+
+async def test_a_business_never_reviewed_has_an_empty_trail(client, admin_client):
+    body = await _submitted(client, admin_client)
+    detail = (await admin_client.post(f"/admin/users/{body['userId']}/open", json={"reason": "Checking the review trail"})).json()
+    assert detail["reviewHistory"] == []
+    rows = {row["userId"]: row for row in (await admin_client.get("/admin/users")).json()["items"]}
+    assert rows[body["userId"]]["lastReview"] is None

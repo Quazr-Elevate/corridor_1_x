@@ -287,6 +287,7 @@ no background refresh) and a temp storage dir (see
 | Health | `GET /health` |
 | Auth | `POST /auth/signup/code`, `POST /auth/signup/verify`, `POST /auth/signup/complete`, `POST /auth/login`, `POST /auth/change-password`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/session` |
 | Account | `GET /me`, `PATCH /me` (`displayCurrency`), `DELETE /me`, `POST /me/submit-verification`, `GET /onboarding/status`, `POST /onboarding/company`, `POST /onboarding/contact`, `POST /onboarding/business` |
+| Countries | `GET /public/countries` (anonymous — the sign-up picker), `GET /kyb/countries`, `GET /kyb/document-types` |
 | KYB docs | `GET/POST /me/verification-docs`, `GET /me/verification-docs/{id}/file`, `DELETE /me/verification-docs/{id}` |
 | Catalog | `GET/POST /products`, `DELETE /products/{id}`, `POST /products/upload-photo`, `POST /products/{id}/contact-reveal`, `GET /public/products`, `GET /public/products/{id}`, `GET /public/catalog/facets`, `GET /public/fx/rates`, `GET /uploads/products/{file}` |
 | Lookups | `GET /pincode/{pincode}`, `GET /ifsc/{code}` |

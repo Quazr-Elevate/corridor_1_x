@@ -38,7 +38,7 @@ export function PassportIdentityCard({
   const country = countryName(me.business.country) || countryName(me.business.operatingCountries?.[0]) || "";
   const name = me.businessName || me.business.legalName;
   const role = roleLabel(me);
-  const place = [me.business.city, me.business.state].filter(Boolean).join(", ");
+  const place = me.business.state ?? "";
   const region = me.business.state || country || "India";
   const approved = docs.filter((d) => d.status === "approved").length;
   const counterparty = view === "counterparty";

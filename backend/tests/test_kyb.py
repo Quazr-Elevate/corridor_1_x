@@ -42,7 +42,7 @@ async def _add(c, *, type_id=None, name=None, value=None, file: bytes | None = N
 
 
 async def _profile(c, **over):
-    body = {"legalName": "Kaveri Foods Pvt Ltd", "country": "IN", "addressLine": "12 Mill Road", "city": "Karnal"}
+    body = {"legalName": "Kaveri Foods Pvt Ltd", "country": "IN", "addressLine": "12 Mill Road, Karnal"}
     body.update(over)
     return await c.put("/me/business-profile", json=body)
 
@@ -209,8 +209,8 @@ async def test_submission_needs_profile_and_mandatory_documents(client):
     await signup_and_login(client, "sub@kaverifoods.in", company_name="Sub Foods Pvt Ltd")
     me = (await client.get("/me")).json()
     v = me["verification"]
-    assert v["missing"] == ["addressLine", "city", "kyb:gstin", "kyb:pan"]
-    assert v["missingLabels"] == ["Registered address", "City", "GSTIN", "PAN"] and v["mandatoryTotal"] == 6
+    assert v["missing"] == ["addressLine", "kyb:gstin", "kyb:pan"]
+    assert v["missingLabels"] == ["Registered address", "GSTIN", "PAN"] and v["mandatoryTotal"] == 5
     r = await client.post("/me/submit-verification")
     assert r.status_code == 400 and "GSTIN" in r.json()["detail"]
 
@@ -228,10 +228,10 @@ async def test_country_change_switches_the_document_list(client):
     t = await _types(client)
     entry = (await _add(client, type_id=t["gstin"]["id"], value=GSTIN)).json()
 
-    r = await _profile(client, legalName="Gulf Grain LLC", country="AE", city="Dubai")
+    r = await _profile(client, legalName="Gulf Grain LLC", country="AE", addressLine="1 Marina, Dubai")
     assert r.status_code == 400 and "GSTIN" in r.json()["detail"]
     await client.delete(f"/me/verification-docs/{entry['id']}")
-    r = await _profile(client, legalName="Gulf Grain LLC", country="AE", city="Dubai", pincode=None)
+    r = await _profile(client, legalName="Gulf Grain LLC", country="AE", addressLine="1 Marina, Dubai")
     assert r.status_code == 200, r.text
     assert r.json()["business"]["country"] == "AE"
     assert list(await _types(client)) == ["trade_licence", "trn"]
@@ -359,7 +359,7 @@ async def _indian_profile(c, n: int) -> None:
     r = await c.post(
         "/onboarding/company",
         json={"legalName": f"Mill {n} Pvt Ltd", "industry": "Rice", "operatingCountries": ["IN"],
-              "addressLine": f"{n} Market Road", "city": "Karnal", "country": "IN"},
+              "addressLine": f"{n} Market Road, Karnal", "country": "IN"},
     )
     assert r.status_code == 200, r.text
 

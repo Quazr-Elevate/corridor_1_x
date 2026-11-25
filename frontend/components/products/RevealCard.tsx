@@ -12,7 +12,7 @@ import { entityTypeLabel, type RevealedContact } from "@/lib/api";
  */
 export function RevealCard({ contact }: { contact: RevealedContact }) {
   const revealedAt = formatWhen(contact.revealedAt);
-  const address = [contact.addressLine, contact.city, contact.state, contact.pincode, contact.country]
+  const address = [contact.addressLine, contact.state, contact.country]
     .filter(Boolean)
     .join(", ");
   const website = contact.websiteUrl

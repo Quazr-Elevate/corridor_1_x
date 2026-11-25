@@ -19,6 +19,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { LaneHeader } from "@/components/admin/tower";
 import { StatusChip } from "@/components/admin/parts";
+import { LastReview } from "@/components/admin/ReviewTrail";
 import { fmtAgo, fmtDate, refId } from "@/components/admin/format";
 
 const LIMIT = 50;
@@ -172,13 +173,14 @@ export default function DirectoryPage() {
           <div className={cn("transition-opacity duration-300", loading && "opacity-60")}>
             {/* Tablet & desktop: table */}
             <div className="relief hidden overflow-x-auto rounded-[28px] md:block">
-              <table className="w-full min-w-[880px] border-collapse text-left">
+              <table className="w-full min-w-[1040px] border-collapse text-left">
                 <caption className="sr-only">Accounts</caption>
                 <thead>
                   <tr className="t-label border-b border-line text-fg-3">
                     <th scope="col" className="px-6 py-3.5 font-normal">Company</th>
                     <th scope="col" className="px-3 py-3.5 font-normal">Ref</th>
                     <th scope="col" className="px-3 py-3.5 font-normal">Status</th>
+                    <th scope="col" className="px-3 py-3.5 font-normal">Last review</th>
                     <th scope="col" className="px-3 py-3.5 font-normal">Email</th>
                     <th scope="col" className="px-6 py-3.5 text-right font-normal">Joined</th>
                   </tr>
@@ -204,6 +206,9 @@ export default function DirectoryPage() {
                       </td>
                       <td className="px-3">
                         <StatusChip status={u.status} className="h-5 gap-1 px-2 text-[11px]" />
+                      </td>
+                      <td className="max-w-[200px] px-3">
+                        <LastReview event={u.lastReview} />
                       </td>
                       <td className="px-3">
                         <YesNo yes={u.emailVerified} yesLabel="Confirmed" noLabel="Unconfirmed" />
@@ -280,6 +285,7 @@ function MobileRow({ u }: { u: UserRow }) {
         </div>
         <p className="t-headline mt-1.5 truncate text-fg">{u.businessName || "No business name"}</p>
         <p className="t-sub mt-0.5 truncate text-fg-3">{u.email}</p>
+        <LastReview event={u.lastReview} className="mt-2" />
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
           <YesNo yes={u.emailVerified} yesLabel="Email confirmed" noLabel="Email unconfirmed" />
           <span className="t-foot ml-auto text-fg-3">{fmtDate(u.createdAt)}</span>

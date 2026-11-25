@@ -28,6 +28,8 @@ from app.shared.schemas import ItemList, item_list
 
 router = APIRouter(prefix="/me/verification-docs", tags=["verification"])
 types_router = APIRouter(prefix="/kyb", tags=["verification"])
+#: Anonymous: the sign-up form needs the country list before an account exists.
+public_router = APIRouter(prefix="/public", tags=["public"])
 
 #: Full KYB numbers are shown on deliberate action only; this caps bulk reads.
 REVEAL_PER_USER = RateLimitRule("kyb.reveal:user", limit=30, window_sec=60 * 60)
@@ -41,6 +43,18 @@ async def _read(file: UploadFile | None) -> bytes | None:
 
 def _flag(raw: str | None) -> bool:
     return (raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@public_router.get("/countries", response_model=ItemList[CountryOut], response_model_by_alias=True)
+async def public_countries(db: DbSession, response: Response) -> ItemList[CountryOut]:
+    """The countries open for onboarding, for the sign-up form (anonymous).
+
+    Same list as ``GET /kyb/countries``: ``active`` countries an admin has
+    set up with at least one required KYB document. Sign-up asks for the
+    country so the KYB document list is right from the first screen, and
+    only an open country may be picked."""
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return item_list([country_to_out(c) for c in await rules.open_countries(db)])
 
 
 @types_router.get("/countries", response_model=ItemList[CountryOut], response_model_by_alias=True)

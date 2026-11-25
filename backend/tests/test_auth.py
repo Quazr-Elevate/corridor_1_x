@@ -23,6 +23,7 @@ def _complete(email: str, **over) -> dict:
         "email": email,
         "fullName": "Asha Rao",
         "companyName": f"{email.split('@')[0]} Exports",
+        "country": "IN",
         "position": "Director",
         "password": "Sup3r-secret!",
         "acceptTerms": True,
@@ -282,3 +283,59 @@ async def test_business_created_per_signup(client, make_client):
     assert a["businessId"] != b["businessId"]
     async with SessionLocal() as db:
         assert len(list(await db.scalars(select(Business)))) == 2
+
+
+# ── The country is picked at sign-up (CX: country before the profile) ────
+
+
+async def test_public_countries_needs_no_account_and_lists_the_open_ones(client):
+    """The sign-up form runs before any session exists, so the list of
+    countries admin ops has opened is readable anonymously."""
+    r = await client.get("/public/countries")
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    by_code = {c["code"]: c for c in items}
+    assert set(by_code) == {"IN", "AE"}  # seeded: active + a required document
+    assert by_code["IN"]["dialCode"] == "+91" and by_code["IN"]["defaultCurrency"] == "INR"
+    assert by_code["AE"]["dialCode"] == "+971" and by_code["AE"]["defaultCurrency"] == "AED"
+    # Same shape as the signed-in list, so one picker component serves both.
+    assert set(by_code["IN"]) == {"code", "name", "flag", "dialCode", "defaultCurrency"}
+
+
+async def test_signup_stores_the_chosen_country_and_its_currency(client):
+    """The business carries the sign-up country from the first screen —
+    it decides which KYB documents are mandatory — and the owner's display
+    currency follows it."""
+    await signup_and_login(client, "nadia@gulfagri.ae", country="AE")
+    assert (await client.get("/me")).json()["displayCurrency"] == "AED"
+    async with SessionLocal() as db:
+        user = (await db.scalars(select(User).where(user_with_email("nadia@gulfagri.ae")))).one()
+        business = await db.get(Business, user.business_id)
+    assert business.country == "AE"
+    # The UAE document list, not India's.
+    r = await client.get("/kyb/document-types")
+    assert {t["code"] for t in r.json()["items"]} == {"trade_licence", "trn"}
+
+
+async def test_signup_refuses_a_country_we_do_not_onboard_from(client):
+    """Only countries admin ops has opened may be picked; a closed one is a
+    400, not a silent fallback to India."""
+    email = "sam@texasgrain.us"
+    await client.post("/auth/signup/code", json={"email": email})
+    await client.post("/auth/signup/verify", json={"email": email, "code": code_from_email(email)})
+    r = await client.post("/auth/signup/complete", json=_complete(email, country="US"))
+    assert r.status_code == 400, r.text
+    assert "onboard" in r.json()["detail"].lower()
+    # The code is still unused, so the person can finish with an open country.
+    r = await client.post("/auth/signup/complete", json=_complete(email, country="in"))
+    assert r.status_code == 201, r.text
+
+
+async def test_signup_without_a_country_is_rejected(client):
+    """The field is mandatory: no quiet default."""
+    email = "ravi@kaveri.in"
+    await client.post("/auth/signup/code", json={"email": email})
+    await client.post("/auth/signup/verify", json={"email": email, "code": code_from_email(email)})
+    body = _complete(email)
+    del body["country"]
+    assert (await client.post("/auth/signup/complete", json=body)).status_code == 422
