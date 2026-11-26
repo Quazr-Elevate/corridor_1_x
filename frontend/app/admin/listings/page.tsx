@@ -73,6 +73,9 @@ export default function ListingReviewPage() {
   // A certificate waiting for the reviewer's "no name, logo or address" before buyers can download it.
   const [releasing, setReleasing] = useState<ProductCertificate | null>(null);
   const [checked, setChecked] = useState(false);
+  // Certificates opened in this visit; the server checks the audit log too.
+  const [openedCerts, setOpenedCerts] = useState<ReadonlySet<string>>(() => new Set());
+  const markOpened = useCallback((id: string) => setOpenedCerts((s) => new Set(s).add(id)), []);
   const { can } = useTower();
 
   const load = useCallback(async (which: Queue) => {
@@ -238,6 +241,7 @@ export default function ListingReviewPage() {
             <ListingDetail
               detail={detail}
               busy={busy}
+              onOpenCertificate={markOpened}
               onCertificate={(cert, visibility) => {
                 if (visibility === "downloadable") {
                   setChecked(false);
@@ -326,7 +330,7 @@ export default function ListingReviewPage() {
               Cancel
             </Button>
             <Button
-              disabled={!checked || busy}
+              disabled={!checked || busy || !releasing || !openedCerts.has(releasing.id)}
               onClick={async () => {
                 if (!detail || !releasing) return;
                 const cert = releasing;
@@ -342,6 +346,24 @@ export default function ListingReviewPage() {
           </div>
         }
       >
+        {releasing ? (
+          <a
+            href={docFileUrl(releasing.url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => markOpened(releasing.id)}
+            className="relief-sm mb-4 flex items-center gap-3 rounded-[16px] px-4 py-3 text-fg transition-colors hover:bg-fg/5"
+          >
+            <Icon name="doc-check" size={18} className="shrink-0 text-fg-3" />
+            <span className="min-w-0 flex-1">
+              <span className="t-body block truncate">Open {releasing.name}</span>
+              <span className="t-sub block text-fg-3">
+                {openedCerts.has(releasing.id) ? "Opened — check every page." : "Required before buyers can download it. Opening is logged."}
+              </span>
+            </span>
+            <Icon name={openedCerts.has(releasing.id) ? "check" : "arrow-up-right"} size={16} className="shrink-0 text-fg-3" />
+          </a>
+        ) : null}
         <Checkbox
           checked={checked}
           onChange={setChecked}
@@ -372,11 +394,13 @@ function ListingDetail({
   detail,
   busy,
   onCertificate,
+  onOpenCertificate,
   footer,
 }: {
   detail: AdminListingDetail;
   busy: boolean;
   onCertificate: (cert: ProductCertificate, visibility: "internal" | "downloadable") => void;
+  onOpenCertificate: (certificateId: string) => void;
   footer: React.ReactNode;
 }) {
   const p = detail.listing;
@@ -500,6 +524,7 @@ function ListingDetail({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Opening the file is logged"
+                    onClick={() => onOpenCertificate(c.id)}
                     className="t-sub block truncate text-fg-3 underline underline-offset-4"
                   >
                     {c.filename} · {fmtBytes(c.sizeBytes)}

@@ -17,7 +17,7 @@ from app.modules.verification import service as docs_service
 from app.modules.verification.schemas import RevealedValue
 from app.ratelimit import RateLimitRule, get_limiter
 from app.shared.files import file_response
-from app.modules.admin.deps import CanReviewKyb, CanViewSensitive
+from app.modules.admin.deps import CanEditUsers, CanReviewKyb, CanViewSensitive
 from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
@@ -60,6 +60,21 @@ async def reveal_doc_value(
     )
     await db.commit()
     return RevealedValue(id=str(doc.id), cert_type=doc.doc_type, value=value)
+
+
+@router.post("/docs/{doc_id}/remove", status_code=204, response_class=Response)
+async def remove_doc(doc_id: str, payload: AccessReasonIn, admin: CanEditUsers, db: DbSession) -> Response:
+    """Remove a business's document from the console, with a reason (audited
+    as ``kyb.entry_removed``). Used, for example, before changing a
+    business's country: its documents belong to the old country."""
+    doc = await docs_service.get_doc(db, parse_uuid(doc_id))
+    service.record_action(
+        db, admin=admin, action="kyb.entry_removed", target_type="business_document", target_id=doc.id,
+        reason=payload.reason, details={"business_id": str(doc.business_id), "doc_type": doc.doc_type},
+    )
+    await docs_service.remove_doc(db, doc)
+    await db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/docs/{doc_id}/approve", response_model=DocStatusChanged, response_model_by_alias=True)

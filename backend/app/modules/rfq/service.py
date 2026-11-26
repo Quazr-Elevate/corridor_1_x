@@ -171,6 +171,10 @@ async def _apply(db: AsyncSession, rfq: Rfq, changes: dict[str, Any], payload: R
         if field in changes:
             changes[field] = (changes[field] or "").strip() or None
     await _refuse_leaks(db, rfq.buyer_business_id, changes)
+    today = utcnow().date()
+    for field in ("delivery_from", "delivery_to"):
+        if changes.get(field) is not None and changes[field] < today:
+            raise BadRequest("Delivery dates can't be in the past. Choose today or a later date.")
     specs = changes.pop("specs", None)
     certificate_ids = changes.pop("certificate_type_ids", None)
     category_changed = "category" in changes and changes["category"] != rfq.category

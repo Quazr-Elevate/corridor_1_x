@@ -370,7 +370,7 @@ async def change_country(db: AsyncSession, business: Business, country: str, *, 
         if by_staff:
             raise BadRequest(
                 f"This business has a {foreign} entry, which belongs to its current country. "
-                "Reject or remove its documents of that country before changing the country."
+                "Remove its documents of that country (Documents, below) before changing the country."
             )
         raise BadRequest(
             f"Remove your {foreign} entry under Business verification before changing the country — "

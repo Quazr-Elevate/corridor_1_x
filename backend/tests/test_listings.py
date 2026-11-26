@@ -416,6 +416,10 @@ async def test_certificates_are_internal_until_an_admin_approves_the_download(cl
     # The reviewer has to say the file shows no name, logo or address (C20).
     r = await admin_client.post(vis, json={"visibility": "downloadable"})
     assert r.status_code == 400 and "no company name" in r.json()["detail"]
+    # ...and to have opened this copy (bug sheet #7).
+    r = await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
+    assert r.status_code == 400 and "Open the document first" in r.json()["detail"]
+    assert (await admin_client.get(f"/admin/listings/{pid}/certificates/{cert['id']}/file")).status_code == 200
     r = await admin_client.post(vis, json={"visibility": "downloadable", "checkedNoIdentity": True})
     assert r.status_code == 200 and r.json()["visibility"] == "downloadable"
 

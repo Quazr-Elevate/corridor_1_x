@@ -113,6 +113,17 @@ def clean_reason(raw: str) -> str:
 # ── Dashboard ────────────────────────────────────────────────────────
 
 
+def _docs_in_review() -> tuple:
+    """Pending documents a reviewer can act on: those of a business sent for
+    verification, or added by a verified one. A draft's documents wait until
+    it is sent; a rejected business's until it sends again."""
+    return (
+        BusinessDocument.status == DocStatus.pending,
+        Business.deleted_at.is_(None),
+        Business.verification_status.in_((BusinessStatus.pending_verification, BusinessStatus.verified)),
+    )
+
+
 def _count_if(cond):
     return func.coalesce(func.sum(case((cond, 1), else_=0)), 0)
 
@@ -141,7 +152,8 @@ async def dashboard_stats(db: AsyncSession) -> DashboardStats:
             select(
                 select(func.count(Product.id)).where(Product.deleted_at.is_(None)).scalar_subquery(),
                 select(func.count(BusinessDocument.id))
-                .where(BusinessDocument.status == DocStatus.pending)
+                .join(Business, Business.id == BusinessDocument.business_id)
+                .where(*_docs_in_review())
                 .scalar_subquery(),
             )
         )
@@ -791,7 +803,7 @@ async def pending_docs(db: AsyncSession, admin: Actor) -> list[PendingDocRow]:
         await db.execute(
             select(BusinessDocument, Business)
             .join(Business, Business.id == BusinessDocument.business_id)
-            .where(BusinessDocument.status == DocStatus.pending, Business.deleted_at.is_(None))
+            .where(*_docs_in_review())
             .order_by(BusinessDocument.uploaded_at.asc())
         )
     ).all()

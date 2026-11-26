@@ -258,21 +258,36 @@
       background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     outline: none;
   }
-  /* The open list of a native <select> is drawn by the browser. On Windows it
-     doesn't follow the page's dark surface, so options came out black on
-     black in the console. Give them the surface's own colours. */
-  select option,
-  select optgroup {
-    background-color: var(--c-surface);
+  /* The list of a Select (components/ui/Field.tsx), drawn by the page so it
+     keeps the surface's colours on every system. Solid, not glass: options
+     must read clearly over whatever is underneath. */
+  .select-list {
+    background-color: var(--glass-solid);
+    border-color: var(--c-line-2);
+    color: var(--c-fg);
+    box-shadow: var(--glass-shadow);
+  }
+  .select-list .select-option-active {
+    background-color: var(--c-lime-soft);
+  }
+  .select-list .select-option-check {
+    color: var(--c-accent);
+  }
+  [data-surface="trader"] .select-list .select-option-check,
+  :root:not([data-surface]) .select-list .select-option-check {
     color: var(--c-fg);
   }
-  .field-night option,
-  .field-night optgroup {
-    background-color: #161616;
+  .select-list-night {
+    background-color: #151515;
+    border-color: rgb(255 255 255 / 0.12);
     color: #f4f1ec;
+    box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.9);
   }
-  select option:disabled {
-    color: var(--c-fg-3);
+  .select-list-night .select-option-active {
+    background-color: rgb(255 255 255 / 0.08);
+  }
+  .select-list-night .select-option-check {
+    color: #c4d82e;
   }
 
   .field::placeholder {
