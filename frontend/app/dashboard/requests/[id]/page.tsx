@@ -16,6 +16,7 @@ import { RfqForm } from "@/components/trade/RfqForm";
 import { RequestSheet, TrackingChip } from "@/components/trade/parts";
 import { DealChat } from "@/components/trade/DealChat";
 import { DealCounters } from "@/components/trade/DealCounters";
+import { DealSamples } from "@/components/trade/DealSamples";
 import { HoldButton } from "@/components/ui/Controls";
 
 /**
@@ -152,6 +153,7 @@ export default function RequestPage() {
                     currency={offers?.find((o) => o.status === "published" && o.unlocked)?.currency ?? null}
                   />
                 ) : null}
+                {chat ? <DealSamples dealCode={chat.dealCode} side="buyer" canWrite={chat.canWrite} /> : null}
                 <div>
                 <h2 id="offers-title" className="t-title3 text-fg">
                   Offers

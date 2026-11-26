@@ -14,7 +14,7 @@ import { RejectSheet } from "@/components/admin/RejectSheet";
 import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo } from "@/components/admin/format";
 import { RequestSheet } from "@/components/trade/parts";
-import { DeskDealChatPanel, HeldMessages, PendingCounters } from "@/components/admin/DeskChat";
+import { DeskDealChatPanel, HeldMessages, OpenSamples, PendingCounters } from "@/components/admin/DeskChat";
 
 const STATUS: Record<string, { label: string; tone: ChipTone }> = {
   submitted: { label: "Waiting", tone: "move" },
@@ -129,6 +129,7 @@ export default function DeskPage() {
       <div className="mt-6 space-y-6">
         <PendingCounters />
         <HeldMessages />
+        <OpenSamples />
       </div>
 
       <div className="mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">

@@ -4,6 +4,7 @@ or reject held messages, lift a suspension."""
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Response
+from sqlalchemy import select
 
 from app.core.errors import NotFound
 from app.core.security import parse_uuid
@@ -11,19 +12,25 @@ from app.models.business import Business
 from app.models.deal import Deal
 from app.models.negotiation import ChatMessage, CounterOffer
 from app.modules.admin import service as audit
-from app.modules.admin.deps import CanLiftSuspension, CanTriageRfqs
+from app.modules.admin.deps import CanHandleSamples, CanLiftSuspension, CanTriageRfqs
 from app.modules.admin.permissions import Perm
 from app.modules.auth.deps import DbSession
-from app.modules.negotiation import counters, service
-from app.modules.negotiation.router import notify_new_message
+from app import notifications
+from app.models.negotiation import Sample
+from app.modules.negotiation import counters, samples, service
+from app.modules.negotiation.router import _mail_side, notify_new_message
 from app.modules.negotiation.schemas import (
     CounterRelayIn,
     DeskChatOut,
     DeskCounterOut,
     DeskMessageIn,
     DeskMessageOut,
+    DeskSampleOut,
     DeskThreadOut,
+    ForwardIn,
     HeldMessageOut,
+    SampleHop,
+    SealIn,
     LiftSuspensionIn,
     RejectMessageIn,
 )
@@ -173,3 +180,73 @@ async def reject_counter(counter_id: str, payload: RejectMessageIn, admin: CanTr
                         reason=payload.reason, details={"deal": d.deal.code})
     await db.commit()
     return await _desk_counter(db, d.counter, d.deal.code)
+
+
+# ── Samples (CX-102) ─────────────────────────────────────────────────
+
+
+async def _desk_samples(db, rows: list[tuple[Sample, Deal]]) -> list[DeskSampleOut]:
+    hops = await samples.events(db, [s.id for s, _ in rows])
+    return [
+        DeskSampleOut(
+            id=str(s.id), deal_code=d.code, status=s.status, seller_courier_ref=s.seller_courier_ref,
+            retained_seal_no=s.retained_seal_no, forward_seal_no=s.forward_seal_no,
+            forward_courier_ref=s.forward_courier_ref, verdict=s.verdict, review_note=s.review_note,
+            hops=[SampleHop(status=e.to_status, at=e.created_at) for e in hops[s.id]], created_at=s.created_at,
+        )
+        for s, d in rows
+    ]
+
+
+@router.get("/samples", response_model=ItemList[DeskSampleOut], response_model_by_alias=True)
+async def open_samples(_: CanHandleSamples, db: DbSession) -> ItemList[DeskSampleOut]:
+    """Samples not yet reviewed, oldest first, with both legs."""
+    return item_list(await _desk_samples(db, await samples.open_samples(db)))
+
+
+@router.get("/deals/{code}/samples", response_model=ItemList[DeskSampleOut], response_model_by_alias=True)
+async def deal_samples(code: str, _: CanHandleSamples, db: DbSession) -> ItemList[DeskSampleOut]:
+    deal = await service.deal_by_code(db, code)
+    rows = list(await db.scalars(select(Sample).where(Sample.deal_id == deal.id).order_by(Sample.created_at.desc())))
+    return item_list(await _desk_samples(db, [(s, deal) for s in rows]))
+
+
+async def _hop(db, admin, sample: Sample, deal: Deal, action: str, details: dict | None = None) -> DeskSampleOut:
+    audit.record_action(db, admin=admin, action=f"sample.{action}", target_type="sample", target_id=sample.id,
+                        details={"deal": deal.code, **(details or {})})
+    await db.commit()
+    return (await _desk_samples(db, [(sample, deal)]))[0]
+
+
+@router.post("/samples/{sample_id}/at-hub", response_model=DeskSampleOut, response_model_by_alias=True)
+async def sample_at_hub(sample_id: str, admin: CanHandleSamples, db: DbSession) -> DeskSampleOut:
+    """The seller's parcel has arrived at the hub."""
+    sample, deal = await samples.at_hub(db, admin.id, parse_uuid(sample_id))
+    return await _hop(db, admin, sample, deal, "at_hub")
+
+
+@router.post("/samples/{sample_id}/seal", response_model=DeskSampleOut, response_model_by_alias=True)
+async def seal_sample(sample_id: str, payload: SealIn, admin: CanHandleSamples, db: DbSession) -> DeskSampleOut:
+    """Split the sample and seal both halves; the hub keeps the retained half."""
+    sample, deal = await samples.seal(db, admin.id, parse_uuid(sample_id), payload.retained_seal_no, payload.forward_seal_no)
+    return await _hop(db, admin, sample, deal, "sealed",
+                      {"retainedSealNo": sample.retained_seal_no, "forwardSealNo": sample.forward_seal_no})
+
+
+@router.post("/samples/{sample_id}/forward", response_model=DeskSampleOut, response_model_by_alias=True)
+async def forward_sample(
+    sample_id: str, payload: ForwardIn, admin: CanHandleSamples, db: DbSession, background: BackgroundTasks
+) -> DeskSampleOut:
+    """Send the forward half to the buyer under Corridor One X's name. Refused
+    until both halves are sealed."""
+    sample, deal = await samples.forward(db, admin.id, parse_uuid(sample_id), payload.courier_ref)
+    out = await _hop(db, admin, sample, deal, "forwarded")
+    await _mail_side(background, db, deal, "buyer", notifications.send_sample_forwarded)
+    return out
+
+
+@router.post("/samples/{sample_id}/received", response_model=DeskSampleOut, response_model_by_alias=True)
+async def sample_received(sample_id: str, admin: CanHandleSamples, db: DbSession) -> DeskSampleOut:
+    """The courier confirms the buyer has the sample."""
+    sample, deal = await samples.received(db, admin.id, parse_uuid(sample_id))
+    return await _hop(db, admin, sample, deal, "received")

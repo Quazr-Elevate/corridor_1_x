@@ -1,0 +1,12 @@
+Hi {{ first_name }},
+
+The buyer on deal {{ deal_code }} has asked for a sample.
+
+Open the deal to see where to send it: {{ dashboard_url }}
+Corridor One X checks and seals it at our hub, then sends it to the buyer
+under our name.
+
+Please send it without your company name, logo or contact details on the
+pack.
+
+-- Cor1x

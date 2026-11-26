@@ -1,0 +1,8 @@
+Hi {{ first_name }},
+
+Your sample for deal {{ deal_code }} has left our hub. The tracking number
+is on the deal: {{ dashboard_url }}
+
+When it arrives, record whether it passed so negotiation can move on.
+
+-- Cor1x

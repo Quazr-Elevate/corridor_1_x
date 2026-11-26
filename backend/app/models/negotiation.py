@@ -157,3 +157,72 @@ class CounterOffer(Base):
     decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     answered_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+
+
+#: The sample's path (plan 7.3): seller → hub → split and seal → forwarded
+#: under Corridor One X → buyer → reviewed.
+SAMPLE_STATUSES = (
+    "requested", "seller_dispatched", "at_hub", "split_sealed", "forwarded", "buyer_received", "reviewed",
+)
+SAMPLE_VERDICTS = ("passed", "failed")
+
+
+class Sample(Base):
+    """A sample on a deal in negotiation (CX-102). The hub keeps one sealed
+    half (``retained_seal_no``) for disputes; the other half goes to the
+    buyer under Corridor One X's name. The seller's courier reference names
+    the seller, so only the desk sees it."""
+
+    __tablename__ = "samples"
+    __table_args__ = (
+        Index("ix_samples_deal", "deal_id"),
+        Index("ix_samples_status", "status"),
+        CheckConstraint(_in("status", SAMPLE_STATUSES), name="ck_samples_status"),
+        CheckConstraint("verdict IS NULL OR " + _in("verdict", SAMPLE_VERDICTS), name="ck_samples_verdict"),
+        # Nothing leaves the hub until the retained half is sealed and numbered.
+        CheckConstraint(
+            "status NOT IN ('split_sealed', 'forwarded', 'buyer_received', 'reviewed') "
+            "OR (retained_seal_no IS NOT NULL AND forward_seal_no IS NOT NULL)",
+            name="ck_samples_sealed_before_forward",
+        ),
+        CheckConstraint("(status = 'reviewed') = (verdict IS NOT NULL)", name="ck_samples_reviewed_has_verdict"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    deal_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("deals.id", ondelete="CASCADE", name="fk_samples_deal_id"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="requested")
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_samples_requested_by_user_id"), nullable=True
+    )
+    seller_courier_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    retained_seal_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    forward_seal_no: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    forward_courier_ref: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    verdict: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class SampleEvent(Base):
+    """One hop of a sample, timestamped with who recorded it. Insert only."""
+
+    __tablename__ = "sample_events"
+    __table_args__ = (
+        Index("ix_sample_events_sample_time", "sample_id", "created_at"),
+        CheckConstraint("actor_type IN ('user', 'admin')", name="ck_sample_events_actor_type"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    sample_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("samples.id", ondelete="CASCADE", name="fk_sample_events_sample_id"), nullable=False
+    )
+    from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(5), nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())

@@ -1007,3 +1007,31 @@ desk sees what it means for the other side and passes it on or refuses it.
 | `margin_pct` | The sheet's, or the one the desk passed it on at (outside the floor and ceiling only a desk manager may) |
 | `status` | `pending_desk` → `relayed` → `accepted` / `declined`; `rejected` (with `decision_note`); `superseded` by a newer one from the same side |
 | `quantity`, `note` | Optional; the note passes the leak filter |
+
+## Samples (`0039_samples`)
+
+M4 · S8, CX-102 (A-077). The buyer asks for a sample and pays the sample
+fee in credits (`SAMPLE_FEE`, idempotency key `sample:<id>`). The seller
+ships it to the Corridor One X hub, which splits it, seals both halves,
+keeps one and forwards the other under Corridor One X's name.
+
+### `samples`
+
+| Column | Notes |
+|---|---|
+| `deal_id` | The deal in negotiation. One open (not `reviewed`) sample per deal at a time |
+| `status` | `requested` → `seller_dispatched` (seller) → `at_hub` → `split_sealed` → `forwarded` → `buyer_received` (desk) → `reviewed` (buyer). Changed only through `samples._move` |
+| `requested_by_user_id` | The buyer's user who asked |
+| `seller_courier_ref` | The seller's leg. Shown to the seller and the desk only |
+| `retained_seal_no`, `forward_seal_no` | Set together at `split_sealed`, and must differ. Check `ck_samples_sealed_before_forward`: no status from `split_sealed` on without both |
+| `forward_courier_ref` | Corridor One X's leg to the buyer. Shown to the buyer and the desk only |
+| `verdict`, `review_note` | `passed` / `failed`, set with `reviewed` (check `ck_samples_reviewed_has_verdict`); the note passes the leak filter |
+
+### `sample_events`
+
+Insert only: one row per hop with `from_status`, `to_status`, `actor_type`
+(`user` / `admin`), `actor_id` and the time. The buyer's view lists only
+`requested`, `forwarded`, `buyer_received` and `reviewed`; the seller's only
+`requested`, `seller_dispatched`, `at_hub` and `reviewed`. Desk hops are
+also written to `admin_actions` (`sample.at_hub`, `sample.sealed`,
+`sample.forwarded`, `sample.received`).

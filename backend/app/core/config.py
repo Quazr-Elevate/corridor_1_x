@@ -84,6 +84,8 @@ class Settings(BaseSettings):
 
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
+    # Where sellers send samples (CX-102); shown to the seller of a deal only.
+    sample_hub_address: str = "Corridor One X sample desk — address to be confirmed by operations"
 
     # ─── Payments for credit plans (app/integrations/payments) ───
     # none → checkout is off (503). test → no network, development only.

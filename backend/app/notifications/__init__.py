@@ -203,6 +203,23 @@ async def send_chat_message(*, to: str, first_name: str, deal_code: str) -> None
     )
 
 
+async def send_sample_requested(*, to: str, first_name: str, deal_code: str) -> None:
+    """Ask the seller to send a sample to the hub (CX-102). The hub address
+    is in the app, on the deal."""
+    await _send(to, f"Please send a sample for {deal_code}", "sample_requested",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
+async def send_sample_forwarded(*, to: str, first_name: str, deal_code: str) -> None:
+    await _send(to, f"Your sample for {deal_code} is on its way", "sample_forwarded",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
+async def send_sample_reviewed(*, to: str, first_name: str, deal_code: str) -> None:
+    await _send(to, f"The buyer has reviewed the sample for {deal_code}", "sample_reviewed",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,
