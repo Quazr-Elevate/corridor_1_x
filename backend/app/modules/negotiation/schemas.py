@@ -148,3 +148,58 @@ class DeskCounterOut(CamelModel):
 class CounterRelayIn(RequestModel):
     #: Pass it on at another margin; omitted = the sheet's.
     margin_pct: Decimal | None = Field(default=None, ge=0, le=100, max_digits=6, decimal_places=2)
+
+
+# ── Samples (CX-102) ─────────────────────────────────────────────────
+
+
+class SampleHop(CamelModel):
+    status: str
+    at: datetime
+
+
+class SampleOut(CamelModel):
+    id: str
+    status: str
+    #: The seller's view: where to send it, while it is still to be sent.
+    hub_address: str | None = None
+    #: The seller's own courier reference (seller only).
+    courier_ref: str | None = None
+    #: Corridor One X's forward courier reference (buyer only, once forwarded).
+    forward_courier_ref: str | None = None
+    verdict: Literal["passed", "failed"] | None = None
+    review_note: str | None = None
+    hops: list[SampleHop]
+    created_at: datetime
+
+
+class DispatchIn(RequestModel):
+    courier_ref: text(100, 4)  # type: ignore[valid-type]
+
+
+class SampleReviewIn(RequestModel):
+    verdict: Literal["passed", "failed"]
+    note: text(500) | None = None  # type: ignore[valid-type]
+
+
+class DeskSampleOut(CamelModel):
+    id: str
+    deal_code: str
+    status: str
+    seller_courier_ref: str | None
+    retained_seal_no: str | None
+    forward_seal_no: str | None
+    forward_courier_ref: str | None
+    verdict: str | None
+    review_note: str | None
+    hops: list[SampleHop]
+    created_at: datetime
+
+
+class SealIn(RequestModel):
+    retained_seal_no: text(40, 4)  # type: ignore[valid-type]
+    forward_seal_no: text(40, 4)  # type: ignore[valid-type]
+
+
+class ForwardIn(RequestModel):
+    courier_ref: text(100, 4)  # type: ignore[valid-type]

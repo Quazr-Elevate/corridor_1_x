@@ -158,6 +158,21 @@ export interface DeskDealChat {
   threads: { side: "buyer" | "seller"; companyCode: string | null; suspended: boolean; messages: DeskChatMessage[] }[];
 }
 
+/** A sample as the desk sees it: both legs and the seals (CX-102). */
+export interface DeskSample {
+  id: string;
+  dealCode: string;
+  status: "requested" | "seller_dispatched" | "at_hub" | "split_sealed" | "forwarded" | "buyer_received" | "reviewed";
+  sellerCourierRef: string | null;
+  retainedSealNo: string | null;
+  forwardSealNo: string | null;
+  forwardCourierRef: string | null;
+  verdict: "passed" | "failed" | null;
+  reviewNote: string | null;
+  hops: { status: string; at: string }[];
+  createdAt: string;
+}
+
 /** A counter-offer as the desk sees it: both prices and the margin (CX-101). */
 export interface DeskCounter {
   id: string;
@@ -777,6 +792,13 @@ export const adminApi = {
     }),
 
   // ─── Trade desk ───
+  openSamples: () => req<ItemList<DeskSample>>("/admin/samples").then((r) => r.items),
+  sampleAtHub: (id: string) => req<DeskSample>(`/admin/samples/${id}/at-hub`, { method: "POST" }),
+  sealSample: (id: string, retainedSealNo: string, forwardSealNo: string) =>
+    req<DeskSample>(`/admin/samples/${id}/seal`, { method: "POST", body: JSON.stringify({ retainedSealNo, forwardSealNo }) }),
+  forwardSample: (id: string, courierRef: string) =>
+    req<DeskSample>(`/admin/samples/${id}/forward`, { method: "POST", body: JSON.stringify({ courierRef }) }),
+  sampleReceived: (id: string) => req<DeskSample>(`/admin/samples/${id}/received`, { method: "POST" }),
   pendingCounters: () => req<ItemList<DeskCounter>>("/admin/counters/pending").then((r) => r.items),
   dealCounters: (code: string) => req<ItemList<DeskCounter>>(`/admin/deals/${code}/counters`).then((r) => r.items),
   relayCounter: (id: string, marginPct?: string) =>

@@ -1,0 +1,6 @@
+Hi {{ first_name }},
+
+The buyer on deal {{ deal_code }} has reviewed your sample. The result is
+on the deal: {{ dashboard_url }}
+
+-- Cor1x

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { adminApi, errorMessage, type DeskCounter, type DeskDealChat, type HeldMessage } from "@/lib/adminApi";
+import { adminApi, errorMessage, type DeskCounter, type DeskDealChat, type DeskSample, type HeldMessage } from "@/lib/adminApi";
 import { money } from "@/lib/trade";
 import { Input } from "@/components/ui/Field";
 import { cn } from "@/lib/cn";
@@ -276,6 +276,129 @@ export function PendingCounters() {
           await load();
         }}
       />
+    </section>
+  );
+}
+
+const SAMPLE_STEP: Record<DeskSample["status"], string> = {
+  requested: "Waiting for the seller to send it",
+  seller_dispatched: "On its way to the hub",
+  at_hub: "At the hub: split and seal",
+  split_sealed: "Sealed: forward to the buyer",
+  forwarded: "On its way to the buyer",
+  buyer_received: "With the buyer: waiting for the result",
+  reviewed: "Reviewed",
+};
+
+/**
+ * Samples not yet reviewed (CX-102). The desk records each hop at the hub:
+ * arrived, split and sealed (two seal numbers), forwarded, delivered.
+ * Forwarding is refused until both halves are sealed.
+ */
+export function OpenSamples() {
+  const toast = useToast();
+  const [items, setItems] = useState<DeskSample[] | null>(null);
+  const [form, setForm] = useState<Record<string, { retained?: string; forward?: string; courier?: string }>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await adminApi.openSamples());
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!items?.length) return null;
+  const set = (id: string, k: "retained" | "forward" | "courier", v: string) =>
+    setForm((f) => ({ ...f, [id]: { ...f[id], [k]: v } }));
+  const run = async (id: string, fn: () => Promise<unknown>, done: string) => {
+    setBusy(id);
+    try {
+      await fn();
+      toast(done);
+      await load();
+    } catch (e) {
+      toast(errorMessage(e, "Couldn’t record it."), "frozen");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section aria-labelledby="samples-h" className="relief rounded-[26px] p-5">
+      <h2 id="samples-h" className="t-title3 text-fg">
+        Samples in progress · {items.length}
+      </h2>
+      <ul className="mt-4 space-y-3">
+        {items.map((s) => {
+          const f = form[s.id] ?? {};
+          return (
+            <li key={s.id} className="well rounded-[18px] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="t-code text-fg-2">{s.dealCode}</p>
+                <span className="t-sub text-fg-3">asked {fmtAgo(s.createdAt)}</span>
+              </div>
+              <p className="t-body mt-2 text-fg">{SAMPLE_STEP[s.status]}</p>
+              <p className="t-sub t-code mt-1 text-fg-3">
+                {[
+                  s.sellerCourierRef && `Seller courier ${s.sellerCourierRef}`,
+                  s.retainedSealNo && `Retained seal ${s.retainedSealNo}`,
+                  s.forwardSealNo && `Forward seal ${s.forwardSealNo}`,
+                  s.forwardCourierRef && `Our courier ${s.forwardCourierRef}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              <div className="mt-3 flex flex-wrap items-end justify-end gap-2">
+                {s.status === "seller_dispatched" ? (
+                  <Button size="sm" variant="secondary" loading={busy === s.id} onClick={() => void run(s.id, () => adminApi.sampleAtHub(s.id), "Marked as arrived")}>
+                    It has arrived
+                  </Button>
+                ) : null}
+                {s.status === "at_hub" ? (
+                  <>
+                    <Input label="Retained seal no." value={f.retained ?? ""} onChange={(e) => set(s.id, "retained", e.target.value)} className="w-44" inputClassName="t-code" />
+                    <Input label="Forward seal no." value={f.forward ?? ""} onChange={(e) => set(s.id, "forward", e.target.value)} className="w-44" inputClassName="t-code" />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={busy === s.id}
+                      disabled={!f.retained?.trim() || !f.forward?.trim()}
+                      onClick={() => void run(s.id, () => adminApi.sealSample(s.id, f.retained!.trim(), f.forward!.trim()), "Sealed")}
+                    >
+                      Record seals
+                    </Button>
+                  </>
+                ) : null}
+                {s.status === "split_sealed" ? (
+                  <>
+                    <Input label="Courier and tracking no." value={f.courier ?? ""} onChange={(e) => set(s.id, "courier", e.target.value)} className="w-56" inputClassName="t-code" />
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={busy === s.id}
+                      disabled={!f.courier?.trim()}
+                      onClick={() => void run(s.id, () => adminApi.forwardSample(s.id, f.courier!.trim()), "Forwarded; the buyer has been told")}
+                    >
+                      Forward to buyer
+                    </Button>
+                  </>
+                ) : null}
+                {s.status === "forwarded" ? (
+                  <Button size="sm" variant="secondary" loading={busy === s.id} onClick={() => void run(s.id, () => adminApi.sampleReceived(s.id), "Marked as delivered")}>
+                    Delivered to buyer
+                  </Button>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

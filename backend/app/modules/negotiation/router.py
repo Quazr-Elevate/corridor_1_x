@@ -9,7 +9,9 @@ from app.models.business import Business
 from app.models.negotiation import ChatMessage, CounterOffer
 from app.modules.accounts.service import owner_contact
 from app.modules.auth.deps import CurrentUser, DbSession
-from app.modules.negotiation import counters, service
+from app.core.config import settings
+from app.models.negotiation import Sample, SampleEvent
+from app.modules.negotiation import counters, samples, service
 from app.modules.negotiation.schemas import (
     ChatMessageOut,
     ChatOut,
@@ -17,8 +19,12 @@ from app.modules.negotiation.schemas import (
     CounterAnswerIn,
     CounterIn,
     CounterOut,
+    DispatchIn,
     MessageIn,
     NegotiationStarted,
+    SampleHop,
+    SampleOut,
+    SampleReviewIn,
 )
 from app.ratelimit import RateLimitRule, get_limiter
 from app.shared.schemas import ItemList, item_list
@@ -151,3 +157,77 @@ async def answer_counter(
     c = await counters.answer(db, user, code, parse_uuid(counter_id), payload.accept)
     await db.commit()
     return counter_out(c, "buyer" if c.side == "seller" else "seller")
+
+
+# ── Samples (CX-102) ─────────────────────────────────────────────────
+
+#: The hops each side sees. The buyer doesn't see the seller's leg (nor that
+#: the hub split it); the seller doesn't see the forward leg's details.
+_SEEN_BY = {
+    "buyer": {"requested", "forwarded", "buyer_received", "reviewed"},
+    "seller": {"requested", "seller_dispatched", "at_hub", "reviewed"},
+}
+
+
+def sample_out(s: Sample, side: str, hops: list[SampleEvent]) -> SampleOut:
+    seller = side == "seller"
+    return SampleOut(
+        id=str(s.id),
+        # The buyer sees "on its way to the hub" as plain "requested" until it is forwarded.
+        status=s.status if seller or s.status in _SEEN_BY["buyer"] else "requested",
+        hub_address=settings.sample_hub_address if seller and s.status == "requested" else None,
+        courier_ref=s.seller_courier_ref if seller else None,
+        forward_courier_ref=None if seller else s.forward_courier_ref,
+        verdict=s.verdict, review_note=s.review_note,
+        hops=[SampleHop(status=e.to_status, at=e.created_at) for e in hops if e.to_status in _SEEN_BY[side]],
+        created_at=s.created_at,
+    )
+
+
+async def _mail_side(background: BackgroundTasks, db, deal, side: str, send) -> None:
+    business_id = deal.buyer_business_id if side == "buyer" else deal.seller_business_id
+    contact = await owner_contact(db, business_id) if business_id else None
+    if contact:
+        background.add_task(
+            notifications.deliver_safely, send, to=contact.email,
+            first_name=notifications.first_name_of(contact.full_name), deal_code=deal.code,
+        )
+
+
+@router.get("/{code}/samples", response_model=ItemList[SampleOut], response_model_by_alias=True)
+async def list_samples(code: str, user: CurrentUser, db: DbSession) -> ItemList[SampleOut]:
+    """This deal's samples, newest first, showing only your own leg."""
+    side, _, rows = await samples.of_party(db, user, code)
+    hops = await samples.events(db, [s.id for s in rows])
+    return item_list([sample_out(s, side, hops[s.id]) for s in rows])
+
+
+@router.post("/{code}/samples", response_model=SampleOut, response_model_by_alias=True, status_code=201)
+async def request_sample(code: str, user: CurrentUser, db: DbSession, background: BackgroundTasks) -> SampleOut:
+    """The buyer asks for a sample and pays the sample fee in credits (402
+    when the balance is short). The seller is asked to send it to the hub."""
+    sample = await samples.request(db, user, code)
+    deal = (await service.party(db, user, code)).deal
+    await db.commit()
+    await _mail_side(background, db, deal, "seller", notifications.send_sample_requested)
+    return sample_out(sample, "buyer", (await samples.events(db, [sample.id]))[sample.id])
+
+
+@router.post("/{code}/samples/{sample_id}/dispatch", response_model=SampleOut, response_model_by_alias=True)
+async def dispatch_sample(code: str, sample_id: str, payload: DispatchIn, user: CurrentUser, db: DbSession) -> SampleOut:
+    """The seller has sent the sample to the hub, with the courier's tracking number."""
+    sample = await samples.dispatch(db, user, code, parse_uuid(sample_id), payload.courier_ref)
+    await db.commit()
+    return sample_out(sample, "seller", (await samples.events(db, [sample.id]))[sample.id])
+
+
+@router.post("/{code}/samples/{sample_id}/review", response_model=SampleOut, response_model_by_alias=True)
+async def review_sample(
+    code: str, sample_id: str, payload: SampleReviewIn, user: CurrentUser, db: DbSession, background: BackgroundTasks
+) -> SampleOut:
+    """The buyer records whether the sample passed."""
+    sample = await samples.review(db, user, code, parse_uuid(sample_id), payload.verdict, payload.note)
+    deal = (await service.party(db, user, code)).deal
+    await db.commit()
+    await _mail_side(background, db, deal, "seller", notifications.send_sample_reviewed)
+    return sample_out(sample, "buyer", (await samples.events(db, [sample.id]))[sample.id])

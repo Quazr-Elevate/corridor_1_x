@@ -234,6 +234,25 @@ export interface Counter {
   createdAt: string;
 }
 
+export type SampleStatus =
+  | "requested" | "seller_dispatched" | "at_hub" | "split_sealed" | "forwarded" | "buyer_received" | "reviewed";
+
+/** A sample as one side sees it (CX-102): only that side's own leg. */
+export interface Sample {
+  id: string;
+  status: SampleStatus;
+  /** Seller only, while the sample is still to be sent. */
+  hubAddress: string | null;
+  /** The seller's own courier reference (seller only). */
+  courierRef: string | null;
+  /** Corridor One X's courier reference to the buyer (buyer only). */
+  forwardCourierRef: string | null;
+  verdict: "passed" | "failed" | null;
+  reviewNote: string | null;
+  hops: { status: SampleStatus; at: string }[];
+  createdAt: string;
+}
+
 export const trade = {
   listRfqs: () => call<{ total: number; items: Rfq[] }>("/rfqs"),
   getRfq: (id: string) => call<Rfq>(`/rfqs/${id}`),
@@ -256,6 +275,12 @@ export const trade = {
     call<Counter>(`/deals/${dealCode}/counters`, { method: "POST", body: JSON.stringify(body) }),
   answerCounter: (dealCode: string, counterId: string, accept: boolean) =>
     call<Counter>(`/deals/${dealCode}/counters/${counterId}/answer`, { method: "POST", body: JSON.stringify({ accept }) }),
+  listSamples: (dealCode: string) => call<{ items: Sample[] }>(`/deals/${dealCode}/samples`).then((r) => r.items),
+  requestSample: (dealCode: string) => call<Sample>(`/deals/${dealCode}/samples`, { method: "POST" }),
+  dispatchSample: (dealCode: string, id: string, courierRef: string) =>
+    call<Sample>(`/deals/${dealCode}/samples/${id}/dispatch`, { method: "POST", body: JSON.stringify({ courierRef }) }),
+  reviewSample: (dealCode: string, id: string, verdict: "passed" | "failed", note: string | null) =>
+    call<Sample>(`/deals/${dealCode}/samples/${id}/review`, { method: "POST", body: JSON.stringify({ verdict, note }) }),
   sendDealMessage: (dealCode: string, body: string) =>
     call<ChatMessage>(`/deals/${dealCode}/chat`, { method: "POST", body: JSON.stringify({ body }) }),
 

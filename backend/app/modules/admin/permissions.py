@@ -29,6 +29,7 @@ class Perm(str, enum.Enum):
     credits_manage = "credits.manage"  # set credit prices and plans
     identity_unmask = "identity.unmask"  # turn a company code back into a name, with a reason
     suspension_lift = "suspensions.lift"  # let a company suspended for leak strikes trade again (A-075)
+    samples_handle = "samples.handle"  # record a sample's hops at the hub: received, sealed, forwarded (CX-102)
 
 
 REVIEWER = frozenset({
@@ -43,7 +44,7 @@ REVIEWER = frozenset({
 
 #: The trade desk works deals from company codes; it has no KYB or
 #: directory access, so it cannot read a name without ``identity.unmask``.
-TRADE_DESK = frozenset({Perm.dashboard_view, Perm.rfqs_triage})
+TRADE_DESK = frozenset({Perm.dashboard_view, Perm.rfqs_triage, Perm.samples_handle})
 #: A desk manager also approves what a desk user may not approve alone.
 DESK_MANAGER = TRADE_DESK | {Perm.margin_approve, Perm.suspension_lift}
 

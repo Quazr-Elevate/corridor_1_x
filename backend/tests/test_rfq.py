@@ -368,7 +368,7 @@ async def test_desk_roles_see_the_queue_and_nothing_else(client, admin_client, m
     assert (await reviewer.get("/admin/rfqs")).status_code == 403  # KYB reviewers do not work RFQs
     _, desk = await _new_admin(admin_client, make_client, role="trade_desk", email="desk@cor1x.test")
     me = (await desk.get("/admin/me")).json()
-    assert me["role"] == "trade_desk" and set(me["permissions"]) == {"dashboard.view", "rfqs.triage"}
+    assert me["role"] == "trade_desk" and set(me["permissions"]) == {"dashboard.view", "rfqs.triage", "samples.handle"}
     assert (await desk.get(f"/admin/rfqs/{rfq['id']}")).status_code == 200
     # The desk works from codes: no directory, no KYB, no unmask, no settings.
     for call in (
