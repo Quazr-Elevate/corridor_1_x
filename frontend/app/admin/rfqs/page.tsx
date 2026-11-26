@@ -14,7 +14,7 @@ import { RejectSheet } from "@/components/admin/RejectSheet";
 import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo } from "@/components/admin/format";
 import { RequestSheet } from "@/components/trade/parts";
-import { DeskDealChatPanel, HeldMessages } from "@/components/admin/DeskChat";
+import { DeskDealChatPanel, HeldMessages, PendingCounters } from "@/components/admin/DeskChat";
 
 const STATUS: Record<string, { label: string; tone: ChipTone }> = {
   submitted: { label: "Waiting", tone: "move" },
@@ -126,7 +126,8 @@ export default function DeskPage() {
         }
       />
       {error ? <Notice tone="frozen" className="mt-6">{error}</Notice> : null}
-      <div className="mt-6">
+      <div className="mt-6 space-y-6">
+        <PendingCounters />
         <HeldMessages />
       </div>
 

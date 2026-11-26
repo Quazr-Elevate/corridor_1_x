@@ -220,6 +220,20 @@ export interface DealChat {
   messages: ChatMessage[];
 }
 
+/** A counter-offer as one side sees it (CX-101): always in that side's own currency. */
+export interface Counter {
+  id: string;
+  /** false: the other side's, passed on by Corridor One X */
+  mine: boolean;
+  priceMinor: number;
+  currency: string;
+  quantity: string | null;
+  note: string | null;
+  status: "pending_desk" | "relayed" | "accepted" | "declined" | "rejected" | "superseded";
+  decisionNote: string | null;
+  createdAt: string;
+}
+
 export const trade = {
   listRfqs: () => call<{ total: number; items: Rfq[] }>("/rfqs"),
   getRfq: (id: string) => call<Rfq>(`/rfqs/${id}`),
@@ -237,6 +251,11 @@ export const trade = {
     }),
   /** 404 until an offer is chosen on the deal, and for anyone outside it. */
   dealChat: (dealCode: string) => call<DealChat>(`/deals/${dealCode}/chat`),
+  listCounters: (dealCode: string) => call<{ items: Counter[] }>(`/deals/${dealCode}/counters`).then((r) => r.items),
+  proposeCounter: (dealCode: string, body: { priceMinor: number; quantity?: string | null; note?: string | null }) =>
+    call<Counter>(`/deals/${dealCode}/counters`, { method: "POST", body: JSON.stringify(body) }),
+  answerCounter: (dealCode: string, counterId: string, accept: boolean) =>
+    call<Counter>(`/deals/${dealCode}/counters/${counterId}/answer`, { method: "POST", body: JSON.stringify({ accept }) }),
   sendDealMessage: (dealCode: string, body: string) =>
     call<ChatMessage>(`/deals/${dealCode}/chat`, { method: "POST", body: JSON.stringify({ body }) }),
 

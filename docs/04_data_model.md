@@ -993,3 +993,17 @@ talks only to Corridor One X; the leak filter stands between them.
 | `chat_messages` | new: `thread_id`, `origin` (`own` / `relay` / `desk` / `system`), `body`, `status` (`delivered` / `held` / `rejected`), `author_user_id`, `author_business_id`, `sender_code`, `admin_id`, `relayed_from_id`, `flags`, `review_note`, `reviewed_at` | Never edited or deleted. A relay is the copy of a cleared message in the other thread, carrying the sender's company code. A rejected message carries the desk's note |
 | `leak_strikes` | new: `business_id`, `user_id`, `deal_id`, `reasons` | A blocked message; its text is not kept. Three within 90 days suspend the company |
 | `businesses` | `suspended_at`, `suspended_reason` (both or neither) | A suspended company reads but can't send messages, quote or submit requests; a desk manager lifts it (`suspensions.lift`) |
+
+## Counter-offers (`0038_counter_offers`)
+
+M4 · S8, CX-101 (A-078). A side proposes a price in its own currency; the
+desk sees what it means for the other side and passes it on or refuses it.
+
+| Column | Notes |
+|---|---|
+| `deal_id`, `side` | Who proposed it |
+| `price_minor`, `currency` | The proposer's price per unit, in their currency (the offer's for the buyer, the quote's for the seller) |
+| `implied_minor`, `implied_currency` | What it means for the other side, back-solved through the deal's cost sheet at `margin_pct`. From a buyer price: `floor(price ÷ (rate × (1 + buffer) × (1 + margin))) − other costs`; from a seller price: `ceil((price + other costs) × rate × (1 + buffer) × (1 + margin))`. Rounding favours Corridor One X |
+| `margin_pct` | The sheet's, or the one the desk passed it on at (outside the floor and ceiling only a desk manager may) |
+| `status` | `pending_desk` → `relayed` → `accepted` / `declined`; `rejected` (with `decision_note`); `superseded` by a newer one from the same side |
+| `quantity`, `note` | Optional; the note passes the leak filter |

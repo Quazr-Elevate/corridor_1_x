@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import Field
@@ -93,3 +94,57 @@ class RejectMessageIn(RequestModel):
 
 class LiftSuspensionIn(RequestModel):
     reason: text(500, 10)  # type: ignore[valid-type]
+
+
+# ── Counter-offers (CX-101) ──────────────────────────────────────────
+
+
+class CounterIn(RequestModel):
+    #: Per unit, in minor units of your own currency (the offer's for the
+    #: buyer, your quote's for the seller).
+    price_minor: int = Field(gt=0, le=10**13)
+    quantity: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    note: text(500) | None = None  # type: ignore[valid-type]
+
+
+class CounterOut(CamelModel):
+    id: str
+    #: True for your own counter-offers; false for the other side's, passed on by Corridor One X.
+    mine: bool
+    #: Per unit, in your own currency: your price, or what theirs means for you.
+    price_minor: int
+    currency: str
+    quantity: Decimal | None
+    note: str | None
+    status: str
+    #: Why Corridor One X didn't pass on your counter-offer.
+    decision_note: str | None
+    created_at: datetime
+
+
+class CounterAnswerIn(RequestModel):
+    accept: bool
+
+
+class DeskCounterOut(CamelModel):
+    id: str
+    deal_code: str
+    side: Literal["buyer", "seller"]
+    price_minor: int
+    currency: str
+    implied_minor: int
+    implied_currency: str
+    margin_pct: Decimal
+    sheet_margin_pct: Decimal | None = None
+    min_margin_pct: Decimal | None = None
+    max_margin_pct: Decimal | None = None
+    quantity: Decimal | None
+    note: str | None
+    status: str
+    decision_note: str | None
+    created_at: datetime
+
+
+class CounterRelayIn(RequestModel):
+    #: Pass it on at another margin; omitted = the sheet's.
+    margin_pct: Decimal | None = Field(default=None, ge=0, le=100, max_digits=6, decimal_places=2)

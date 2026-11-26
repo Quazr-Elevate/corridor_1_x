@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/Toast";
 import { RfqForm } from "@/components/trade/RfqForm";
 import { RequestSheet, TrackingChip } from "@/components/trade/parts";
 import { DealChat } from "@/components/trade/DealChat";
+import { DealCounters } from "@/components/trade/DealCounters";
 import { HoldButton } from "@/components/ui/Controls";
 
 /**
@@ -144,6 +145,13 @@ export default function RequestPage() {
             <div className="mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
               <section aria-labelledby="offers-title" className="min-w-0 space-y-6">
                 {chat ? <DealChat chat={chat} /> : null}
+                {chat ? (
+                  <DealCounters
+                    dealCode={chat.dealCode}
+                    canWrite={chat.canWrite}
+                    currency={offers?.find((o) => o.status === "published" && o.unlocked)?.currency ?? null}
+                  />
+                ) : null}
                 <div>
                 <h2 id="offers-title" className="t-title3 text-fg">
                   Offers
