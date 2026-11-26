@@ -1,0 +1,12 @@
+Hi {{ first_name }},
+
+The buyer has chosen your offer on the {{ category }} request. The deal
+is {{ deal_code }}.
+
+Negotiation is now open. You talk to Corridor One X in the deal's chat;
+the buyer sees only your company code. Open the deal: {{ rfq_url }}
+
+Messages with phone numbers, emails, links or company names are refused.
+Corridor One X carries every contact between the two sides.
+
+-- Cor1x

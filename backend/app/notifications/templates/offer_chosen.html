@@ -1,0 +1,8 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p>Hi {{ first_name }},</p>
+<p>The buyer has chosen your offer on the <strong>{{ category }}</strong> request. The deal is <strong>{{ deal_code }}</strong>.</p>
+<p>Negotiation is now open. You talk to Corridor One X in the deal's chat; the buyer sees only your company code.</p>
+<p><a href="{{ rfq_url }}" style="display:inline-block;padding:10px 18px;background:#CEE94A;color:#0b0b0b;text-decoration:none;border-radius:8px;font-weight:600;">Open the deal</a></p>
+<p>Messages with phone numbers, emails, links or company names are refused. Corridor One X carries every contact between the two sides.</p>
+{% endblock %}

@@ -32,7 +32,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, UTCDateTime
 
 SHEET_STATUSES = ("draft", "pending_approval", "ready", "published")
-OFFER_STATUSES = ("published", "expired", "withdrawn")
+#: ``not_chosen``: the buyer went ahead with another offer on the deal (A-074).
+OFFER_STATUSES = ("published", "expired", "withdrawn", "not_chosen")
 #: The cost lines of a sheet, per unit, in the purchase currency.
 COST_LINES = ("inland_freight", "ocean_freight", "insurance", "inspection", "documentation", "finance", "other")
 

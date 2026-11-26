@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError } from "@/lib/api";
-import { DEAL_CURRENCIES, PAYMENT_TERMS, fromMinor, money, toMinor, trade, type PaymentTerms, type Quote, type RfqSellerView } from "@/lib/trade";
+import { DEAL_CURRENCIES, PAYMENT_TERMS, fromMinor, money, toMinor, trade, type DealChat as Chat, type PaymentTerms, type Quote, type RfqSellerView } from "@/lib/trade";
 import { cn } from "@/lib/cn";
 import { formatDay } from "@/lib/verification";
 import { Button } from "@/components/ui/Button";
@@ -14,6 +14,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Card, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { RequestSheet } from "@/components/trade/parts";
+import { DealChat } from "@/components/trade/DealChat";
 
 /**
  * Whether a stated value meets the buyer's limit, the way the server works
@@ -43,6 +44,8 @@ export default function MatchedRequestPage() {
   const toast = useToast();
   const [rfq, setRfq] = useState<RfqSellerView | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
+  // Present once the buyer chose this seller's offer (A-074); 404 otherwise.
+  const [chat, setChat] = useState<Chat | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,6 +69,7 @@ export default function MatchedRequestPage() {
       .then(async (view) => {
         if (!live) return;
         setRfq(view);
+        if (view.dealCode) void trade.dealChat(view.dealCode).then((c) => live && setChat(c)).catch(() => undefined);
         setQuantity(view.quantity ? String(Number(view.quantity)) : "");
         setIncoterm(view.incoterms[0] ?? "");
         setAnswers(Object.fromEntries(view.specs.map((s) => [s.parameterId, ""])));
@@ -157,6 +161,8 @@ export default function MatchedRequestPage() {
             {rfq.expiresAt ? <p className="t-sub mt-4 text-fg-3">Open for quotes until {formatDay(rfq.expiresAt)}.</p> : null}
           </aside>
 
+          <div className="min-w-0 space-y-6">
+          {chat ? <DealChat chat={chat} /> : null}
           <Card as="section" className="space-y-4 rounded-[26px] p-5 sm:p-6" aria-labelledby="quote-title">
             <div>
               <h1 id="quote-title" className="t-title2 text-fg">
@@ -239,6 +245,7 @@ export default function MatchedRequestPage() {
               </Button>
             ) : null}
           </Card>
+          </div>
         </div>
       )}
     </div>

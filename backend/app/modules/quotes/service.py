@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
+from app.modules.negotiation.service import ensure_can_trade
 from app.core.time import utcnow
 from app.models.business import Business
 from app.models.deal import Deal
@@ -83,6 +84,7 @@ async def _required_limits(db: AsyncSession, rfq: Rfq) -> dict[str, str]:
 
 async def save_quote(db: AsyncSession, user: User, rfq_id: uuid.UUID | None, payload: QuoteIn) -> Quote:
     """Create this seller's quote on a matched RFQ, or revise it."""
+    ensure_can_trade(user.business)
     await rfqs.expire_due(db)
     match, rfq = await rfqs.matched_for(db, user, rfq_id)
     if match.viewed_at is None:

@@ -13,6 +13,7 @@ from app.modules.admin import (
     kyb_types,
     listing_templates,
     listings,
+    negotiation,
     quotes,
     rfqs,
     users,
@@ -33,3 +34,4 @@ router.include_router(identity.router)
 router.include_router(credits.router)
 router.include_router(rfqs.router)
 router.include_router(quotes.router)
+router.include_router(negotiation.router)

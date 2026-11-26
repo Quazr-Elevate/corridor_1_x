@@ -20,6 +20,8 @@ TEMPLATES = Path(notifications.__file__).resolve().parent / "templates"
 ALLOWED_VARIABLES = {
     "account_url", "category", "cert_type", "code", "dashboard_url", "device", "email", "first_name", "reason",
     "reset_url", "rfq_url", "subject", "support_email", "valid_minutes", "when",
+    # The platform's deal reference (DL-…), not a party's identity (A-074).
+    "deal_code",
 }
 #: Names that would carry a company's or a counterparty's identity.
 FORBIDDEN = set(VAULT_COLUMNS) | {

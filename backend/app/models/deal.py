@@ -66,6 +66,13 @@ class Deal(Base):
         Uuid, ForeignKey("businesses.id", ondelete="RESTRICT", name="fk_deals_seller_business_id"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=DealStatus.RFQ_OPEN)
+    # The offer the buyer went ahead with (A-074); it fixes the seller. Set
+    # once, when the deal moves to NEGOTIATING.
+    chosen_offer_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("offers.id", ondelete="SET NULL", name="fk_deals_chosen_offer_id", use_alter=True),
+        nullable=True,
+    )
     cancel_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Bumped on every transition; a stale writer loses.
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

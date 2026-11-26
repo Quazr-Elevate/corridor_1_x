@@ -186,7 +186,7 @@ export interface Offer {
   specsMet: number;
   specsTotal: number;
   validUntil: string;
-  status: "published" | "expired" | "withdrawn";
+  status: "published" | "expired" | "withdrawn" | "not_chosen";
   unlocked: boolean;
   unlockCost: number;
   priceMinor: number | null;
@@ -195,6 +195,29 @@ export interface Offer {
   unit: string | null;
   portOfLoading: string | null;
   paymentTerms: PaymentTerms[] | null;
+}
+
+/** One line of a deal's chat as this side sees it (A-074). */
+export interface ChatMessage {
+  id: string;
+  /** you · the other side (by company code) · Corridor One X · an event line */
+  author: "you" | "counterparty" | "corridor" | "system";
+  senderCode: string | null;
+  body: string;
+  /** held: waiting for Corridor One X; rejected: not passed on (see note) */
+  status: "delivered" | "held" | "rejected";
+  note: string | null;
+  createdAt: string;
+}
+
+export interface DealChat {
+  dealCode: string;
+  dealStatus: string;
+  side: "buyer" | "seller";
+  counterpartyCode: string | null;
+  canWrite: boolean;
+  suspended: boolean;
+  messages: ChatMessage[];
 }
 
 export const trade = {
@@ -207,6 +230,15 @@ export const trade = {
   sellerPreview: (id: string) => call<RfqSellerView>(`/rfqs/${id}/seller-preview`),
   listOffers: (rfqId: string) => call<{ total: number; items: Offer[] }>(`/rfqs/${rfqId}/offers`),
   unlockOffer: (offerId: string) => call<Offer>(`/offers/${offerId}/unlock`, { method: "POST" }),
+  chooseOffer: (dealCode: string, offerId: string) =>
+    call<{ dealCode: string; dealStatus: string; chosenOfferId: string }>(`/deals/${dealCode}/choose`, {
+      method: "POST",
+      body: JSON.stringify({ offerId }),
+    }),
+  /** 404 until an offer is chosen on the deal, and for anyone outside it. */
+  dealChat: (dealCode: string) => call<DealChat>(`/deals/${dealCode}/chat`),
+  sendDealMessage: (dealCode: string, body: string) =>
+    call<ChatMessage>(`/deals/${dealCode}/chat`, { method: "POST", body: JSON.stringify({ body }) }),
 
   listMatched: () => call<{ total: number; items: MatchedRfqRow[] }>("/matched-rfqs"),
   openMatched: (rfqId: string) => call<RfqSellerView>(`/matched-rfqs/${rfqId}/open`, { method: "POST" }),

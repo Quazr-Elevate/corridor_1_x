@@ -28,6 +28,7 @@ class Perm(str, enum.Enum):
     trade_configure = "trade.configure"  # held countries and the desk's settings
     credits_manage = "credits.manage"  # set credit prices and plans
     identity_unmask = "identity.unmask"  # turn a company code back into a name, with a reason
+    suspension_lift = "suspensions.lift"  # let a company suspended for leak strikes trade again (A-075)
 
 
 REVIEWER = frozenset({
@@ -44,7 +45,7 @@ REVIEWER = frozenset({
 #: directory access, so it cannot read a name without ``identity.unmask``.
 TRADE_DESK = frozenset({Perm.dashboard_view, Perm.rfqs_triage})
 #: A desk manager also approves what a desk user may not approve alone.
-DESK_MANAGER = TRADE_DESK | {Perm.margin_approve}
+DESK_MANAGER = TRADE_DESK | {Perm.margin_approve, Perm.suspension_lift}
 
 ROLE_PERMISSIONS: dict[AdminRole, frozenset[Perm]] = {
     AdminRole.super_admin: frozenset(Perm),

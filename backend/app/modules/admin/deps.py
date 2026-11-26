@@ -97,3 +97,4 @@ CanApproveMargin = Annotated[AdminPrincipal, Depends(require(Perm.margin_approve
 CanConfigureTrade = Annotated[AdminPrincipal, Depends(require(Perm.trade_configure))]
 CanManageCredits = Annotated[AdminPrincipal, Depends(require(Perm.credits_manage))]
 CanUnmaskIdentity = Annotated[AdminPrincipal, Depends(require(Perm.identity_unmask))]
+CanLiftSuspension = Annotated[AdminPrincipal, Depends(require(Perm.suspension_lift))]

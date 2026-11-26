@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type Wallet } from "@/lib/api";
-import { money, paymentLabel, trade, type Offer, type Rfq } from "@/lib/trade";
+import { money, paymentLabel, trade, type DealChat as Chat, type Offer, type Rfq } from "@/lib/trade";
 import { formatDay } from "@/lib/verification";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -14,6 +14,8 @@ import { Card, EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { RfqForm } from "@/components/trade/RfqForm";
 import { RequestSheet, TrackingChip } from "@/components/trade/parts";
+import { DealChat } from "@/components/trade/DealChat";
+import { HoldButton } from "@/components/ui/Controls";
 
 /**
  * One request. While it is a draft this is the editor; once submitted it is
@@ -29,12 +31,24 @@ export default function RequestPage() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState<string | null>(null);
+  // The deal's chat once the buyer has chosen an offer; null before (404).
+  const [chat, setChat] = useState<Chat | null>(null);
 
   const loadOffers = useCallback(async () => {
     const [o, w] = await Promise.all([trade.listOffers(id), api.getWallet()]);
     setOffers(o.items);
     setWallet(w);
   }, [id]);
+
+  const loadChat = useCallback(async (dealCode: string | null) => {
+    if (!dealCode) return;
+    try {
+      setChat(await trade.dealChat(dealCode));
+    } catch {
+      setChat(null);
+    }
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -43,13 +57,30 @@ export default function RequestPage() {
       .then((r) => {
         if (!live) return;
         setRfq(r);
-        if (r.status !== "draft") void loadOffers().catch(() => undefined);
+        if (r.status !== "draft") {
+          void loadOffers().catch(() => undefined);
+          void loadChat(r.dealCode);
+        }
       })
       .catch((err) => live && setError(err instanceof ApiError && err.status === 404 ? "This request doesn’t exist." : "Couldn’t load the request."));
     return () => {
       live = false;
     };
-  }, [id, loadOffers]);
+  }, [id, loadOffers, loadChat]);
+
+  const choose = async (offer: Offer) => {
+    if (!rfq?.dealCode) return;
+    setChoosing(offer.id);
+    try {
+      await trade.chooseOffer(rfq.dealCode, offer.id);
+      toast("Offer chosen. Negotiation is open.", "verified");
+      await Promise.all([loadOffers(), loadChat(rfq.dealCode)]);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : "Couldn’t choose the offer.");
+    } finally {
+      setChoosing(null);
+    }
+  };
 
   const unlock = async (offer: Offer) => {
     setUnlocking(offer.id);
@@ -111,7 +142,9 @@ export default function RequestPage() {
             />
           ) : (
             <div className="mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-              <section aria-labelledby="offers-title" className="min-w-0">
+              <section aria-labelledby="offers-title" className="min-w-0 space-y-6">
+                {chat ? <DealChat chat={chat} /> : null}
+                <div>
                 <h2 id="offers-title" className="t-title3 text-fg">
                   Offers
                 </h2>
@@ -142,6 +175,14 @@ export default function RequestPage() {
                             {o.status === "expired" ? (
                               <Chip tone="neutral" size="sm" noIcon>
                                 Expired
+                              </Chip>
+                            ) : o.status === "not_chosen" ? (
+                              <Chip tone="neutral" size="sm" noIcon>
+                                Not chosen
+                              </Chip>
+                            ) : chat && o.status === "published" ? (
+                              <Chip tone="verified" size="sm" noIcon>
+                                Chosen
                               </Chip>
                             ) : null}
                           </div>
@@ -179,16 +220,24 @@ export default function RequestPage() {
                               <dd className="t-sub text-fg">{formatDay(o.validUntil)}</dd>
                             </div>
                           </dl>
-                          {!o.unlocked && o.status === "published" ? (
+                          {!o.unlocked && o.status === "published" && !chat ? (
                             <CreditButton wallet={wallet} action="OFFER_UNLOCK" size="md" block className="mt-5" loading={unlocking === o.id} onClick={() => void unlock(o)}>
                               Unlock offer
                             </CreditButton>
+                          ) : o.unlocked && o.status === "published" && !chat ? (
+                            <div className="mt-5">
+                              <HoldButton tone="commit" icon="check" onCommit={() => void choose(o)} loading={choosing === o.id}>
+                                Choose this offer
+                              </HoldButton>
+                              <p className="t-sub mt-2 text-fg-3">Opens negotiation with this seller; the other offers close.</p>
+                            </div>
                           ) : null}
                         </Card>
                       </li>
                     ))}
                   </ul>
                 )}
+                </div>
               </section>
               <aside className="relief rounded-[26px] p-5 lg:sticky lg:top-24" aria-label="Your request">
                 <p className="t-label text-fg-3">Your request, as sellers see it</p>

@@ -171,6 +171,38 @@ async def send_quote_forwarded(*, to: str, first_name: str, category: str, rfq_i
     )
 
 
+async def send_offer_chosen(*, to: str, first_name: str, category: str, deal_code: str, rfq_id: str) -> None:
+    """Tell a seller the buyer went ahead with their offer (A-074). No buyer
+    name, no price."""
+    await _send(
+        to,
+        f"The buyer chose your offer on the {category} request",
+        "offer_chosen",
+        first_name=first_name,
+        category=category,
+        deal_code=deal_code,
+        rfq_url=frontend_url(f"/dashboard/requests/matched/{rfq_id}"),
+    )
+
+
+async def send_quote_not_taken(*, to: str, first_name: str, category: str) -> None:
+    """Tell a seller the buyer went ahead with another offer (CX-183)."""
+    await _send(to, f"Your {category} quote wasn't taken this time", "quote_not_taken",
+                first_name=first_name, category=category)
+
+
+async def send_chat_message(*, to: str, first_name: str, deal_code: str) -> None:
+    """A new message on a deal. No text from the chat: it is read in the app."""
+    await _send(
+        to,
+        f"New message on {deal_code}",
+        "chat_message",
+        first_name=first_name,
+        deal_code=deal_code,
+        dashboard_url=frontend_url("/dashboard/requests"),
+    )
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,
