@@ -90,8 +90,8 @@ def _clean_value(raw: str, t: KybDocumentType | None, name: str) -> str:
         raise BadRequest(f"Enter the {name} number.")
     if len(value) > MAX_VALUE_LEN:
         raise BadRequest(f"{name} is too long ({MAX_VALUE_LEN} characters max).")
-    if len(value) < 4:
-        raise BadRequest(f"{name} looks too short.")
+    # The format is the document type's to say (Doc types in the console); no
+    # rule about a number's shape lives in the code (bug sheet #4).
     if t is not None and t.value_pattern and not re.fullmatch(t.value_pattern, value):
         hint = f" Expected format: {t.value_placeholder}." if t.value_placeholder else ""
         raise BadRequest(f"That doesn't look like a valid {t.name}.{hint}")
@@ -335,9 +335,17 @@ async def _reopen(db: AsyncSession, business_id: uuid.UUID) -> None:
 
 async def delete_doc(db: AsyncSession, user: User, doc_id: uuid.UUID | None) -> None:
     doc = await get_doc(db, doc_id, business_id=user.business_id)
+    await remove_doc(db, doc)
+    await db.commit()
+
+
+async def remove_doc(db: AsyncSession, doc: BusinessDocument) -> None:
+    """Delete an entry and its file, by the business or by staff (the caller
+    commits). A required document going sends a verified business back to
+    review."""
     key = doc.storage_key
     if doc.document_type is not None and doc.document_type.is_mandatory:
         await _reopen(db, doc.business_id)
     await db.delete(doc)
-    await db.commit()
+    await db.flush()
     await _delete_file(key)

@@ -173,6 +173,7 @@ export default function AccountDetailPage() {
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [rejectUserOpen, setRejectUserOpen] = useState(false);
   const [rejectDoc, setRejectDoc] = useState<VerifyDoc | null>(null);
+  const [removeDoc, setRemoveDoc] = useState<VerifyDoc | null>(null);
   const [docBusy, setDocBusy] = useState<string | null>(null);
 
   const access = useAccessReason(`user:${id}`);
@@ -313,6 +314,14 @@ export default function AccountDetailPage() {
 
   const closeRejectUser = useCallback(() => setRejectUserOpen(false), []);
   const closeRejectDoc = useCallback(() => setRejectDoc(null), []);
+  const closeRemoveDoc = useCallback(() => setRemoveDoc(null), []);
+  const removeDocSubmit = async (reason: string) => {
+    if (!removeDoc) return;
+    await adminApi.removeDoc(removeDoc.id, reason);
+    toast(`${removeDoc.certType} removed`);
+    await load();
+    void refreshStats();
+  };
 
   /* ── States ── */
 
@@ -551,28 +560,43 @@ export default function AccountDetailPage() {
               </Card>
             ) : (
               <AccessScope id={user.businessId}>
+                {access.known() ? (
+                  // Bug sheet #2: the reason given when this account was
+                  // opened covers its numbers and files; say so, so the
+                  // missing second prompt doesn't read as a gap.
+                  <p className="t-sub mt-3 text-fg-3">
+                    Numbers and files open under the reason you gave for this account: “{access.known()}”.
+                  </p>
+                ) : null}
                 <Stagger as="ul" className="mt-5 grid gap-4 sm:grid-cols-2">
                   {user.docs.map((d) => (
                     <StaggerItem as="li" key={d.id} className="flex">
                       <DocCard
                         doc={d}
                         actions={
-                          d.status === "pending" ? (
-                            <>
-                              <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
-                                Reject…
+                          <>
+                            {can("users.edit") ? (
+                              <Button variant="quiet" size="sm" icon="trash" onClick={() => setRemoveDoc(d)} disabled={docBusy === d.id}>
+                                Remove…
                               </Button>
-                              <HoldButton
-                                tone="commit"
-                                size="sm"
-                                onCommit={() => approveDoc(d)}
-                                loading={docBusy === d.id}
-                                holdMs={900}
-                              >
-                                Approve
-                              </HoldButton>
-                            </>
-                          ) : null
+                            ) : null}
+                            {d.status === "pending" ? (
+                              <>
+                                <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
+                                  Reject…
+                                </Button>
+                                <HoldButton
+                                  tone="commit"
+                                  size="sm"
+                                  onCommit={() => approveDoc(d)}
+                                  loading={docBusy === d.id}
+                                  holdMs={900}
+                                >
+                                  Approve
+                                </HoldButton>
+                              </>
+                            ) : null}
+                          </>
                         }
                       />
                     </StaggerItem>
@@ -664,6 +688,15 @@ export default function AccountDetailPage() {
         quickReasons={DOC_REJECT_REASONS}
         submitLabel="Reject"
         onSubmit={rejectDocSubmit}
+      />
+      <RejectSheet
+        open={removeDoc !== null}
+        onClose={closeRemoveDoc}
+        title={removeDoc ? `Remove ${removeDoc.certType}?` : "Remove document"}
+        description="The entry and its file are deleted; the business adds it again if needed. A verified business losing a required document goes back to review. Your reason is kept in the audit log."
+        quickReasons={["Changing the business's country — documents differ by country.", "Uploaded in error at the business's request."]}
+        submitLabel="Remove"
+        onSubmit={removeDocSubmit}
       />
     </div>
   );

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from conftest import PDF_BYTES, png_bytes, sent_emails, signup_and_login
+from conftest import PDF_BYTES, png_bytes, sent_emails, set_status, signup_and_login
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
 import uuid
 
 from app.models.admin_action import AdminAction
+from app.models.business import BusinessStatus
 from app.models.business_document import BusinessDocument
 
 WHY = {"reason": "KYB review of this business"}
@@ -59,6 +60,9 @@ async def test_doc_access_control(client, make_client, admin_client):
     assert (await make_client().post(f"/admin/docs/{doc['id']}/file", json=WHY)).status_code == 401
     assert (await stranger.get(f"/uploads/verification/{owner['businessId']}/x.pdf")).status_code == 404
 
+    # A draft's documents wait until the business sends them for review.
+    assert (await admin_client.get("/admin/docs/pending")).json()["items"] == []
+    await set_status(owner["userId"], BusinessStatus.pending_verification)
     # Admin sees admin URLs and can download.
     pending = (await admin_client.get("/admin/docs/pending")).json()["items"]
     assert pending[0]["doc"]["url"] == f"/admin/docs/{doc['id']}/file"

@@ -10,7 +10,8 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
-from app.core.time import utcnow
+from app.core.time import ensure_aware, utcnow
+from app.models.admin_action import AdminAction
 from app.models.business import Business
 from app.models.listing import ProductCertificate
 from app.models.product import ListingStatus, Product
@@ -309,6 +310,8 @@ async def set_certificate_visibility(
             "before buyers can download it."
         )
     product, cert = await _certificate(db, product_id, certificate_id)
+    if visibility == "downloadable" and not await _opened_by(db, admin.id, cert):
+        raise BadRequest("Open the document first: buyers can download it only after you have seen this copy.")
     cert.visibility = visibility
     cert.visibility_set_by = admin.id
     cert.visibility_set_at = utcnow()
@@ -320,6 +323,19 @@ async def set_certificate_visibility(
     await db.commit()
     await db.refresh(cert)
     return cert
+
+
+async def _opened_by(db: AsyncSession, admin_id: uuid.UUID, cert: ProductCertificate) -> bool:
+    """Whether this admin opened this certificate's file since it was uploaded
+    (``listing.certificate_viewed``, written by :func:`open_certificate`)."""
+    seen = await db.scalar(
+        select(func.max(AdminAction.created_at)).where(
+            AdminAction.admin_user_id == admin_id,
+            AdminAction.action == "listing.certificate_viewed",
+            AdminAction.target_id == str(cert.id),
+        )
+    )
+    return seen is not None and ensure_aware(seen) >= ensure_aware(cert.created_at)
 
 
 async def open_certificate(

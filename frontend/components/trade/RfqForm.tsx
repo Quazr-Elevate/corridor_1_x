@@ -71,6 +71,11 @@ export function RfqForm({ rfq, onChange, onSubmitted }: { rfq: Rfq; onChange: (r
   const toast = useToast();
   const { me } = useMe();
   const [form, setForm] = useState<FormState>(() => fromRfq(rfq));
+  // The buyer's own calendar day, as the date inputs show it.
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
   const [template, setTemplate] = useState<CategoryTemplate | null>(null);
   const [preview, setPreview] = useState<RfqSellerView | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -162,7 +167,10 @@ export function RfqForm({ rfq, onChange, onSubmitted }: { rfq: Rfq; onChange: (r
       <div className="min-w-0 space-y-6">
         <Card as="section" className="space-y-4 rounded-[26px] p-5 sm:p-6" aria-label="The product">
           <p className="t-label text-fg-3">01 · The product</p>
-          <Input label="Product" value={form.productName} maxLength={200} onChange={(e) => set("productName", e.target.value)} />
+          <p className="t-sub text-fg-2">
+            Fields marked <span className="text-danger">*</span> are needed to send the request. You can save a draft at any time.
+          </p>
+          <Input label="Product" required value={form.productName} maxLength={200} onChange={(e) => set("productName", e.target.value)} />
           <div className="grid gap-4 sm:grid-cols-2">
             <Input label="Variety" optional value={form.variety} maxLength={100} onChange={(e) => set("variety", e.target.value)} />
             <Input label="Grade" optional value={form.grade} maxLength={100} onChange={(e) => set("grade", e.target.value)} />
@@ -186,6 +194,7 @@ export function RfqForm({ rfq, onChange, onSubmitted }: { rfq: Rfq; onChange: (r
                       </>
                     }
                     optional={!p.isRequired}
+                    required={p.isRequired}
                     inputMode={p.valueType === "number" ? "decimal" : undefined}
                     value={form.specs[p.id] ?? ""}
                     onChange={(e) => set("specs", { ...form.specs, [p.id]: e.target.value })}
@@ -200,21 +209,45 @@ export function RfqForm({ rfq, onChange, onSubmitted }: { rfq: Rfq; onChange: (r
         <Card as="section" className="space-y-4 rounded-[26px] p-5 sm:p-6" aria-label="Quantity and delivery">
           <p className="t-label text-fg-3">02 · Quantity and delivery</p>
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Input label="Quantity" inputMode="decimal" value={form.quantity} onChange={(e) => set("quantity", e.target.value)} inputClassName="t-code" />
+            <Input label="Quantity" required inputMode="decimal" value={form.quantity} onChange={(e) => set("quantity", e.target.value)} inputClassName="t-code" />
             <Segmented label="Unit" value={form.unit} onChange={(v) => set("unit", v)} options={UNITS.map((u) => ({ value: u, label: u }))} />
           </div>
           <Input label="Packaging" optional value={form.packaging} maxLength={50} placeholder="e.g. 50 kg PP bags" onChange={(e) => set("packaging", e.target.value)} />
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Delivery country"
+              required
               placeholder="Select a country"
               value={form.deliveryCountry}
               onChange={(e) => set("deliveryCountry", e.target.value)}
               options={COUNTRIES.map((c) => ({ value: c.code, label: c.name }))}
             />
             <Input label="Destination port" optional value={form.destinationPort} maxLength={100} placeholder="e.g. Jebel Ali" onChange={(e) => set("destinationPort", e.target.value)} />
-            <Input label="Deliver from" type="date" value={form.deliveryFrom} onChange={(e) => set("deliveryFrom", e.target.value)} />
-            <Input label="Deliver by" type="date" value={form.deliveryTo} onChange={(e) => set("deliveryTo", e.target.value)} />
+            {/* Past days can't be picked; a typed one is flagged before saving. */}
+            <Input
+              label="Deliver from"
+              required
+              type="date"
+              min={today}
+              value={form.deliveryFrom}
+              error={form.deliveryFrom && form.deliveryFrom < today ? "Choose today or a later date." : undefined}
+              onChange={(e) => set("deliveryFrom", e.target.value)}
+            />
+            <Input
+              label="Deliver by"
+              required
+              type="date"
+              min={form.deliveryFrom && form.deliveryFrom > today ? form.deliveryFrom : today}
+              value={form.deliveryTo}
+              error={
+                form.deliveryTo && form.deliveryTo < today
+                  ? "Choose today or a later date."
+                  : form.deliveryTo && form.deliveryFrom && form.deliveryTo < form.deliveryFrom
+                    ? "This is before the start of the window."
+                    : undefined
+              }
+              onChange={(e) => set("deliveryTo", e.target.value)}
+            />
           </div>
           {template?.certificateTypes.length ? (
             <div>
@@ -232,10 +265,12 @@ export function RfqForm({ rfq, onChange, onSubmitted }: { rfq: Rfq; onChange: (r
         <Card as="section" className="space-y-4 rounded-[26px] p-5 sm:p-6" aria-label="Terms">
           <p className="t-label text-fg-3">03 · Terms</p>
           <div>
-            <p className="t-label mb-2 text-fg-3">Incoterms you accept</p>
+            <p className="t-label mb-2 text-fg-3">
+              Incoterms you accept<span className="ml-1 text-danger">*</span>
+            </p>
             <ChoiceChips label="Incoterms you accept" value={form.incoterms} onChange={(v) => set("incoterms", v)} options={INCOTERMS.map((i) => ({ value: i as string, label: i }))} />
           </div>
-          <Select label="How you would like to pay" placeholder="Select" value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} options={PAYMENT_TERMS} />
+          <Select label="How you would like to pay" required placeholder="Select" value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} options={PAYMENT_TERMS} />
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
             <Input label={`Target price from (per ${form.unit})`} optional inputMode="decimal" value={form.targetMin} onChange={(e) => set("targetMin", e.target.value)} inputClassName="t-code" />
             <Input label="Up to" optional inputMode="decimal" value={form.targetMax} onChange={(e) => set("targetMax", e.target.value)} inputClassName="t-code" />

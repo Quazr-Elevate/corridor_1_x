@@ -97,7 +97,7 @@ async def test_a_draft_needs_little_and_says_what_is_missing(client, make_client
     assert r.status_code == 400  # an upper price with no lower one
     past = {"deliveryFrom": "2020-01-01", "deliveryTo": "2020-02-01"}
     r = await client.patch(f"/rfqs/{draft['id']}", json=past)
-    assert "a delivery window that is not in the past" in r.json()["missing"]
+    assert r.status_code == 400 and "can't be in the past" in r.json()["detail"]  # bug sheet #6: on save
     r = await client.patch(f"/rfqs/{draft['id']}", json={"notes": "call me on 98765 43210"})
     assert r.status_code == 400 and "phone number" in r.json()["detail"]
     assert (await client.delete(f"/rfqs/{draft['id']}")).status_code == 204

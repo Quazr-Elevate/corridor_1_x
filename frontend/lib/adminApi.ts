@@ -590,6 +590,12 @@ export const adminApi = {
     req<{ docId: string; status: string }>(`/admin/docs/${docId}/approve`, {
       method: "POST",
     }),
+  /** Remove a business's document (audited with the reason). */
+  removeDoc: (docId: string, reason: string) =>
+    req<void>(`/admin/docs/${docId}/remove`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
   rejectDoc: (docId: string, reason: string) =>
     req<{ docId: string; status: string }>(`/admin/docs/${docId}/reject`, {
       method: "POST",
