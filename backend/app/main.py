@@ -21,6 +21,7 @@ from app.integrations.sms import SmsConfig, configure_sms
 from app.integrations.storage import LocalStorage, S3Config, S3Storage, configure_storage
 from app.modules.accounts.router import branding_router, me_router, onboarding_router
 from app.modules.credits.router import wallet_router, webhooks_router
+from app.modules.negotiation.router import router as deals_router
 from app.modules.quotes.router import offers_router, quotes_router, rfq_offers_router
 from app.modules.rfq.router import matched_router, rfqs_router
 from app.modules.admin.router import router as admin_router
@@ -199,6 +200,7 @@ def create_app(s: Settings = settings) -> FastAPI:
         quotes_router,
         rfq_offers_router,
         offers_router,
+        deals_router,
         admin_router,
     ):
         app.include_router(router, prefix="/v1")

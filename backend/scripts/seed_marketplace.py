@@ -154,7 +154,8 @@ async def _business(db, row: dict, *, role: str) -> tuple[User, bool]:
     business = user.business
     identity = await masking.own_identity(db, business.id)
     identity.legal_name = row["company"]
-    identity.address_line, identity.city, identity.pincode = row["address"], row["city"], row["pincode"]
+    # One address field since 0036: street, city and postcode together.
+    identity.address_line = ", ".join(x for x in (row["address"], row["city"], row["pincode"]) if x)
     business.country = row.get("country", "IN")
     business.state = row["state"]
     business.entity_type = row["entity_type"]

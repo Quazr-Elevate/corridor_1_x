@@ -1,0 +1,9 @@
+Hi {{ first_name }},
+
+The buyer on the {{ category }} request went ahead with another offer, so
+your quote wasn't taken this time.
+
+Thank you for quoting. We'll send you the next request that fits your
+listings.
+
+-- Cor1x

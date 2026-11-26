@@ -19,6 +19,7 @@ export type AdminPermission =
   | "accounts.security"
   | "admins.manage"
   | "rfqs.triage"
+  | "suspensions.lift"
   | "margin.approve"
   | "trade.configure"
   | "credits.manage"
@@ -139,6 +140,34 @@ export interface AdminKybDocType {
 }
 
 /** A country in the admin list (open or paused) with counts. */
+/** A chat line as the desk sees it (A-074): its origin and the filter's flags. */
+export interface DeskChatMessage {
+  id: string;
+  origin: "own" | "relay" | "desk" | "system";
+  senderCode: string | null;
+  body: string;
+  status: "delivered" | "held" | "rejected";
+  flags: string[];
+  note: string | null;
+  createdAt: string;
+}
+
+export interface DeskDealChat {
+  dealCode: string;
+  dealStatus: string;
+  threads: { side: "buyer" | "seller"; companyCode: string | null; suspended: boolean; messages: DeskChatMessage[] }[];
+}
+
+export interface HeldMessage {
+  id: string;
+  dealCode: string;
+  side: "buyer" | "seller";
+  senderCode: string | null;
+  body: string;
+  flags: string[];
+  createdAt: string;
+}
+
 export interface AdminCountry {
   code: string;
   name: string;
@@ -728,6 +757,16 @@ export const adminApi = {
     }),
 
   // ─── Trade desk ───
+  heldMessages: () => req<ItemList<HeldMessage>>("/admin/chat/held").then((r) => r.items),
+  releaseMessage: (id: string) => req<DeskChatMessage>(`/admin/chat/${id}/release`, { method: "POST" }),
+  rejectMessage: (id: string, reason: string) =>
+    req<DeskChatMessage>(`/admin/chat/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
+  /** 404 until the buyer has chosen an offer on the deal. */
+  dealChat: (code: string) => req<DeskDealChat>(`/admin/deals/${code}/chat`),
+  writeToThread: (code: string, side: "buyer" | "seller", body: string) =>
+    req<DeskDealChat>(`/admin/deals/${code}/chat/${side}`, { method: "POST", body: JSON.stringify({ body }) }),
+  liftSuspension: (businessId: string, reason: string) =>
+    req<void>(`/admin/businesses/${businessId}/lift-suspension`, { method: "POST", body: JSON.stringify({ reason }) }),
   listRfqs: (queue: "pending" | "all") => req<{ total: number; items: DeskRfqRow[] }>(`/admin/rfqs?queue=${queue}`),
   getRfq: (id: string) => req<DeskRfqDetail>(`/admin/rfqs/${id}`),
   rematchRfq: (id: string) => req<DeskRfqDetail>(`/admin/rfqs/${id}/rematch`, { method: "POST" }),

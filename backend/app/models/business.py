@@ -56,6 +56,9 @@ class Business(Base):
             name="ck_businesses_rejected_has_reason",
         ),
         CheckConstraint(
+            "(suspended_at IS NULL) = (suspended_reason IS NULL)", name="ck_businesses_suspension_has_reason"
+        ),
+        CheckConstraint(
             "verification_status = 'draft' OR verification_submitted_at IS NOT NULL",
             name="ck_businesses_submitted_has_date",
         ),
@@ -109,11 +112,20 @@ class Business(Base):
     # sees exactly what to fix. Cleared on resubmit and on approval.
     verification_rejected_items: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
+    # Set when the company is stopped from trading (three blocked chat
+    # messages in 90 days, A-075). It can still read; a desk manager lifts it.
+    suspended_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    suspended_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    @property
+    def is_suspended(self) -> bool:
+        return self.suspended_at is not None
 
     @property
     def is_verified(self) -> bool:

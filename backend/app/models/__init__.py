@@ -19,6 +19,7 @@ from app.models.credits import (
     PlanPurchase,
 )
 from app.models.deal import Deal, DealEvent, DealStatus
+from app.models.negotiation import ChatMessage, ChatThread, LeakStrike
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
@@ -30,6 +31,9 @@ from app.models.user import AccountStatus, User, UserRole
 from app.models.user_identity import PERSON_COLUMNS, UserIdentity
 
 __all__ = [
+    "ChatMessage",
+    "ChatThread",
+    "LeakStrike",
     "PERSON_COLUMNS",
     "UserIdentity",
     "CostSheet",

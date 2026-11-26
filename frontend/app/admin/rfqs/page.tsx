@@ -14,6 +14,7 @@ import { RejectSheet } from "@/components/admin/RejectSheet";
 import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo } from "@/components/admin/format";
 import { RequestSheet } from "@/components/trade/parts";
+import { DeskDealChatPanel, HeldMessages } from "@/components/admin/DeskChat";
 
 const STATUS: Record<string, { label: string; tone: ChipTone }> = {
   submitted: { label: "Waiting", tone: "move" },
@@ -125,6 +126,9 @@ export default function DeskPage() {
         }
       />
       {error ? <Notice tone="frozen" className="mt-6">{error}</Notice> : null}
+      <div className="mt-6">
+        <HeldMessages />
+      </div>
 
       <div className="mt-8 grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <section aria-label="Queue" className="relief rounded-[26px] p-2">
@@ -274,6 +278,8 @@ export default function DeskPage() {
                   </div>
                 </div>
               ) : null}
+
+              {detail.rfq.dealCode ? <DeskDealChatPanel key={detail.rfq.dealCode} dealCode={detail.rfq.dealCode} /> : null}
 
               {quotes.length ? (
                 <div>

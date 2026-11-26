@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.time import utcnow
+from app.modules.negotiation.service import ensure_can_trade
 from app.models.business import Business
 from app.models.deal import Deal
 from app.models.deal import DealStatus as D
@@ -299,6 +300,7 @@ async def submit_rfq(db: AsyncSession, user: User, rfq_id: uuid.UUID | None) -> 
     rfq = await _own(db, user, rfq_id)
     if not user.business.is_verified:
         raise Forbidden("Get your business verified before submitting a request. Your draft is saved.")
+    ensure_can_trade(user.business)
     if rfq.status != R.draft:
         _move(rfq, R.submitted)  # raises the right Conflict
     now = utcnow()

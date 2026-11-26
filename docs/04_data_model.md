@@ -979,3 +979,17 @@ KYB now needs company name, registered address and country (city is no
 longer a separate requirement). The merge is one-way: downgrade restores the
 columns empty and the labels with their old defaults.
 
+## Negotiation chat (`0037_negotiation_chat`)
+
+M4 · S8, CX-099 and CX-100 (A-074, A-075). The buyer chooses one unlocked
+offer; the deal moves QUOTED → NEGOTIATING and two threads open. Each side
+talks only to Corridor One X; the leak filter stands between them.
+
+| Table | Change | Notes |
+|---|---|---|
+| `deals` | `chosen_offer_id` (FK `offers`, SET NULL) | The offer the buyer went ahead with; it fixes `seller_business_id` |
+| `offers` | `status` gains `not_chosen` | The deal's other live offers when one is chosen |
+| `chat_threads` | new: `deal_id`, `side` (`buyer` / `seller`) | Unique (deal, side) |
+| `chat_messages` | new: `thread_id`, `origin` (`own` / `relay` / `desk` / `system`), `body`, `status` (`delivered` / `held` / `rejected`), `author_user_id`, `author_business_id`, `sender_code`, `admin_id`, `relayed_from_id`, `flags`, `review_note`, `reviewed_at` | Never edited or deleted. A relay is the copy of a cleared message in the other thread, carrying the sender's company code. A rejected message carries the desk's note |
+| `leak_strikes` | new: `business_id`, `user_id`, `deal_id`, `reasons` | A blocked message; its text is not kept. Three within 90 days suspend the company |
+| `businesses` | `suspended_at`, `suspended_reason` (both or neither) | A suspended company reads but can't send messages, quote or submit requests; a desk manager lifts it (`suspensions.lift`) |

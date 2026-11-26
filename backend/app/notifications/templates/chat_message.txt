@@ -1,0 +1,7 @@
+Hi {{ first_name }},
+
+There is a new message on deal {{ deal_code }}. Read it here: {{ dashboard_url }}
+
+For your privacy, messages are only shown in Corridor One X, never in email.
+
+-- Cor1x
