@@ -15,6 +15,7 @@ import { Card, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { RequestSheet } from "@/components/trade/parts";
 import { DealChat } from "@/components/trade/DealChat";
+import { DealCounters } from "@/components/trade/DealCounters";
 
 /**
  * Whether a stated value meets the buyer's limit, the way the server works
@@ -163,6 +164,7 @@ export default function MatchedRequestPage() {
 
           <div className="min-w-0 space-y-6">
           {chat ? <DealChat chat={chat} /> : null}
+          {chat ? <DealCounters dealCode={chat.dealCode} canWrite={chat.canWrite} currency={quote?.currency ?? null} /> : null}
           <Card as="section" className="space-y-4 rounded-[26px] p-5 sm:p-6" aria-labelledby="quote-title">
             <div>
               <h1 id="quote-title" className="t-title2 text-fg">

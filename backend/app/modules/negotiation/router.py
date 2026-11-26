@@ -6,12 +6,22 @@ from fastapi import APIRouter, BackgroundTasks
 from app import notifications
 from app.core.security import parse_uuid
 from app.models.business import Business
-from app.models.negotiation import ChatMessage
+from app.models.negotiation import ChatMessage, CounterOffer
 from app.modules.accounts.service import owner_contact
 from app.modules.auth.deps import CurrentUser, DbSession
-from app.modules.negotiation import service
-from app.modules.negotiation.schemas import ChatMessageOut, ChatOut, ChooseOfferIn, MessageIn, NegotiationStarted
+from app.modules.negotiation import counters, service
+from app.modules.negotiation.schemas import (
+    ChatMessageOut,
+    ChatOut,
+    ChooseOfferIn,
+    CounterAnswerIn,
+    CounterIn,
+    CounterOut,
+    MessageIn,
+    NegotiationStarted,
+)
 from app.ratelimit import RateLimitRule, get_limiter
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter(prefix="/deals", tags=["deals"])
 
@@ -102,3 +112,42 @@ async def notify_new_message(background: BackgroundTasks, db, deal, side: str) -
             notifications.deliver_safely, notifications.send_chat_message, to=contact.email,
             first_name=notifications.first_name_of(contact.full_name), deal_code=deal.code,
         )
+
+
+# ── Counter-offers (CX-101) ──────────────────────────────────────────
+
+
+def counter_out(c: CounterOffer, side: str) -> CounterOut:
+    mine = c.side == side
+    return CounterOut(
+        id=str(c.id), mine=mine, price_minor=c.price_minor if mine else c.implied_minor,
+        currency=c.currency if mine else c.implied_currency, quantity=c.quantity, note=c.note, status=c.status,
+        decision_note=c.decision_note if mine else None, created_at=c.created_at,
+    )
+
+
+@router.get("/{code}/counters", response_model=ItemList[CounterOut], response_model_by_alias=True)
+async def list_counters(code: str, user: CurrentUser, db: DbSession) -> ItemList[CounterOut]:
+    """Your counter-offers, and the other side's that Corridor One X passed on,
+    each in your own currency. Newest first."""
+    side, rows = await counters.visible_to(db, user, code)
+    return item_list([counter_out(c, side) for c in rows])
+
+
+@router.post("/{code}/counters", response_model=CounterOut, response_model_by_alias=True, status_code=201)
+async def propose_counter(code: str, payload: CounterIn, user: CurrentUser, db: DbSession) -> CounterOut:
+    """Propose a new price. Corridor One X checks it before the other side sees it."""
+    c = await counters.propose(db, user, code, payload.price_minor, payload.quantity, payload.note)
+    await db.commit()
+    return counter_out(c, c.side)
+
+
+@router.post("/{code}/counters/{counter_id}/answer", response_model=CounterOut, response_model_by_alias=True)
+async def answer_counter(
+    code: str, counter_id: str, payload: CounterAnswerIn, user: CurrentUser, db: DbSession
+) -> CounterOut:
+    """Accept or decline the other side's counter-offer. An accepted one goes
+    into the next term sheet (A-076)."""
+    c = await counters.answer(db, user, code, parse_uuid(counter_id), payload.accept)
+    await db.commit()
+    return counter_out(c, "buyer" if c.side == "seller" else "seller")

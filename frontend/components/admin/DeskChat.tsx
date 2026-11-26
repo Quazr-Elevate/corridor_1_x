@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { adminApi, errorMessage, type DeskDealChat, type HeldMessage } from "@/lib/adminApi";
+import { adminApi, errorMessage, type DeskCounter, type DeskDealChat, type HeldMessage } from "@/lib/adminApi";
+import { money } from "@/lib/trade";
+import { Input } from "@/components/ui/Field";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -178,5 +180,102 @@ export function DeskDealChatPanel({ dealCode }: { dealCode: string }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Counter-offers waiting for the desk (CX-101): what the side proposed, what
+ * it means for the other side, and the margin. Pass it on (optionally at
+ * another margin) or refuse it with a reason the proposer reads.
+ */
+export function PendingCounters() {
+  const toast = useToast();
+  const [items, setItems] = useState<DeskCounter[] | null>(null);
+  const [margins, setMargins] = useState<Record<string, string>>({});
+  const [rejecting, setRejecting] = useState<DeskCounter | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setItems(await adminApi.pendingCounters());
+    } catch {
+      setItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!items?.length) return null;
+  const relay = async (c: DeskCounter) => {
+    setBusy(c.id);
+    try {
+      await adminApi.relayCounter(c.id, margins[c.id]?.trim() || undefined);
+      toast("Counter-offer passed on");
+      await load();
+    } catch (e) {
+      toast(errorMessage(e, "Couldn’t pass it on."), "frozen");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section aria-labelledby="counters-h" className="relief rounded-[26px] p-5">
+      <h2 id="counters-h" className="t-title3 text-fg">
+        Counter-offers to check · {items.length}
+      </h2>
+      <ul className="mt-4 space-y-3">
+        {items.map((c) => (
+          <li key={c.id} className="well rounded-[18px] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="t-code text-fg-2">
+                {c.dealCode} · from the {c.side}
+              </p>
+              <span className="t-sub text-fg-3">{fmtAgo(c.createdAt)}</span>
+            </div>
+            <p className="t-body mt-2 text-fg">
+              {c.side === "buyer" ? "Buyer offers" : "Seller asks"} {money(c.priceMinor, c.currency)} per unit
+              {c.quantity ? ` for ${Number(c.quantity)} units` : ""} → {c.side === "buyer" ? "seller would get" : "buyer would pay"}{" "}
+              <span className="font-semibold">{money(c.impliedMinor, c.impliedCurrency)}</span> at {Number(c.marginPct)}% margin.
+            </p>
+            {c.note ? <p className="t-sub mt-1 text-fg-2">“{c.note}”</p> : null}
+            <div className="mt-3 flex flex-wrap items-end justify-end gap-2">
+              <Input
+                label={`Margin % (limits ${Number(c.minMarginPct)}–${c.maxMarginPct ? Number(c.maxMarginPct) : "—"})`}
+                optional
+                inputMode="decimal"
+                value={margins[c.id] ?? ""}
+                placeholder={String(Number(c.marginPct))}
+                onChange={(e) => setMargins((m) => ({ ...m, [c.id]: e.target.value }))}
+                className="w-48"
+                inputClassName="t-code"
+              />
+              <Button size="sm" variant="danger" disabled={busy === c.id} onClick={() => setRejecting(c)}>
+                Refuse…
+              </Button>
+              <Button size="sm" variant="secondary" loading={busy === c.id} onClick={() => void relay(c)}>
+                Pass on
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <RejectSheet
+        open={rejecting !== null}
+        onClose={() => setRejecting(null)}
+        title="Refuse this counter-offer"
+        description="The side that made it reads your reason. The other side never sees it."
+        quickReasons={["The price is outside what the other side can accept.", "The quantity can't be supplied in this window."]}
+        submitLabel="Refuse"
+        onSubmit={async (reason) => {
+          if (!rejecting) return;
+          await adminApi.rejectCounter(rejecting.id, reason);
+          toast("The proposer has been told why");
+          await load();
+        }}
+      />
+    </section>
   );
 }

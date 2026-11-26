@@ -158,6 +158,26 @@ export interface DeskDealChat {
   threads: { side: "buyer" | "seller"; companyCode: string | null; suspended: boolean; messages: DeskChatMessage[] }[];
 }
 
+/** A counter-offer as the desk sees it: both prices and the margin (CX-101). */
+export interface DeskCounter {
+  id: string;
+  dealCode: string;
+  side: "buyer" | "seller";
+  priceMinor: number;
+  currency: string;
+  impliedMinor: number;
+  impliedCurrency: string;
+  marginPct: string;
+  sheetMarginPct: string | null;
+  minMarginPct: string | null;
+  maxMarginPct: string | null;
+  quantity: string | null;
+  note: string | null;
+  status: string;
+  decisionNote: string | null;
+  createdAt: string;
+}
+
 export interface HeldMessage {
   id: string;
   dealCode: string;
@@ -757,6 +777,12 @@ export const adminApi = {
     }),
 
   // ─── Trade desk ───
+  pendingCounters: () => req<ItemList<DeskCounter>>("/admin/counters/pending").then((r) => r.items),
+  dealCounters: (code: string) => req<ItemList<DeskCounter>>(`/admin/deals/${code}/counters`).then((r) => r.items),
+  relayCounter: (id: string, marginPct?: string) =>
+    req<DeskCounter>(`/admin/counters/${id}/relay`, { method: "POST", body: JSON.stringify(marginPct ? { marginPct } : {}) }),
+  rejectCounter: (id: string, reason: string) =>
+    req<DeskCounter>(`/admin/counters/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
   heldMessages: () => req<ItemList<HeldMessage>>("/admin/chat/held").then((r) => r.items),
   releaseMessage: (id: string) => req<DeskChatMessage>(`/admin/chat/${id}/release`, { method: "POST" }),
   rejectMessage: (id: string, reason: string) =>
