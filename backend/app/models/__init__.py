@@ -19,7 +19,7 @@ from app.models.credits import (
     PlanPurchase,
 )
 from app.models.deal import Deal, DealEvent, DealStatus
-from app.models.negotiation import ChatMessage, ChatThread, CounterOffer, LeakStrike, Sample, SampleEvent
+from app.models.negotiation import ChatMessage, ChatThread, CounterOffer, LeakStrike, Sample, SampleEvent, TermSheet
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
 from app.models.kyb_document_type import KybDocumentType, KybInputKind
@@ -36,6 +36,7 @@ __all__ = [
     "CounterOffer",
     "Sample",
     "SampleEvent",
+    "TermSheet",
     "LeakStrike",
     "PERSON_COLUMNS",
     "UserIdentity",

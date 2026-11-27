@@ -1,0 +1,8 @@
+Hi {{ first_name }},
+
+Corridor One X has issued a term sheet for deal {{ deal_code }}.
+
+Read it on the deal and accept it, or tell us what needs to change. Once
+both sides accept, the terms are fixed: {{ dashboard_url }}
+
+-- Cor1x

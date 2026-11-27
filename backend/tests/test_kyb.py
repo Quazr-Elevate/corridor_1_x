@@ -112,7 +112,7 @@ async def test_entry_validation(client):
     uae = await _types(client, "AE")
 
     # A format an admin set on a type is checked; GSTIN and PAN carry none
-    # built in (0040): the reviewer checks those numbers.
+    # built in (0041): the reviewer checks those numbers.
     r = await _add(client, type_id=t["iec"]["id"], value="12345")
     assert r.status_code == 400 and "valid Import Export Code" in r.json()["detail"]
     assert (t["gstin"]["valuePattern"], t["pan"]["valuePattern"]) == (None, None)

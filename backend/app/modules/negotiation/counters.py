@@ -35,7 +35,7 @@ PER_DAY = RateLimitRule("counter.create:deal_side", limit=10, window_sec=24 * 60
 MARGIN_LIMITS = "A margin under {floor}% or over {ceiling}% needs a desk manager."
 
 
-def _others(sheet: CostSheet) -> int:
+def other_costs(sheet: CostSheet) -> int:
     """The sheet's costs on top of the purchase price, per unit."""
     return sum(getattr(sheet, f"{line}_minor") for line in COST_LINES)
 
@@ -47,12 +47,12 @@ def _factor(sheet: CostSheet, margin_pct: Decimal) -> Decimal:
 def seller_price_for(buyer_minor: int, sheet: CostSheet, margin_pct: Decimal) -> int:
     """The seller price a buyer price allows, per unit, in the seller's currency."""
     total = (Decimal(buyer_minor) / _factor(sheet, margin_pct)).to_integral_value(rounding=ROUND_FLOOR)
-    return int(total) - _others(sheet)
+    return int(total) - other_costs(sheet)
 
 
 def buyer_price_for(seller_minor: int, sheet: CostSheet, margin_pct: Decimal) -> int:
     """The selling price a seller price gives, per unit, in the deal currency."""
-    total = Decimal(seller_minor + _others(sheet))
+    total = Decimal(seller_minor + other_costs(sheet))
     return int((total * _factor(sheet, margin_pct)).to_integral_value(rounding=ROUND_CEILING))
 
 

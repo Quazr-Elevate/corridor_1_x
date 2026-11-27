@@ -1,7 +1,7 @@
 """No built-in GSTIN / PAN checks
 
-Revision ID: 0040_no_builtin_india_checks
-Revises: 0039_samples
+Revision ID: 0041_no_builtin_india_checks
+Revises: 0040_term_sheets
 Create Date: 2026-11-27
 
 Number checks for one country's documents are not built into Corridor: the
@@ -24,8 +24,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0040_no_builtin_india_checks"
-down_revision: Union[str, None] = "0039_samples"
+revision: str = "0041_no_builtin_india_checks"
+down_revision: Union[str, None] = "0040_term_sheets"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -61,7 +61,7 @@ COUNTRY_LINKS = {"IN": ("gstin", "pan")}
 
 #: Per country: (source code, start, end, target code) cross-checks (A-047).
 #: None ship: numbers are checked by the reviewer and the upstream provider,
-#: not by country-specific rules in Corridor (0040). Admins may add their own.
+#: not by country-specific rules in Corridor (0041). Admins may add their own.
 DEFAULT_RULES: tuple[tuple[str, str, int, int, str], ...] = ()
 
 

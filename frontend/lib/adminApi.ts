@@ -164,6 +164,61 @@ export interface DeskDealChat {
   threads: { side: "buyer" | "seller"; companyCode: string | null; suspended: boolean; messages: DeskChatMessage[] }[];
 }
 
+/** A term sheet version as the desk sees it: both prices and the margin (CX-103). */
+export interface DeskTermSheet {
+  id: string;
+  dealCode: string;
+  version: number;
+  status: "draft" | "issued" | "agreed" | "declined" | "withdrawn" | "superseded";
+  product: string;
+  quality: string | null;
+  packaging: string | null;
+  quantity: string;
+  unit: string;
+  incoterm: string;
+  portOfLoading: string | null;
+  destinationPort: string | null;
+  deliveryFrom: string | null;
+  deliveryTo: string | null;
+  buyerPriceMinor: number;
+  buyerCurrency: string;
+  buyerPaymentTerms: string;
+  sellerPriceMinor: number;
+  sellerCurrency: string;
+  sellerPaymentTerms: string;
+  marginPct: string;
+  minMarginPct: string;
+  maxMarginPct: string | null;
+  notes: string | null;
+  contentSha256: string | null;
+  buyerAcceptedAt: string | null;
+  sellerAcceptedAt: string | null;
+  declinedSide: "buyer" | "seller" | null;
+  declineNote: string | null;
+  withdrawNote: string | null;
+  issuedAt: string | null;
+  agreedAt: string | null;
+  supersededAt: string | null;
+  createdAt: string;
+}
+
+export type TermSheetEdit = Partial<{
+  product: string;
+  quality: string | null;
+  packaging: string | null;
+  quantity: string;
+  incoterm: string;
+  portOfLoading: string | null;
+  destinationPort: string | null;
+  deliveryFrom: string | null;
+  deliveryTo: string | null;
+  buyerPriceMinor: number;
+  buyerPaymentTerms: string;
+  sellerPriceMinor: number;
+  sellerPaymentTerms: string;
+  notes: string | null;
+}>;
+
 /** A sample as the desk sees it: both legs and the seals (CX-102). */
 export interface DeskSample {
   id: string;
@@ -798,6 +853,13 @@ export const adminApi = {
     }),
 
   // ─── Trade desk ───
+  dealTermSheets: (code: string) => req<ItemList<DeskTermSheet>>(`/admin/deals/${code}/term-sheets`).then((r) => r.items),
+  draftTermSheet: (code: string) => req<DeskTermSheet>(`/admin/deals/${code}/term-sheets`, { method: "POST" }),
+  editTermSheet: (id: string, body: TermSheetEdit) =>
+    req<DeskTermSheet>(`/admin/term-sheets/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  issueTermSheet: (id: string) => req<DeskTermSheet>(`/admin/term-sheets/${id}/issue`, { method: "POST" }),
+  withdrawTermSheet: (id: string, reason: string) =>
+    req<DeskTermSheet>(`/admin/term-sheets/${id}/withdraw`, { method: "POST", body: JSON.stringify({ reason }) }),
   openSamples: () => req<ItemList<DeskSample>>("/admin/samples").then((r) => r.items),
   sampleAtHub: (id: string) => req<DeskSample>(`/admin/samples/${id}/at-hub`, { method: "POST" }),
   sealSample: (id: string, retainedSealNo: string, forwardSealNo: string) =>

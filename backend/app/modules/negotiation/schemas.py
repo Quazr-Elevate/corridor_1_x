@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
@@ -203,3 +203,102 @@ class SealIn(RequestModel):
 
 class ForwardIn(RequestModel):
     courier_ref: text(100, 4)  # type: ignore[valid-type]
+
+
+# ── Term sheets (CX-103) ─────────────────────────────────────────────
+
+PaymentTermsCode = Literal["advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account"]
+
+
+class TermSheetOut(CamelModel):
+    """A version as one side reads it: only that side's own price and payment terms."""
+
+    version: int
+    status: str
+    product: str
+    quality: str | None
+    packaging: str | None
+    quantity: Decimal
+    unit: str
+    incoterm: str
+    port_of_loading: str | None
+    destination_port: str | None
+    delivery_from: date | None
+    delivery_to: date | None
+    price_minor: int
+    currency: str
+    payment_terms: str
+    notes: str | None
+    #: Send this back to accept: it proves which text you agreed to.
+    content_sha256: str
+    you_accepted: bool
+    #: The other side has accepted (not who; there is only one other side).
+    other_accepted: bool
+    #: Your own reason, if you declined.
+    decline_note: str | None
+    issued_at: datetime | None
+    agreed_at: datetime | None
+
+
+class AcceptTermSheetIn(RequestModel):
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DeclineTermSheetIn(RequestModel):
+    reason: text(500, 10)  # type: ignore[valid-type]
+
+
+class DeskTermSheetOut(CamelModel):
+    id: str
+    deal_code: str
+    version: int
+    status: str
+    product: str
+    quality: str | None
+    packaging: str | None
+    quantity: Decimal
+    unit: str
+    incoterm: str
+    port_of_loading: str | None
+    destination_port: str | None
+    delivery_from: date | None
+    delivery_to: date | None
+    buyer_price_minor: int
+    buyer_currency: str
+    buyer_payment_terms: str
+    seller_price_minor: int
+    seller_currency: str
+    seller_payment_terms: str
+    margin_pct: Decimal
+    min_margin_pct: Decimal
+    max_margin_pct: Decimal | None
+    notes: str | None
+    content_sha256: str | None
+    buyer_accepted_at: datetime | None
+    seller_accepted_at: datetime | None
+    declined_side: str | None
+    decline_note: str | None
+    withdraw_note: str | None
+    issued_at: datetime | None
+    agreed_at: datetime | None
+    superseded_at: datetime | None
+    created_at: datetime
+
+
+class TermSheetEditIn(RequestModel):
+    """Only the fields sent are changed."""
+
+    product: text(200, 3) | None = None  # type: ignore[valid-type]
+    quality: text(2000) | None = None  # type: ignore[valid-type]
+    packaging: text(100) | None = None  # type: ignore[valid-type]
+    quantity: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    incoterm: Literal["EXW", "FOB", "CIF", "CFR", "DAP", "DDP"] | None = None
+    port_of_loading: text(100) | None = None  # type: ignore[valid-type]
+    destination_port: text(100) | None = None  # type: ignore[valid-type]
+    delivery_from: date | None = None
+    delivery_to: date | None = None
+    buyer_price_minor: int | None = Field(default=None, gt=0, lt=10**13)
+    buyer_payment_terms: PaymentTermsCode | None = None
+    seller_price_minor: int | None = Field(default=None, gt=0, lt=10**13)
+    seller_payment_terms: PaymentTermsCode | None = None
+    notes: text(2000) | None = None  # type: ignore[valid-type]
