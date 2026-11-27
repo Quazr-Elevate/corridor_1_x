@@ -16,8 +16,8 @@ from app.modules.admin.deps import CanHandleSamples, CanLiftSuspension, CanTriag
 from app.modules.admin.permissions import Perm
 from app.modules.auth.deps import DbSession
 from app import notifications
-from app.models.negotiation import Sample
-from app.modules.negotiation import counters, samples, service
+from app.models.negotiation import Sample, TermSheet
+from app.modules.negotiation import counters, samples, service, term_sheets
 from app.modules.negotiation.router import _mail_side, notify_new_message
 from app.modules.negotiation.schemas import (
     CounterRelayIn,
@@ -26,6 +26,8 @@ from app.modules.negotiation.schemas import (
     DeskMessageIn,
     DeskMessageOut,
     DeskSampleOut,
+    DeskTermSheetOut,
+    TermSheetEditIn,
     DeskThreadOut,
     ForwardIn,
     HeldMessageOut,
@@ -250,3 +252,80 @@ async def sample_received(sample_id: str, admin: CanHandleSamples, db: DbSession
     """The courier confirms the buyer has the sample."""
     sample, deal = await samples.received(db, admin.id, parse_uuid(sample_id))
     return await _hop(db, admin, sample, deal, "received")
+
+
+# ── Term sheets (CX-103) ─────────────────────────────────────────────
+
+
+async def _desk_term_sheet(db, t: TermSheet, deal: Deal) -> DeskTermSheetOut:
+    sheet = await counters.sheet_of(db, deal)
+    return DeskTermSheetOut(
+        id=str(t.id), deal_code=deal.code, version=t.version, status=t.status, product=t.product, quality=t.quality,
+        packaging=t.packaging, quantity=t.quantity, unit=t.unit, incoterm=t.incoterm,
+        port_of_loading=t.port_of_loading, destination_port=t.destination_port, delivery_from=t.delivery_from,
+        delivery_to=t.delivery_to, buyer_price_minor=t.buyer_price_minor, buyer_currency=t.buyer_currency,
+        buyer_payment_terms=t.buyer_payment_terms, seller_price_minor=t.seller_price_minor,
+        seller_currency=t.seller_currency, seller_payment_terms=t.seller_payment_terms, margin_pct=t.margin_pct,
+        min_margin_pct=sheet.min_margin_pct, max_margin_pct=sheet.max_margin_pct, notes=t.notes,
+        content_sha256=t.content_sha256, buyer_accepted_at=t.buyer_accepted_at, seller_accepted_at=t.seller_accepted_at,
+        declined_side=t.declined_side, decline_note=t.decline_note, withdraw_note=t.withdraw_note,
+        issued_at=t.issued_at, agreed_at=t.agreed_at, superseded_at=t.superseded_at, created_at=t.created_at,
+    )
+
+
+@router.get("/deals/{code}/term-sheets", response_model=ItemList[DeskTermSheetOut], response_model_by_alias=True)
+async def deal_term_sheets(code: str, _: CanTriageRfqs, db: DbSession) -> ItemList[DeskTermSheetOut]:
+    """Every version of the deal's term sheet, newest first, with both prices and the margin."""
+    deal = await service.deal_by_code(db, code)
+    return item_list([await _desk_term_sheet(db, t, deal) for t in await term_sheets.of_deal(db, deal)])
+
+
+@router.post(
+    "/deals/{code}/term-sheets", response_model=DeskTermSheetOut, response_model_by_alias=True, status_code=201
+)
+async def draft_term_sheet(code: str, admin: CanTriageRfqs, db: DbSession) -> DeskTermSheetOut:
+    """Start a new version: a copy of the last one, or for the first, the
+    offer at the last accepted counter-offer's prices."""
+    deal = await service.deal_by_code(db, code)
+    t = await term_sheets.draft(db, admin.id, deal)
+    audit.record_action(db, admin=admin, action="term_sheet.drafted", target_type="term_sheet", target_id=t.id,
+                        details={"deal": deal.code, "version": t.version})
+    await db.commit()
+    return await _desk_term_sheet(db, t, deal)
+
+
+@router.patch("/term-sheets/{sheet_id}", response_model=DeskTermSheetOut, response_model_by_alias=True)
+async def edit_term_sheet(sheet_id: str, payload: TermSheetEditIn, _: CanTriageRfqs, db: DbSession) -> DeskTermSheetOut:
+    """Change a draft. Issued versions are frozen."""
+    t, deal = await term_sheets.edit(db, parse_uuid(sheet_id), payload.model_dump(exclude_unset=True))
+    await db.commit()
+    return await _desk_term_sheet(db, t, deal)
+
+
+@router.post("/term-sheets/{sheet_id}/issue", response_model=DeskTermSheetOut, response_model_by_alias=True)
+async def issue_term_sheet(
+    sheet_id: str, admin: CanTriageRfqs, db: DbSession, background: BackgroundTasks
+) -> DeskTermSheetOut:
+    """Freeze the draft and send it to both sides to accept."""
+    t, deal = await term_sheets.issue(
+        db, admin.id, parse_uuid(sheet_id), may_approve_margin=Perm.margin_approve in admin.permissions
+    )
+    audit.record_action(db, admin=admin, action="term_sheet.issued", target_type="term_sheet", target_id=t.id,
+                        details={"deal": deal.code, "version": t.version, "sha256": t.content_sha256,
+                                 "marginPct": str(t.margin_pct)})
+    await db.commit()
+    for side in ("buyer", "seller"):
+        await _mail_side(background, db, deal, side, notifications.send_term_sheet_issued)
+    return await _desk_term_sheet(db, t, deal)
+
+
+@router.post("/term-sheets/{sheet_id}/withdraw", response_model=DeskTermSheetOut, response_model_by_alias=True)
+async def withdraw_term_sheet(
+    sheet_id: str, payload: RejectMessageIn, admin: CanTriageRfqs, db: DbSession
+) -> DeskTermSheetOut:
+    """Take back a draft or an issued version that hasn't been agreed."""
+    t, deal = await term_sheets.withdraw(db, parse_uuid(sheet_id), payload.reason)
+    audit.record_action(db, admin=admin, action="term_sheet.withdrawn", target_type="term_sheet", target_id=t.id,
+                        reason=payload.reason, details={"deal": deal.code, "version": t.version})
+    await db.commit()
+    return await _desk_term_sheet(db, t, deal)

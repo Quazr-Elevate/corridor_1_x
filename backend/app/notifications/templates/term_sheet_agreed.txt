@@ -1,0 +1,9 @@
+Hi {{ first_name }},
+
+Both sides have accepted the term sheet for deal {{ deal_code }}. The
+terms are now fixed.
+
+Corridor One X will prepare the letter of intent from them next:
+{{ dashboard_url }}
+
+-- Cor1x

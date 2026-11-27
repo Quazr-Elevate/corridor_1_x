@@ -220,6 +220,17 @@ async def send_sample_reviewed(*, to: str, first_name: str, deal_code: str) -> N
                 first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
 
 
+async def send_term_sheet_issued(*, to: str, first_name: str, deal_code: str) -> None:
+    """A version is ready to read and accept (CX-103). No terms in the email."""
+    await _send(to, f"A term sheet for {deal_code} is ready for you", "term_sheet_issued",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
+async def send_term_sheet_agreed(*, to: str, first_name: str, deal_code: str) -> None:
+    await _send(to, f"The term sheet for {deal_code} is agreed", "term_sheet_agreed",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,

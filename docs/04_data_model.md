@@ -1035,3 +1035,32 @@ Insert only: one row per hop with `from_status`, `to_status`, `actor_type`
 `requested`, `seller_dispatched`, `at_hub` and `reviewed`. Desk hops are
 also written to `admin_actions` (`sample.at_hub`, `sample.sealed`,
 `sample.forwarded`, `sample.received`).
+
+## Term sheets (`0040_term_sheets`)
+
+M4 · S8, CX-103 (A-076, A-079). One row per version of a deal's terms; the
+single source for the LOIs and contracts (S9). Corridor One X is the
+counterparty to both sides, so a version holds both prices.
+
+| Column | Notes |
+|---|---|
+| `deal_id`, `version` | Unique together; versions count up from 1 |
+| `status` | `draft` → `issued` → `agreed` / `declined`; `withdrawn` (desk, from draft or issued); `superseded` (an agreed version replaced by a later agreed one) |
+| `product`, `quality`, `packaging`, `quantity`, `unit` | The goods. `quality` is the specification text, prefilled from the request |
+| `incoterm`, `port_of_loading`, `destination_port`, `delivery_from`, `delivery_to` | Delivery. Check: the window ends on or after its start |
+| `buyer_price_minor`, `buyer_currency`, `buyer_payment_terms` | What the buyer pays Corridor One X, per unit. Only the buyer and the desk see it |
+| `seller_price_minor`, `seller_currency`, `seller_payment_terms` | What Corridor One X pays the seller, per unit. Only the seller and the desk see it |
+| `margin_pct` | Desk only: the margin the two prices leave through the cost sheet, recomputed on every save and on issue |
+| `content_sha256` | SHA-256 of the canonical JSON of the terms, the deal code and the version, set on issue. Check: every status but `draft` and `withdrawn` has it |
+| `buyer_accepted_at/by`, `seller_accepted_at/by`, `agreed_at` | Check: `agreed` and `superseded` need both acceptances and `agreed_at` |
+| `declined_side`, `decline_note`, `withdraw_note` | Checks: a declined or withdrawn version has its note |
+| `superseded_at`, `superseded_by_id` | Set on the old agreed version when a new one is agreed |
+
+**Indexes.** `uq_term_sheets_open` (one `draft` or `issued` per deal) and
+`uq_term_sheets_agreed` (one `agreed` per deal), both partial.
+
+**Frozen terms.** Trigger `trg_term_sheets_frozen` (SQLite and Postgres)
+refuses an UPDATE that changes any term, either price, the margin, the
+version, the deal or the hash once `content_sha256` is set. Status and
+acceptance columns can still move. The models attach the same trigger, so
+schemas built without migrations (the tests) have it too.

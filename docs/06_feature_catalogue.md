@@ -4,7 +4,7 @@
 language for Corridor One X (the customer). At hand-over it becomes the
 customer's *Platform features & security* document (exported to PDF).
 
-Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planned (phase noted)
+Last updated: 27 November 2026 · Status key: ✅ built and tested · 🔜 planned (phase noted)
 
 ---
 
@@ -68,6 +68,15 @@ Last updated: 31 October 2026 · Status key: ✅ built and tested · 🔜 planne
 - ✅ A request the desk refuses, or that no seller fits, is **refunded** automatically.
 - ✅ **Quote (sellers):** price, quantity, incoterm, port, lead time, payment terms, validity, and whether each required specification is met. One quote per request, changeable until Corridor One X starts pricing it.
 - ✅ **Offers (buyers):** each offer shows the seller's code, lead time, incoterm and specifications met for free. Unlocking shows the price and terms and costs credits once. The buyer never sees what the seller quoted.
+
+### 1.7 Negotiation (M4)
+- ✅ **Choose an offer:** the buyer goes ahead with one unlocked offer. Negotiation opens with that seller; the other sellers are told their quote wasn't taken.
+- ✅ **Chat through Corridor One X:** each side writes to Corridor One X in its own thread. A clean message reaches the other side under the sender's company code. One that may name a company waits for Corridor One X; one with a phone number, email or link is refused.
+- ✅ **Three refused messages in 90 days suspend the company** from writing, quoting and requesting. Reading stays open. Only a desk manager can lift it.
+- ✅ **Counter-offers:** either side proposes a new price in its own currency. Corridor One X checks it, then the other side sees what it means in their currency and accepts or declines. Neither side sees the other's price.
+- ✅ **Samples:** the buyer asks for a sample (paid in credits). The seller sends it to Corridor One X's hub, which splits it, seals both halves, keeps one for disputes and sends the other to the buyer under its own name. The buyer records whether it passed. Each side sees only its own courier leg.
+- ✅ **Term sheet:** Corridor One X drafts the terms (product, quality, quantity, price, payment, incoterm, ports, delivery window). Each side reads its own price and accepts the exact version it read, or says what needs to change. When both accept, the version is agreed and can never change; new terms mean a new version, which replaces it once both accept.
+- ⏳ The sample fee is a placeholder (5 credits) until it is set from a courier quote.
 
 ---
 
@@ -144,10 +153,17 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Publish the offer:** the buyer gets the selling price; the deal moves to Quoted. The offer ends at least two days before the quote behind it.
 - ✅ **Held countries** and the desk's settings (how long a request stays open and others), set by a super admin.
 
+### 2.8 Negotiation desk (M4)
+- ✅ **Held messages:** release or reject, with a reason the sender reads. The desk reads both threads of a deal and can write into either.
+- ✅ **Counter-offers:** each shows what it means for the other side and the margin left. Pass it on at the sheet's margin or another; outside the floor or ceiling only a desk manager may.
+- ✅ **Samples in progress:** record arrival at the hub, the two seal numbers, the forward courier and delivery. A sample can't be forwarded before both halves are sealed.
+- ✅ **Term sheet:** draft a version (the first starts from the chosen offer at the last accepted counter's prices), edit it, and issue it to both sides. Issuing fixes the text. A margin outside the limits needs a desk manager. A version can be withdrawn until it is agreed.
+
 ## Change log
 
 | Date | Added |
 |---|---|
+| Nov 2026 (M4, sprint S8) | Choosing an offer, chat through the desk with the leak filter and suspension, counter-offers, sample chain of custody, versioned term sheet |
 | 31 Oct 2026 | Catalogue started. Phase A security: named admins and roles, one-device sessions, timeouts, lockout with support unlock, forgot password, sign-in activity, admin accounts page, security headers |
 | Nov 2026 (M1) | Listing review, price range, specifications, listing documents, prices for verified businesses only, market shows state not city, reason required for admin views of KYB data, image metadata stripped on upload, security emails |
 | Nov 2026 (M3, screens) | Requests page, request editor with checklist and seller preview, offers with unlock, seller's matched requests and quote form, "Request a quote" on a listing, trade desk page |
