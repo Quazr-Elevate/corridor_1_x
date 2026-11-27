@@ -671,16 +671,17 @@ function DetailPanel({
                       </Button>
                     ) : null}
                     {doc.status !== "approved" ? (
-                      <HoldButton
-                        tone="commit"
-                        icon="check"
+                      // One tap: a document's decision can be changed, unlike the company's.
+                      <Button
+                        variant="primary"
                         size="sm"
-                        onCommit={() => onApproveDoc(doc)}
+                        icon="check"
+                        onClick={() => void onApproveDoc(doc)}
                         loading={busy}
-                        disabled={doc.status === "pending" && !docOpened}
+                        disabled={busy || (doc.status === "pending" && !docOpened)}
                       >
                         Approve document
-                      </HoldButton>
+                      </Button>
                     ) : null}
                   </div>
                 ) : null}

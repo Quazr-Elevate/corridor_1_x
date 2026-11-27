@@ -586,16 +586,17 @@ export default function AccountDetailPage() {
                                 <Button variant="danger" size="sm" onClick={() => setRejectDoc(d)} disabled={docBusy === d.id}>
                                   Reject…
                                 </Button>
-                                <HoldButton
-                                  tone="commit"
+                                <Button
+                                  variant="primary"
                                   size="sm"
-                                  onCommit={() => approveDoc(d)}
+                                  icon="check"
+                                  onClick={() => void approveDoc(d)}
                                   loading={docBusy === d.id}
-                                  disabled={unopened.includes(d.id)}
-                                  holdMs={900}
+                                  disabled={docBusy === d.id || unopened.includes(d.id)}
+                                  title={unopened.includes(d.id) ? "Open the document first" : undefined}
                                 >
                                   Approve
-                                </HoldButton>
+                                </Button>
                               </>
                             ) : null}
                           </>

@@ -401,13 +401,21 @@ function announceDocOpened(docId: string) {
  * kept current as they are opened on the page.
  */
 export function useUnopenedDocs(initial: string[] | undefined): string[] {
+  // Documents opened on this page. The account and the preview load at the
+  // same time, so the server's list can arrive after a file was opened and
+  // still name it; what was opened here stays opened.
+  const opened = useRef<Set<string>>(new Set());
   const [left, setLeft] = useState<string[]>(initial ?? []);
   const key = (initial ?? []).join(",");
   useEffect(() => {
-    setLeft(key ? key.split(",") : []);
+    setLeft(key ? key.split(",").filter((id) => !opened.current.has(id)) : []);
   }, [key]);
   useEffect(() => {
-    const onOpened = (e: Event) => setLeft((ids) => ids.filter((id) => id !== (e as CustomEvent<string>).detail));
+    const onOpened = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      opened.current.add(id);
+      setLeft((ids) => ids.filter((x) => x !== id));
+    };
     window.addEventListener(DOC_OPENED_EVENT, onOpened);
     return () => window.removeEventListener(DOC_OPENED_EVENT, onOpened);
   }, []);
