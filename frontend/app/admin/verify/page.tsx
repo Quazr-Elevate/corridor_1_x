@@ -41,7 +41,9 @@ import {
   useQueueKeys,
   type QueueItem,
   TwinFlags,
+  useOpenedDocs,
   useUnopenedDocs,
+  DOC_OPENED_EVENT,
 } from "@/components/admin/parts";
 import {
   displayValue,
@@ -126,11 +128,14 @@ export default function KybReviewsPage() {
   // Opening an account needs a reason; one given for the queue covers each
   // account opened from it, and that company's files.
   const access = useAccessReason("kyb-queue");
+  // A reason already given for this company (opening one of its files)
+  // covers its account too, so the console doesn't ask twice.
+  const companyAccess = useAccessReason(selected?.businessId ?? "none");
   useEffect(() => {
     if (!selectedId || details[selectedId]) return;
     let cancelled = false;
-    access
-      .ask()
+    const known = companyAccess.known();
+    (known ? Promise.resolve(known) : access.ask())
       .then((reason) =>
         adminApi.user(selectedId, reason).then((u) => {
           access.remember(u.businessId, reason);
@@ -142,7 +147,23 @@ export default function KybReviewsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, details, access]);
+  }, [selectedId, details, access, companyAccess]);
+
+  // The account didn't load (often: its reason sheet gave way to a file's).
+  // Once a file of that company is opened there is a reason; load it again.
+  const retryDetail = useCallback(() => {
+    if (!selectedId) return;
+    setDetails((d) => {
+      if (d[selectedId] !== "error") return d;
+      const { [selectedId]: _drop, ...rest } = d;
+      void _drop;
+      return rest;
+    });
+  }, [selectedId]);
+  useEffect(() => {
+    window.addEventListener(DOC_OPENED_EVENT, retryDetail);
+    return () => window.removeEventListener(DOC_OPENED_EVENT, retryDetail);
+  }, [retryDetail]);
 
   useEffect(() => setActionErr(null), [selectedId]);
   // The picked document belongs to one company.
@@ -406,6 +427,7 @@ export default function KybReviewsPage() {
                 onReject={() => setRejectRow(selected)}
                 onApproveDoc={(doc) => approveDoc(selected, doc)}
                 onRejectDoc={(doc) => setRejectDoc({ row: selected, doc })}
+                onRetry={retryDetail}
               />
             ) : null}
           </div>
@@ -462,6 +484,7 @@ function DetailPanel({
   onReject,
   onApproveDoc,
   onRejectDoc,
+  onRetry,
 }: {
   row: VerifyQueueRow;
   detail: UserDetail | "error" | undefined;
@@ -475,10 +498,12 @@ function DetailPanel({
   onReject: () => void;
   onApproveDoc: (doc: VerifyDoc) => void | Promise<void>;
   onRejectDoc: (doc: VerifyDoc) => void;
+  onRetry: () => void;
 }) {
   const docsOnly = row.reviewKind === "documents";
   const d = typeof detail === "object" ? detail : null;
   const unopened = useUnopenedDocs(d?.unopenedDocIds);
+  const openedHere = useOpenedDocs();
   const p = d?.profile ?? {};
   const b = d?.businessProfile ?? {};
   const docs = d?.docs ?? row.docs;
@@ -496,7 +521,7 @@ function DetailPanel({
   const doc =
     docs.find((x) => `doc:${x.id}` === tab) ?? pendingDocs[0] ?? docs[0] ?? null;
   // Until the account loads, this admin's opened list isn't known.
-  const docOpened = d !== null && doc !== null && !unopened.includes(doc.id);
+  const docOpened = doc !== null && (openedHere.has(doc.id) || (d !== null && !unopened.includes(doc.id)));
   const missingDocs = missing.filter(isDocumentKey).map((k) => fieldByKey(k)).filter(Boolean);
   const missingProfile = MANDATORY_FIELDS.filter((f) => missing.includes(f.key));
   const canApprove = !loadingDetail && missing.length === 0 && pendingDocs.length === 0;
@@ -544,7 +569,18 @@ function DetailPanel({
       </div>
 
       {detail === "error" ? (
-        <p className="t-sub mt-4 text-fg-3">Full account didn&apos;t load — showing the queue summary.</p>
+        <div className="mt-4">
+          <Notice
+            tone="move"
+            action={
+              <Button variant="secondary" size="sm" onClick={onRetry}>
+                Try again
+              </Button>
+            }
+          >
+            The full account didn&apos;t load, so the queue summary is shown. Documents can still be opened and decided.
+          </Notice>
+        </div>
       ) : null}
 
       {/* ── Business profile: only what onboarding collects ── */}

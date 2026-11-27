@@ -422,6 +422,20 @@ export function useUnopenedDocs(initial: string[] | undefined): string[] {
   return left;
 }
 
+/** Documents this admin opened on the page so far (file or number). */
+export function useOpenedDocs(): ReadonlySet<string> {
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const onOpened = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      setOpened((cur) => (cur.has(id) ? cur : new Set(cur).add(id)));
+    };
+    window.addEventListener(DOC_OPENED_EVENT, onOpened);
+    return () => window.removeEventListener(DOC_OPENED_EVENT, onOpened);
+  }, []);
+  return opened;
+}
+
 /**
  * Fetch a KYB file with the admin's reason and hand back a local blob URL.
  * The URL is released when the document changes or the component unmounts.
