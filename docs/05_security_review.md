@@ -122,7 +122,7 @@ Tests: 238 passing (47 new). Phase B (2FA before launch, private encrypted stora
 | C1 | KYB numbers encrypted at rest | AES-256-GCM, app-level | ✅ | DB scan: **no plaintext GSTIN/PAN/FSSAI anywhere**; all value entries have ciphertext + key version (matches were example placeholders and phone numbers only) |
 | C2 | Duplicate numbers without decrypting | Keyed hash | ✅ | `value_hash` (HMAC-SHA256) + partial unique index; tests |
 | C3 | Masked display | Last 4 only | ✅ | `valueMasked` e.g. `••••K1Z9` |
-| C4 | Keys outside DB/git; rotatable; refuse to start without them | — | ✅ | `KYB_ENC_KEYS` / `KYB_HASH_KEY` env, versioned; production refusal tested |
+| C4 | Keys outside DB/git; rotatable; refuse to start without them | — | ✅ | `KYB_ENC_KEYS` / `KYB_HASH_KEY` env, versioned; production refusal tested. Rotation of every secret without sign-outs (CX-035): `SESSION_SECRET_PREVIOUS`, `KYB_HASH_KEY_PREVIOUS`, `scripts/rotate_keys.py` re-encrypts and rehashes; runbook in `07` §12; `tests/test_key_rotation.py` |
 | C5 | Keys in a key-management service | Vault / KMS | ⏳ B | Env keys today |
 | C6 | Aadhaar never collected | Aadhaar Act | ✅ | DB check constraint + API refuse Aadhaar types / "Other" names |
 | C7 | No secrets / personal data in logs | — | ✅ | Access log = method, path, status, duration, request ID; **no IPs, bodies or PII**; scan of outbox/uploads: no KYB numbers |

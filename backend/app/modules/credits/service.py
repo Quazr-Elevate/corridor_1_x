@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core import crypto
 from app.core.errors import (
     BadRequest,
     Conflict,
@@ -286,12 +287,13 @@ async def list_ledger(db: AsyncSession, user: User, *, limit: int, offset: int) 
 # ── Free quota ───────────────────────────────────────────────────────
 
 
-async def registration_hash(db: AsyncSession, business: Business) -> str | None:
-    """The keyed hash of the company's registration number: the document its
-    country names for the quota (A-052; GSTIN in India), or else its first
-    required document with a number. None until one is on file."""
+async def registration_hashes(db: AsyncSession, business: Business) -> list[str] | None:
+    """The company's registration number under every hash key, current first:
+    the document its country names for the quota (A-052; GSTIN in India), or
+    else its first required document with a number. None until one is on file.
+    Old keys match quota rows written before a rotation (CX-035, A-080)."""
     stmt = (
-        select(BusinessDocument.value_hash)
+        select(BusinessDocument.value_encrypted, BusinessDocument.value_key_version, BusinessDocument.document_type_id)
         .join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id)
         .where(
             BusinessDocument.business_id == business.id,
@@ -301,29 +303,37 @@ async def registration_hash(db: AsyncSession, business: Business) -> str | None:
     )
     country = await db.get(Country, business.country)
     if country is not None and country.quota_document_type_id is not None:
-        return await db.scalar(stmt.where(KybDocumentType.id == country.quota_document_type_id).limit(1))
-    return await db.scalar(
-        stmt.where(KybDocumentType.is_mandatory.is_(True)).order_by(KybDocumentType.sort_order, KybDocumentType.name).limit(1)
-    )
+        row = (await db.execute(stmt.where(KybDocumentType.id == country.quota_document_type_id).limit(1))).first()
+    else:
+        row = (await db.execute(
+            stmt.where(KybDocumentType.is_mandatory.is_(True))
+            .order_by(KybDocumentType.sort_order, KybDocumentType.name).limit(1)
+        )).first()
+    if row is None:
+        return None
+    return crypto.value_hashes(crypto.decrypt(row.value_encrypted, row.value_key_version), scope=str(row.document_type_id))
 
 
 async def _quota(db: AsyncSession, business: Business, action: str) -> CreditFreeQuota | None:
     """The quota row for this company's registration number, created on first
-    use. A number seen before brings its used count with it."""
+    use. A number seen before brings its used count with it, whichever hash
+    key it was stored under; an old one moves to the current key here."""
     if action not in FREE_ALLOWANCES or not business.is_verified:
         return None
-    reg = await registration_hash(db, business)
-    if reg is None:
+    hashes = await registration_hashes(db, business)
+    if hashes is None:
         return None
-    where = (CreditFreeQuota.action == action, CreditFreeQuota.registration_hash == reg)
+    where = (CreditFreeQuota.action == action, CreditFreeQuota.registration_hash.in_(hashes))
     quota = await db.scalar(select(CreditFreeQuota).where(*where))
     if quota is None:
         try:
             async with db.begin_nested():
-                db.add(CreditFreeQuota(action=action, registration_hash=reg, business_id=business.id, allowance=FREE_ALLOWANCES[action]))
+                db.add(CreditFreeQuota(action=action, registration_hash=hashes[0], business_id=business.id, allowance=FREE_ALLOWANCES[action]))
         except IntegrityError:
             pass
         quota = await db.scalar(select(CreditFreeQuota).where(*where))
+    if quota.registration_hash != hashes[0]:
+        quota.registration_hash = hashes[0]
     if quota.business_id != business.id:
         quota.business_id = business.id
     return quota

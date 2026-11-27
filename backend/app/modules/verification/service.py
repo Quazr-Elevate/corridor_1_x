@@ -161,10 +161,13 @@ async def _ensure_value_free(db: AsyncSession, doc: BusinessDocument, t: KybDocu
     real guard against races."""
     if not doc.value_unique or t is None:
         return
+    # Under every hash key: a number stored before a key rotation, and not
+    # yet moved by scripts/rotate_keys.py, still counts (CX-035).
+    hashes = crypto.value_hashes(crypto.decrypt(doc.value_encrypted, doc.value_key_version), scope=str(t.id))
     other = await db.scalar(
         select(BusinessDocument.id).where(
             BusinessDocument.document_type_id == t.id,
-            BusinessDocument.value_hash == doc.value_hash,
+            BusinessDocument.value_hash.in_(hashes),
             BusinessDocument.business_id != doc.business_id,
             BusinessDocument.status != DocStatus.rejected,
             BusinessDocument.value_unique.is_(True),

@@ -61,10 +61,20 @@ def normalize_email(raw: str) -> str:
     return raw.strip().lower()
 
 
-def hash_code(email: str, purpose: EmailCodePurpose, code: str) -> str:
+def hash_code(email: str, purpose: EmailCodePurpose, code: str, *, secret: str | None = None) -> str:
     """HMAC-SHA256 (server secret) of the code, bound to email + purpose."""
     msg = f"{purpose.value}:{email}:{code}".encode()
-    return hmac.new(settings.session_secret.encode(), msg, hashlib.sha256).hexdigest()
+    return hmac.new((secret or settings.session_secret).encode(), msg, hashlib.sha256).hexdigest()
+
+
+def code_matches(stored: str, email: str, purpose: EmailCodePurpose, code: str) -> bool:
+    """The code against the current SESSION_SECRET and the previous ones, so a
+    code sent just before a rotation still works (CX-035)."""
+    previous = [p.strip() for p in settings.session_secret_previous.split(",") if p.strip()]
+    return any(
+        hmac.compare_digest(stored, hash_code(email, purpose, code, secret=secret))
+        for secret in (settings.session_secret, *previous)
+    )
 
 
 def _hourly_cap() -> int:
@@ -176,13 +186,13 @@ async def verify_signup_code(db: AsyncSession, *, email: str, code: str) -> None
     if row is None or row.consumed_at is not None:
         raise BadRequest("Request a code first.")
     now = utcnow()
-    if row.verified_at is not None and hmac.compare_digest(row.code_hash, hash_code(email, purpose, code)):
+    if row.verified_at is not None and code_matches(row.code_hash, email, purpose, code):
         return  # idempotent re-submit of the right code
     if row.attempts >= MAX_CODE_ATTEMPTS:
         raise BadRequest("Too many wrong attempts. Request a new code.")
     if ensure_aware(row.expires_at) <= now:
         raise BadRequest("This code has expired. Request a new one.")
-    if not hmac.compare_digest(row.code_hash, hash_code(email, purpose, code)):
+    if not code_matches(row.code_hash, email, purpose, code):
         row.attempts += 1
         left = MAX_CODE_ATTEMPTS - row.attempts
         await db.commit()
@@ -383,7 +393,7 @@ async def reset_password(db: AsyncSession, *, email: str, code: str, new_passwor
         raise BadRequest(invalid)
     if row.attempts >= MAX_CODE_ATTEMPTS:
         raise BadRequest("Too many wrong attempts. Request a new code.")
-    if not hmac.compare_digest(row.code_hash, hash_code(email, purpose, code)):
+    if not code_matches(row.code_hash, email, purpose, code):
         row.attempts += 1
         await db.commit()
         raise BadRequest(invalid)

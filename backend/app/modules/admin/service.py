@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import crypto
 from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.time import ensure_aware, utcnow
 from app.models.admin_action import AdminAction
@@ -676,26 +677,29 @@ async def _decision(db: AsyncSession, user: User, business: Business) -> Decisio
 async def related_codes(db: AsyncSession, business: Business) -> list[str]:
     """Other live businesses that share this one's group document (India: the
     PAN behind several GSTINs, A-052), as company codes, "unverified" when
-    they have none yet. Compared by keyed hash; no number is read."""
+    they have none yet. Compared by keyed hash under every hash key; the
+    number is decrypted in memory to compute them and never leaves here."""
     country = await db.get(Country, business.country)
     if country is None or country.group_document_type_id is None:
         return []
-    mine = await db.scalar(
-        select(BusinessDocument.value_hash).where(
+    mine = (await db.execute(
+        select(BusinessDocument.value_encrypted, BusinessDocument.value_key_version).where(
             BusinessDocument.business_id == business.id,
             BusinessDocument.document_type_id == country.group_document_type_id,
             BusinessDocument.value_hash.is_not(None),
             BusinessDocument.status != DocStatus.rejected,
         )
-    )
+    )).first()
     if mine is None:
         return []
+    # Matched under every hash key, so a key rotation doesn't hide a sibling (CX-035).
+    hashes = crypto.value_hashes(crypto.decrypt(*mine), scope=str(country.group_document_type_id))
     codes = await db.scalars(
         select(Business.company_code)
         .join(BusinessDocument, BusinessDocument.business_id == Business.id)
         .where(
             BusinessDocument.document_type_id == country.group_document_type_id,
-            BusinessDocument.value_hash == mine,
+            BusinessDocument.value_hash.in_(hashes),
             BusinessDocument.status != DocStatus.rejected,
             Business.id != business.id,
             Business.deleted_at.is_(None),

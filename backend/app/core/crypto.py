@@ -6,10 +6,14 @@
   Stored form: ``base64(nonce || ciphertext+tag)``.
 * :func:`value_hash` — HMAC-SHA256 of the normalised value under a separate
   key; lets the database reject a duplicate GSTIN without decrypting.
+  :func:`value_hashes` gives the value under every hash key, current first,
+  so a lookup still finds rows hashed before a rotation (CX-035).
 * :func:`last4` — masked display hint.
 
 Keys come from ``KYB_ENC_KEYS`` (``version:base64key,...``) and
-``KYB_HASH_KEY``; they never touch the database or git. With DEBUG=false the
+``KYB_HASH_KEY`` (plus ``KYB_HASH_KEY_PREVIOUS``, match only); they never
+touch the database or git. ``scripts/rotate_keys.py`` moves stored values to
+the newest keys. With DEBUG=false the
 app refuses to start without them (:func:`check_keys`). Development uses a
 fixed, clearly-marked local key so it works out of the box — data encrypted
 with it is NOT protected.
@@ -50,6 +54,7 @@ class _Keys:
     current: int
     hash_key: bytes
     is_dev: bool
+    previous_hash_keys: tuple[bytes, ...] = ()
 
 
 def _b64key(raw: str, what: str) -> bytes:
@@ -82,7 +87,13 @@ def load_keys(s: Settings) -> _Keys:
     hash_key = _b64key(hash_raw, "KYB_HASH_KEY")
     if hash_key in enc.values():
         raise CryptoConfigError("KYB_HASH_KEY must differ from every encryption key.")
-    return _Keys(enc=enc, current=max(enc), hash_key=hash_key, is_dev=False)
+    previous: list[bytes] = []
+    for i, raw in enumerate(p for p in s.kyb_hash_key_previous.split(",") if p.strip()):
+        key = _b64key(raw, f"KYB_HASH_KEY_PREVIOUS entry {i + 1}")
+        if key == hash_key or key in previous or key in enc.values():
+            raise CryptoConfigError("Each KYB_HASH_KEY_PREVIOUS entry must differ from KYB_HASH_KEY, each other and the encryption keys.")
+        previous.append(key)
+    return _Keys(enc=enc, current=max(enc), hash_key=hash_key, is_dev=False, previous_hash_keys=tuple(previous))
 
 
 @lru_cache(maxsize=1)
@@ -116,6 +127,15 @@ def decrypt(ciphertext_b64: str, key_version: int) -> str:
         raise DecryptionError("Value could not be decrypted.") from None
 
 
+def current_version() -> int:
+    """The key version :func:`encrypt` writes with."""
+    return _keys().current
+
+
+def configured_versions() -> list[int]:
+    return list(_keys().enc)
+
+
 def _aad(version: int) -> bytes:
     return f"cor1x-kyb-v{version}".encode()
 
@@ -134,8 +154,18 @@ def value_hash(normalized: str, *, scope: str) -> str:
     """Keyed hash, scoped to a document type so equal numbers of different
     types don't collide. Separators are ignored, so ``UDYAM-KA-01-…`` and
     ``UDYAMKA01…`` count as the same number."""
+    return _hash(_keys().hash_key, normalized, scope)
+
+
+def value_hashes(normalized: str, *, scope: str) -> list[str]:
+    """The value under the current hash key, then every previous one."""
+    k = _keys()
+    return [_hash(key, normalized, scope) for key in (k.hash_key, *k.previous_hash_keys)]
+
+
+def _hash(key: bytes, normalized: str, scope: str) -> str:
     msg = f"{scope}\x00{_SEPARATORS.sub('', normalized)}".encode("utf-8")
-    return hmac.new(_keys().hash_key, msg, hashlib.sha256).hexdigest()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 
 def last4(normalized: str) -> str:

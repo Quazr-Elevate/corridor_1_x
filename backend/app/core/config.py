@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # Keys email-code hashes. ROTATE in prod; the app refuses to start with
     # the dev default when DEBUG is off.
     session_secret: str = "dev-only-session-secret-change-me"
+    # Earlier SESSION_SECRETs, comma-separated: they still check codes sent
+    # before a rotation, never sign new ones (CX-035). Empty once every
+    # code issued under them has expired (30 minutes is enough).
+    session_secret_previous: str = ""
     user_session_idle_hours: int = 12
     user_session_max_days: int = 7
     # Traders may be signed in on this many devices at once; the oldest is
@@ -112,6 +116,11 @@ class Settings(BaseSettings):
     kyb_enc_keys: str = ""
     # Separate base64 32-byte key for the duplicate-check hash (value_hash).
     kyb_hash_key: str = ""
+    # Earlier KYB_HASH_KEYs, comma-separated base64. They only match, never
+    # write; scripts/rotate_keys.py moves stored hashes to KYB_HASH_KEY. Keep
+    # them listed: a deleted company's free-quota row stays under its old
+    # hash, which can't be recomputed without the number (A-080).
+    kyb_hash_key_previous: str = ""
 
     # ─── Email (app/integrations/email) ──────────────────────────
     email_provider: str = "console"  # console | resend | brevo
