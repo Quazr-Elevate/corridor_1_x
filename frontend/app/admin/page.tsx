@@ -148,7 +148,7 @@ export default function TowerHomePage() {
       ) : null}
 
       {/* ── Corridor + queues ── */}
-      <section aria-label="Corridor and queues" className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      <section aria-label="Corridor and queues" className="mt-10 grid grid-cols-[minmax(0,1fr)] gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
         <Reveal className="relief relative overflow-hidden rounded-[34px] p-5 sm:p-6">
           <div
             aria-hidden="true"
@@ -242,6 +242,24 @@ export default function TowerHomePage() {
               sub={stats ? `${plural(stats.totalUsers, "account")} in total` : "…"}
             />
           </StaggerItem>
+          <StaggerItem>
+            <QueueTile
+              href="/admin/listings"
+              icon="sack"
+              count={stats?.totalListings}
+              title="Listings"
+              sub={stats ? `${stats.listingsToReview.toLocaleString("en-GB")} waiting for review` : "…"}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <QueueTile
+              href="/admin/rfqs"
+              icon="match"
+              count={stats?.totalDeskRequests}
+              title="Desk requests"
+              sub={stats ? `${stats.deskRequestsWaiting.toLocaleString("en-GB")} waiting on the desk` : "…"}
+            />
+          </StaggerItem>
         </Stagger>
       </section>
 
@@ -272,7 +290,7 @@ export default function TowerHomePage() {
       </Reveal>
 
       {/* ── Needs attention + signups ── */}
-      <section className="mt-12 grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
+      <section className="mt-12 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
         <Reveal as="div" id="attention" className="scroll-mt-24">
           <div className="flex items-end justify-between gap-4">
             <h2 className="t-title2 text-fg">Needs attention</h2>

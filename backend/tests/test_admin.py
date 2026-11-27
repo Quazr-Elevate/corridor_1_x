@@ -201,6 +201,10 @@ async def test_dashboard(client, admin_client):
         "recentSignups24H": 1,
         "stuckSignups": 0,
         "pendingDocs": 0,
+        "totalListings": 0,
+        "listingsToReview": 0,
+        "totalDeskRequests": 0,
+        "deskRequestsWaiting": 0,
     }
     tl = (await admin_client.get("/admin/dashboard/timeline?days=7")).json()
     assert len(tl) == 7 and tl[-1]["count"] == 1
@@ -210,3 +214,41 @@ async def test_dashboard(client, admin_client):
     assert (await admin_client.get("/admin/users?status=draft")).json()["total"] == 1
     assert (await admin_client.get("/admin/users?status=verified")).json()["total"] == 0
     assert (await admin_client.get("/admin/users?status=email_verified")).status_code == 400
+
+
+async def test_a_staff_country_change_hands_the_review_back_and_tells_the_business(client, admin_client):
+    """Changing the country empties the business of documents its new country
+    accepts, so it can't stay "in review": it goes back to the business with
+    the new country's documents listed, and the owner is emailed."""
+    email = "moved@kaverifoods.in"
+    body = await signup_and_login(client, email)
+    await fill_mandatory(client)
+    assert (await client.post("/me/submit-verification")).status_code == 200
+    uid = body["userId"]
+    reason = {"reason": "Removing the old country's documents"}
+    for d in (await admin_client.post(f"/admin/users/{uid}/open", json=reason)).json()["docs"]:
+        assert (await admin_client.post(f"/admin/docs/{d['id']}/remove", json=reason)).status_code == 204
+
+    r = await admin_client.patch(f"/admin/users/{uid}", json={"businessProfile": {"country": "AE"}})
+    assert r.status_code == 200, r.text
+    v = (await client.get("/me")).json()["verification"]
+    assert v["status"] == "rejected"
+    assert v["rejectedReason"].startswith("Corridor changed your business country to United Arab Emirates.")
+    assert v["rejectedItems"] == ["kyb:trade_licence"] and v["rejectedItemLabels"] == ["Trade licence"]
+    [mail] = [m for m in sent_emails(email) if "country" in m.subject]
+    assert "United Arab Emirates" in mail.subject and "Trade licence" in mail.text
+    [row] = [a for a in await _actions() if a.action == "business.update"]
+    assert row.details["country"] == "IN→AE" and row.details["documentsRequested"] == ["kyb:trade_licence"]
+
+
+async def test_a_draft_moved_by_staff_stays_draft_and_is_told(client, admin_client):
+    email = "draftmove@kaverifoods.in"
+    body = await signup_and_login(client, email)
+    r = await admin_client.patch(f"/admin/users/{body['userId']}", json={"businessProfile": {"country": "AE"}})
+    assert r.status_code == 200, r.text
+    assert (await client.get("/me")).json()["verification"]["status"] == "draft"
+    assert any("country is now United Arab Emirates" in m.subject for m in sent_emails(email))
+    # Saving anything else sends nothing.
+    await admin_client.patch(f"/admin/users/{body['userId']}", json={"businessProfile": {"state": "Dubai"}})
+    assert len([m for m in sent_emails(email) if "country" in m.subject]) == 1
+

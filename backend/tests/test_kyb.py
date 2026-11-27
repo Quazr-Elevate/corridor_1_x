@@ -111,8 +111,11 @@ async def test_entry_validation(client):
     t = await _types(client)
     uae = await _types(client, "AE")
 
-    r = await _add(client, type_id=t["gstin"]["id"], value="12345")
-    assert r.status_code == 400 and "valid GSTIN" in r.json()["detail"]
+    # A format an admin set on a type is checked; GSTIN and PAN carry none
+    # built in (0041): the reviewer checks those numbers.
+    r = await _add(client, type_id=t["iec"]["id"], value="12345")
+    assert r.status_code == 400 and "valid Import Export Code" in r.json()["detail"]
+    assert (t["gstin"]["valuePattern"], t["pan"]["valuePattern"]) == (None, None)
     r = await _add(client, type_id=t["gstin"]["id"])
     assert r.status_code == 400 and "Enter the GSTIN" in r.json()["detail"]
     r = await _add(client, type_id=uae["trn"]["id"], value="100000000000003")
@@ -364,12 +367,18 @@ async def _indian_profile(c, n: int) -> None:
     assert r.status_code == 200, r.text
 
 
-async def test_the_pan_must_match_the_gstin_before_review(client):
+async def test_no_built_in_pan_gstin_check_but_an_admin_rule_still_applies(client, admin_client):
     await signup_and_login(client, "owner@kaverifoods.in")
     await _indian_profile(client, 1)
     t = await _types(client)
     assert (await _add(client, type_id=t["gstin"]["id"], value=GSTIN)).status_code == 201
     assert (await _add(client, type_id=t["pan"]["id"], value="ZZZZZ9999Z")).status_code == 201
+    # Nothing country-specific ships: the mismatch is the reviewer's call.
+    assert (await admin_client.get("/admin/kyb/countries/IN/rules")).json()["items"] == []
+
+    # A rule an admin sets for the country is still enforced on submission.
+    rule = {"sourceTypeId": t["gstin"]["id"], "sourceStart": 3, "sourceEnd": 12, "targetTypeId": t["pan"]["id"]}
+    assert (await admin_client.post("/admin/kyb/countries/IN/rules", json=rule)).status_code == 201
     r = await client.post("/me/submit-verification")
     assert r.status_code == 400 and r.json()["detail"] == "Your PAN must match characters 3 to 12 of your GSTIN."
     pan = next(d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == "pan")
@@ -405,6 +414,9 @@ async def test_one_pan_may_stand_behind_several_gstins_and_the_reviewer_sees_the
 
 async def test_admins_manage_rules_and_links(admin_client):
     t = {x["code"]: x for x in (await admin_client.get("/admin/kyb/document-types?country=IN")).json()["items"]}
+    assert (await admin_client.get("/admin/kyb/countries/IN/rules")).json()["items"] == []
+    rule = {"sourceTypeId": t["gstin"]["id"], "sourceStart": 3, "sourceEnd": 12, "targetTypeId": t["pan"]["id"]}
+    assert (await admin_client.post("/admin/kyb/countries/IN/rules", json=rule)).status_code == 201
     rules = (await admin_client.get("/admin/kyb/countries/IN/rules")).json()["items"]
     assert [(r["sourceName"], r["sourceStart"], r["sourceEnd"], r["targetName"]) for r in rules] == [("GSTIN", 3, 12, "PAN")]
     bad = {"sourceTypeId": t["gstin"]["id"], "sourceStart": 5, "sourceEnd": 2, "targetTypeId": t["iec"]["id"]}

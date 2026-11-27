@@ -181,7 +181,7 @@ export function NightPill({
         className,
       )}
     >
-      {label ? <span className="t-label shrink-0 px-3 text-fg-3">{label}</span> : null}
+      {label ? <span className="t-label hidden shrink-0 px-3 text-fg-3 sm:inline">{label}</span> : null}
       {links.map((l) => (
         <Link
           key={l.href}

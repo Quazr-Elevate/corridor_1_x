@@ -1064,3 +1064,12 @@ refuses an UPDATE that changes any term, either price, the margin, the
 version, the deal or the hash once `content_sha256` is set. Status and
 acceptance columns can still move. The models attach the same trigger, so
 schemas built without migrations (the tests) have it too.
+
+## No built-in India checks (`0041_no_builtin_india_checks`)
+
+A-081. Data only, no schema change. Clears `kyb_document_types.value_pattern`
+for India's `gstin` and `pan` and sets the seeded India
+`country_document_rules` row (GSTIN 3–12 = PAN) to `active = false`, in
+each case only while the row still holds the seeded value, so an admin's
+own pattern or rule is kept. Downgrade restores the seeded values on the
+same rows. Fresh databases (`seed.py`) start without them.

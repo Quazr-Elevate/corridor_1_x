@@ -209,12 +209,23 @@ export function HoldButton({
   const raf = useRef<number | null>(null);
   const start = useRef<number | null>(null);
   const fired = useRef(false);
+  // A plain click does nothing here, so say why instead of staying silent.
+  const [hint, setHint] = useState(false);
+  const hintTimer = useRef<number | null>(null);
 
   const stop = useCallback(() => {
+    const pressed = raf.current != null;
     if (raf.current) cancelAnimationFrame(raf.current);
     raf.current = null;
     start.current = null;
-    if (!fired.current) setProgress(0);
+    if (!fired.current) {
+      setProgress(0);
+      if (pressed) {
+        setHint(true);
+        if (hintTimer.current) window.clearTimeout(hintTimer.current);
+        hintTimer.current = window.setTimeout(() => setHint(false), 2200);
+      }
+    }
   }, []);
 
   const tick = useCallback(
@@ -238,11 +249,18 @@ export function HoldButton({
 
   const begin = useCallback(() => {
     if (disabled || loading || raf.current) return;
+    setHint(false);
     fired.current = false;
     raf.current = requestAnimationFrame(tick);
   }, [disabled, loading, tick]);
 
-  useEffect(() => () => stop(), [stop]);
+  useEffect(
+    () => () => {
+      if (raf.current) cancelAnimationFrame(raf.current);
+      if (hintTimer.current) window.clearTimeout(hintTimer.current);
+    },
+    [],
+  );
 
   const toneCls =
     tone === "commit"
@@ -296,8 +314,8 @@ export function HoldButton({
           <Icon name={icon} size={sz.icon} />
         )}
         {children}
-        <span className={cn("t-label opacity-60", size === "sm" ? "ml-0.5 text-[10px]" : "ml-1")}>
-          {progress > 0 ? "Keep holding" : "Hold"}
+        <span className={cn("t-label", hint ? "opacity-100" : "opacity-60", size === "sm" ? "ml-0.5 text-[10px]" : "ml-1")}>
+          {progress > 0 ? "Keep holding" : hint ? "Press and hold" : "Hold"}
         </span>
       </span>
     </button>

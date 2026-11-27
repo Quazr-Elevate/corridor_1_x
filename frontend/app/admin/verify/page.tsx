@@ -36,15 +36,14 @@ import {
   Paper,
   PaperRow,
   PaperRows,
-  PillTabs,
   QueueList,
   useNow,
   useQueueKeys,
-  type PillDot,
-  type PillTab,
   type QueueItem,
   TwinFlags,
+  useOpenedDocs,
   useUnopenedDocs,
+  DOC_OPENED_EVENT,
 } from "@/components/admin/parts";
 import {
   displayValue,
@@ -92,7 +91,7 @@ export default function KybReviewsPage() {
   const [decided, setDecided] = useState<Decided[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, UserDetail | "error">>({});
-  const [tab, setTab] = useState<string>("company");
+  const [tab, setTab] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [rejectRow, setRejectRow] = useState<VerifyQueueRow | null>(null);
@@ -129,11 +128,14 @@ export default function KybReviewsPage() {
   // Opening an account needs a reason; one given for the queue covers each
   // account opened from it, and that company's files.
   const access = useAccessReason("kyb-queue");
+  // A reason already given for this company (opening one of its files)
+  // covers its account too, so the console doesn't ask twice.
+  const companyAccess = useAccessReason(selected?.businessId ?? "none");
   useEffect(() => {
     if (!selectedId || details[selectedId]) return;
     let cancelled = false;
-    access
-      .ask()
+    const known = companyAccess.known();
+    (known ? Promise.resolve(known) : access.ask())
       .then((reason) =>
         adminApi.user(selectedId, reason).then((u) => {
           access.remember(u.businessId, reason);
@@ -145,11 +147,27 @@ export default function KybReviewsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, details, access]);
+  }, [selectedId, details, access, companyAccess]);
+
+  // The account didn't load (often: its reason sheet gave way to a file's).
+  // Once a file of that company is opened there is a reason; load it again.
+  const retryDetail = useCallback(() => {
+    if (!selectedId) return;
+    setDetails((d) => {
+      if (d[selectedId] !== "error") return d;
+      const { [selectedId]: _drop, ...rest } = d;
+      void _drop;
+      return rest;
+    });
+  }, [selectedId]);
+  useEffect(() => {
+    window.addEventListener(DOC_OPENED_EVENT, retryDetail);
+    return () => window.removeEventListener(DOC_OPENED_EVENT, retryDetail);
+  }, [retryDetail]);
 
   useEffect(() => setActionErr(null), [selectedId]);
-  // A document tab belongs to one company — fall back to its profile.
-  useEffect(() => setTab((t) => (t.startsWith("doc:") ? "company" : t)), [selectedId]);
+  // The picked document belongs to one company.
+  useEffect(() => setTab(""), [selectedId]);
 
   const move = useCallback(
     (delta: 1 | -1) => {
@@ -290,8 +308,8 @@ export default function KybReviewsPage() {
         title="Business reviews"
         subtitle={
           <>
-            Profile and documents in one place. Approving a company approves its required documents; others are
-            decided one by one. Rejecting lets you flag exactly what to fix. Target: 24 hours.
+            Check the business profile, approve or reject each document, then verify the company. Rejecting lets you
+            flag exactly what to fix. Target: 24 hours.
             {overdue ? <span className="font-medium text-danger"> {plural(overdue, "company", "companies")} past it.</span> : null}
           </>
         }
@@ -409,6 +427,7 @@ export default function KybReviewsPage() {
                 onReject={() => setRejectRow(selected)}
                 onApproveDoc={(doc) => approveDoc(selected, doc)}
                 onRejectDoc={(doc) => setRejectDoc({ row: selected, doc })}
+                onRetry={retryDetail}
               />
             ) : null}
           </div>
@@ -440,14 +459,18 @@ export default function KybReviewsPage() {
 
 /* ───────────────────────────── Detail panel ───────────────────────── */
 
-/** Where each mandatory field lives on the account. */
-const CHECK_SOURCE: Record<string, "profile" | "business"> = {
-  legalName: "business",
-  addressLine: "business",
-  city: "business",
-  country: "business",
+const DOC_STATUS: Record<VerifyDoc["status"], { label: string; tone: "verified" | "frozen" | "move" }> = {
+  approved: { label: "Approved", tone: "verified" },
+  rejected: { label: "Rejected", tone: "frozen" },
+  pending: { label: "To review", tone: "move" },
 };
 
+/**
+ * One company's review, top to bottom: the business profile as they gave it
+ * at onboarding (company, address, the person who signs in), then every
+ * document in a list with its own approve / reject, then the company
+ * decision, which opens only once each document has been decided.
+ */
 function DetailPanel({
   row,
   detail,
@@ -461,6 +484,7 @@ function DetailPanel({
   onReject,
   onApproveDoc,
   onRejectDoc,
+  onRetry,
 }: {
   row: VerifyQueueRow;
   detail: UserDetail | "error" | undefined;
@@ -474,43 +498,33 @@ function DetailPanel({
   onReject: () => void;
   onApproveDoc: (doc: VerifyDoc) => void | Promise<void>;
   onRejectDoc: (doc: VerifyDoc) => void;
+  onRetry: () => void;
 }) {
   const docsOnly = row.reviewKind === "documents";
   const d = typeof detail === "object" ? detail : null;
   const unopened = useUnopenedDocs(d?.unopenedDocIds);
+  const openedHere = useOpenedDocs();
   const p = d?.profile ?? {};
   const b = d?.businessProfile ?? {};
   const docs = d?.docs ?? row.docs;
   const missing = d?.missingMandatoryFields ?? row.missingFields;
-  const pendingDocs = docs.filter((x) => x.status === "pending").length;
+  const pendingDocs = docs.filter((x) => x.status === "pending");
+  const decidedCount = docs.length - pendingDocs.length;
   const due = dueState(row.submittedAt ?? row.createdAt, now);
   const name = companyName(row, d);
   const loadingDetail = detail === undefined;
 
   const str = (v: unknown) => displayValue(v) || null;
-  const countries = (b.operatingCountries as string[] | null | undefined) ?? row.operatingCountries ?? [];
   const website = str(b.websiteUrl);
 
-  const sectionDot = (keys: string[]): PillDot => (keys.some((k) => missing.includes(k)) ? "move" : "verified");
-  const tabs: PillTab<string>[] = [
-    { value: "company", label: "Company", dot: sectionDot(["legalName", "addressLine", "city", "country"]) },
-    { value: "contact", label: "Contact" },
-    { value: "business", label: "Business" },
-    ...docs.map((doc) => ({
-      value: `doc:${doc.id}`,
-      label: doc.certType,
-      dot: (doc.status === "approved" ? "verified" : doc.status === "rejected" ? "frozen" : "move") as PillDot,
-    })),
-  ];
-  const current = tabs.some((t) => t.value === tab) ? tab : "company";
-  const doc = current.startsWith("doc:") ? docs.find((x) => `doc:${x.id}` === current) ?? null : null;
-
-  const checkValue = (key: string): string | null => {
-    const src = CHECK_SOURCE[key] === "profile" ? p : b;
-    const raw = displayValue(src[key]);
-    if (key === "tradePosition") return tradeLabel(raw);
-    return raw || null;
-  };
+  // The document on show: the one picked, else the first still to review.
+  const doc =
+    docs.find((x) => `doc:${x.id}` === tab) ?? pendingDocs[0] ?? docs[0] ?? null;
+  // Until the account loads, this admin's opened list isn't known.
+  const docOpened = doc !== null && (openedHere.has(doc.id) || (d !== null && !unopened.includes(doc.id)));
+  const missingDocs = missing.filter(isDocumentKey).map((k) => fieldByKey(k)).filter(Boolean);
+  const missingProfile = MANDATORY_FIELDS.filter((f) => missing.includes(f.key));
+  const canApprove = !loadingDetail && missing.length === 0 && pendingDocs.length === 0;
 
   const link = (href: string, text: string) => (
     <a
@@ -522,84 +536,6 @@ function DetailPanel({
       {text}
     </a>
   );
-
-  let paper: ReactNode;
-  if (doc) {
-    paper = (
-      <AccessScope id={row.businessId}>
-        <DocPaper doc={doc} owner={name} preview />
-      </AccessScope>
-    );
-  } else if (loadingDetail) {
-    paper = (
-      <Paper eyebrow="Loading the account…" title={name} stamp="none" aria-busy="true">
-        <div className="mt-6 space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-4 animate-pulse rounded-full bg-ink/[0.07]" style={{ width: `${80 - i * 9}%` }} />
-          ))}
-        </div>
-      </Paper>
-    );
-  } else if (current === "company") {
-    paper = (
-      <Paper eyebrow={`Company · ${str(b.country) ?? row.country ?? "—"}`} title={str(b.legalName) ?? name} stampIcon="building">
-        <PaperRows>
-          <PaperRow label="Legal name" value={str(b.legalName)} />
-          <PaperRow label="Entity type" value={entityTypeLabel(str(b.entityType)) || null} />
-          <PaperRow
-            label="Address"
-            value={[str(b.addressLine), str(b.state), str(b.country)].filter(Boolean).join(", ")}
-          />
-          <PaperRow label="Country" value={str(b.country) ?? row.country} />
-          <PaperRow label="Website" value={website ? link(website, website) : null} />
-          <PaperRow label="Introduction" value={str(b.companyIntroduction)} />
-          <PaperRow label="Business ID" value={<span className="break-all">{row.businessId}</span>} mono />
-          <PaperRow label="Account ID" value={<span className="break-all">{row.userId}</span>} mono />
-        </PaperRows>
-      </Paper>
-    );
-  } else if (current === "contact") {
-    paper = (
-      <Paper eyebrow="Contact · decision maker" title={str(p.fullName) ?? row.fullName ?? row.email} stampIcon="user">
-        <PaperRows>
-          <PaperRow label="Position" value={str(p.position)} />
-          <PaperRow label="Phone" value={str(p.phone)} mono />
-          <PaperRow label="Email" value={<span className="break-all">{row.email}</span>} />
-          <PaperRow label="Email confirmed" value={d?.emailVerifiedAt ? fmtDateTime(d.emailVerifiedAt) : "Not yet"} />
-        </PaperRows>
-      </Paper>
-    );
-  } else {
-    paper = (
-      <Paper
-        eyebrow="Business · how they trade"
-        title={tradeLabel(str(b.tradePosition) ?? row.tradePosition) ?? "Trade position not set"}
-        stampIcon="route"
-      >
-        <PaperRows>
-          <PaperRow label="Industry" value={str(b.industry) ?? row.industry} />
-          <PaperRow
-            label="Operating"
-            value={
-              countries.length ? (
-                <span className="flex flex-wrap gap-1.5">
-                  {countries.map((c) => (
-                    <span key={c} className="rounded-full bg-ink/[0.07] px-2 py-0.5 text-[12px] font-medium">
-                      {c}
-                    </span>
-                  ))}
-                </span>
-              ) : null
-            }
-          />
-          <PaperRow label="Seller type" value={str(b.sellerType)} />
-          <PaperRow label="Export status" value={str(b.exportStatus)} />
-          <PaperRow label="Target markets" value={str(b.targetMarkets)} />
-          <PaperRow label="Signed up" value={fmtDateTime(row.createdAt)} />
-        </PaperRows>
-      </Paper>
-    );
-  }
 
   return (
     <Reveal as="section" aria-label={`${name} — KYB review`} className="relief rounded-[32px] p-5 sm:p-7" y={10} duration={0.5}>
@@ -617,8 +553,7 @@ function DetailPanel({
           </div>
           <h2 className="t-title1 mt-2 break-words text-fg">{name}</h2>
           <p className="t-callout mt-1 text-fg-3">
-            {[tradeLabel(row.tradePosition), row.fullName, row.email].filter(Boolean).join(" · ")} · submitted{" "}
-            {fmtAgo(row.submittedAt ?? row.createdAt, now)}
+            {[row.fullName, row.email].filter(Boolean).join(" · ")} · submitted {fmtAgo(row.submittedAt ?? row.createdAt, now)}
           </p>
         </div>
         {!decision ? (
@@ -634,162 +569,227 @@ function DetailPanel({
       </div>
 
       {detail === "error" ? (
-        <p className="t-sub mt-4 text-fg-3">Full account didn&apos;t load — showing the queue summary.</p>
+        <div className="mt-4">
+          <Notice
+            tone="move"
+            action={
+              <Button variant="secondary" size="sm" onClick={onRetry}>
+                Try again
+              </Button>
+            }
+          >
+            The full account didn&apos;t load, so the queue summary is shown. Documents can still be opened and decided.
+          </Notice>
+        </div>
       ) : null}
 
-      <div className="mt-7 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        {/* Records, rendered as paper */}
-        <div className="min-w-0">
-          <PillTabs label="What they submitted" value={current} onChange={onTab} tabs={tabs} idPrefix={`kyb-${row.userId}`} />
-          <div role="tabpanel" id={`kyb-${row.userId}-panel`} aria-labelledby={`kyb-${row.userId}-tab-${current}`}>
-            {paper}
-          </div>
-          {doc && !decision ? (
-            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-              {doc.status === "pending" ? (
-                <span className="t-sub mr-auto text-fg-3">Decide this document on its own, or with the company.</span>
-              ) : (
-                <span className="t-sub mr-auto text-fg-3">
-                  {doc.status === "approved" ? "Approved" : "Rejected"} — you can change it.
-                </span>
-              )}
-              {doc.status !== "rejected" ? (
-                <Button variant="danger" size="sm" icon="close" onClick={() => onRejectDoc(doc)} disabled={busy}>
-                  Reject document…
-                </Button>
-              ) : null}
-              {doc.status !== "approved" ? (
-                <HoldButton tone="commit" icon="check" size="sm" onCommit={() => onApproveDoc(doc)} loading={busy}>
-                  Approve document
-                </HoldButton>
-              ) : null}
+      {/* ── Business profile: only what onboarding collects ── */}
+      <div className="mt-7">
+        {loadingDetail ? (
+          <Paper eyebrow="Loading the account…" title={name} stamp="none" aria-busy="true">
+            <div className="mt-6 space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-4 animate-pulse rounded-full bg-ink/[0.07]" style={{ width: `${80 - i * 9}%` }} />
+              ))}
             </div>
-          ) : pendingDocs ? (
-            <p className="t-sub mt-4 text-fg-3">
-              {plural(pendingDocs, "document")} to check — open each tab above.
-            </p>
-          ) : docs.length === 0 && !loadingDetail ? (
-            <p className="t-sub mt-4 text-fg-3">No documents added yet.</p>
+          </Paper>
+        ) : (
+          <Paper
+            eyebrow={`Business profile · ${str(b.country) ?? row.country ?? "—"}`}
+            title={str(b.legalName) ?? name}
+            stampIcon="building"
+            stamp={missingProfile.length ? "pending" : "none"}
+          >
+            <PaperRows>
+              <PaperRow label="Legal name" value={str(b.legalName)} />
+              <PaperRow label="Entity type" value={entityTypeLabel(str(b.entityType)) || null} />
+              <PaperRow label="Registered address" value={str(b.addressLine)} />
+              <PaperRow label="State / region" value={str(b.state)} />
+              <PaperRow label="Country" value={str(b.country) ?? row.country} />
+              <PaperRow label="Website" value={website ? link(website, website) : null} />
+              <PaperRow label="Signs in as" value={str(p.fullName) ?? row.fullName} />
+              <PaperRow label="Email" value={<span className="break-all">{row.email}</span>} />
+              <PaperRow label="Email confirmed" value={d?.emailVerifiedAt ? fmtDateTime(d.emailVerifiedAt) : "Not yet"} />
+            </PaperRows>
+          </Paper>
+        )}
+        {missingProfile.length && !decision ? (
+          <div className="mt-3">
+            <Notice tone="move">
+              Missing from the profile: {missingProfile.map((f) => f.label).join(", ")}.{" "}
+              <Link href={`/admin/users/${row.userId}`} className="font-semibold underline underline-offset-4">
+                Fill it on the account page
+              </Link>
+              .
+            </Notice>
+          </div>
+        ) : null}
+      </div>
+
+      {/* ── Documents: a list, then the one picked with its own decision ── */}
+      <section aria-labelledby={`kyb-${row.userId}-docs`} className="mt-8">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h3 id={`kyb-${row.userId}-docs`} className="t-title3 text-fg">
+            Documents
+          </h3>
+          {docs.length ? (
+            <span className="t-code text-fg-3">
+              {decidedCount} of {docs.length} decided
+            </span>
           ) : null}
         </div>
 
-        {/* Checks + decision */}
-        <div className="flex min-w-0 flex-col">
-          <p className="t-label text-fg-3">Checks · required for verification</p>
-          <ul className="mt-3 space-y-2.5" aria-label="Required for the Verified badge">
-            {[
-              ...MANDATORY_FIELDS,
-              ...missing.filter(isDocumentKey).map((k) => fieldByKey(k)!).filter(Boolean),
-            ].map((f) => {
-              const empty = missing.includes(f.key);
-              const value = empty ? null : checkValue(f.key);
-              return (
-                <li key={f.key} className={cn("rounded-[18px] p-3.5", empty ? "bg-amber-soft" : "well")}>
-                  <div className="flex items-start gap-3">
-                    <span
+        {missingDocs.length ? (
+          <div className="mt-3">
+            <Notice tone="move">
+              Required but not added yet: {missingDocs.map((f) => f!.label).join(", ")}.
+            </Notice>
+          </div>
+        ) : null}
+
+        {docs.length === 0 ? (
+          <p className="t-sub mt-3 text-fg-3">{loadingDetail ? "Loading documents…" : "No documents added yet."}</p>
+        ) : (
+          <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)] xl:items-start">
+            <ul className="flex flex-col gap-2" aria-label="Documents they added">
+              {docs.map((x) => {
+                const meta = DOC_STATUS[x.status];
+                const on = doc?.id === x.id;
+                return (
+                  <li key={x.id}>
+                    <button
+                      type="button"
+                      onClick={() => onTab(`doc:${x.id}`)}
+                      aria-pressed={on}
                       className={cn(
-                        "mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-ink",
-                        empty ? "bg-amber" : "bg-lime",
+                        "flex w-full items-center gap-3 rounded-[18px] p-3.5 text-left transition-colors",
+                        on ? "bg-cream text-ink" : "well hover:bg-ink/[0.05]",
                       )}
                     >
-                      <Icon name={empty ? "alert" : "check"} size={13} strokeWidth={2} />
+                      <Icon name={x.hasFile ? "doc-check" : "passport"} size={17} className="shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="t-callout block break-words font-medium">{x.certType}</span>
+                        <span className={cn("t-foot block", on ? "text-ink/60" : "text-fg-3")}>
+                          {[x.isOther ? "Other" : null, x.hasFile ? "File" : null, x.hasValue ? "Number" : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </span>
+                      <Chip tone={meta.tone} size="sm" noIcon>
+                        {meta.label}
+                      </Chip>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {doc ? (
+              <div className="min-w-0">
+                <AccessScope id={row.businessId}>
+                  <DocPaper doc={doc} owner={name} preview />
+                </AccessScope>
+                {doc.status === "rejected" && doc.rejectionReason ? (
+                  <p className="t-sub mt-3 text-fg-3">Rejected: “{doc.rejectionReason}”</p>
+                ) : null}
+                {!decision ? (
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    <span className="t-sub mr-auto text-fg-3">
+                      {doc.status !== "pending"
+                        ? `${DOC_STATUS[doc.status].label} — you can change it.`
+                        : docOpened
+                          ? "Opened — approve or reject this document."
+                          : `Open the ${doc.hasFile ? "file" : "number"} above before approving.`}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className={cn("t-callout font-medium", empty ? "text-amber" : "text-fg")}>
-                        {f.label}
-                        <span className="sr-only">{empty ? " — empty" : " — filled"}</span>
-                      </p>
-                      <p className="t-sub mt-0.5 break-words text-fg-3">
-                        {empty
-                          ? isDocumentKey(f.key)
-                            ? "Required document not added yet."
-                            : "Empty — fill it on the account page."
-                          : loadingDetail
-                            ? "Filled"
-                            : value ?? "Filled"}
-                      </p>
-                    </div>
-                    {empty && !decision ? (
-                      <Link
-                        href={`/admin/users/${row.userId}`}
-                        className="t-foot shrink-0 rounded-full bg-cream px-3 py-1.5 font-semibold text-ink transition-colors hover:bg-white"
+                    {doc.status !== "rejected" ? (
+                      <Button variant="danger" size="sm" icon="close" onClick={() => onRejectDoc(doc)} disabled={busy}>
+                        Reject document…
+                      </Button>
+                    ) : null}
+                    {doc.status !== "approved" ? (
+                      // One tap: a document's decision can be changed, unlike the company's.
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon="check"
+                        onClick={() => void onApproveDoc(doc)}
+                        loading={busy}
+                        disabled={busy || (doc.status === "pending" && !docOpened)}
                       >
-                        Fill
-                      </Link>
+                        Approve document
+                      </Button>
                     ) : null}
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          {actionErr ? (
-            <div className="mt-4">
-              <Notice tone="frozen">{actionErr}</Notice>
-            </div>
-          ) : null}
-
-          <div className="mt-auto pt-6">
-            {decision ? (
-              <div className="well rounded-[18px] p-4">
-                <p className="t-callout text-fg-2">
-                  {decision.outcome === "approved" ? "Approved" : "Rejected"} {fmtAgo(new Date(decision.at).toISOString(), now)}
-                  {decision.reason ? <span className="text-fg-3"> — “{decision.reason}”</span> : null}
-                </p>
-                <LinkButton
-                  href={`/admin/users/${row.userId}`}
-                  variant="quiet"
-                  size="sm"
-                  iconRight="arrow-up-right"
-                  className="-ml-3 mt-2"
-                >
-                  Open account
-                </LinkButton>
+                ) : null}
               </div>
-            ) : docsOnly ? (
-              <div className="well rounded-[18px] p-4">
-                <p className="t-callout text-fg">Verified business · new documents</p>
-                <p className="t-sub mt-1 text-fg-3">
-                  The company stays verified. Open each document tab and approve or reject it.
-                  {pendingDocs ? ` ${plural(pendingDocs, "document")} left.` : ""}
-                </p>
-                <LinkButton href={`/admin/users/${row.userId}`} variant="quiet" size="sm" iconRight="arrow-up-right" className="-ml-3 mt-2">
-                  Open account
-                </LinkButton>
-              </div>
-            ) : (
-              <>
-                <p className="t-foot mb-3 text-fg-3">
-                  {missing.length
-                    ? `${plural(missing.length, "required item")} missing — approval needs the profile and required documents.`
-                    : unopened.length
-                      ? `Open each required document first: ${plural(unopened.length, "document")} not opened yet.`
-                      : "Profile and required documents are in, and you have opened each one."}
-                </p>
-                <TwinFlags sameNameAs={d?.sameNameAs ?? []} relatedTo={d?.relatedTo ?? []} />
-                <div className="grid grid-cols-2 gap-2">
-                  <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">
-                    Open account
-                  </LinkButton>
-                  <Button variant="danger" icon="close" onClick={onReject} disabled={busy}>
-                    Reject…
-                  </Button>
-                </div>
-                <HoldButton
-                  tone="commit"
-                  icon="shield"
-                  block
-                  className="mt-2 rounded-[18px]"
-                  onCommit={onApprove}
-                  loading={busy}
-                  disabled={missing.length > 0 || unopened.length > 0 || loadingDetail}
-                >
-                  Approve company
-                </HoldButton>
-              </>
-            )}
+            ) : null}
           </div>
+        )}
+      </section>
+
+      {actionErr ? (
+        <div className="mt-6">
+          <Notice tone="frozen">{actionErr}</Notice>
         </div>
+      ) : null}
+
+      {/* ── Company decision ── */}
+      <div className="mt-8 border-t border-line pt-6">
+        {decision ? (
+          <div className="well rounded-[18px] p-4">
+            <p className="t-callout text-fg-2">
+              {decision.outcome === "approved" ? "Approved" : "Rejected"} {fmtAgo(new Date(decision.at).toISOString(), now)}
+              {decision.reason ? <span className="text-fg-3"> — “{decision.reason}”</span> : null}
+            </p>
+            <LinkButton href={`/admin/users/${row.userId}`} variant="quiet" size="sm" iconRight="arrow-up-right" className="-ml-3 mt-2">
+              Open account
+            </LinkButton>
+          </div>
+        ) : docsOnly ? (
+          <div className="well rounded-[18px] p-4">
+            <p className="t-callout text-fg">Verified business · new documents</p>
+            <p className="t-sub mt-1 text-fg-3">
+              The company stays verified. Approve or reject each new document above.
+              {pendingDocs.length ? ` ${plural(pendingDocs.length, "document")} left.` : ""}
+            </p>
+            <LinkButton href={`/admin/users/${row.userId}`} variant="quiet" size="sm" iconRight="arrow-up-right" className="-ml-3 mt-2">
+              Open account
+            </LinkButton>
+          </div>
+        ) : (
+          <>
+            <p className="t-label text-fg-3">Verify the company</p>
+            <p className="t-sub mb-3 mt-1 text-fg-3">
+              {loadingDetail
+                ? "Loading the account…"
+                : missing.length
+                  ? `${plural(missing.length, "required item")} missing — the profile and required documents must be in.`
+                  : pendingDocs.length
+                    ? `Decide each document first: ${plural(pendingDocs.length, "document")} still to review.`
+                    : "Every document is decided and the profile is complete."}
+            </p>
+            <TwinFlags sameNameAs={d?.sameNameAs ?? []} relatedTo={d?.relatedTo ?? []} />
+            <div className="grid gap-2 sm:grid-cols-[auto_auto_minmax(0,1fr)]">
+              <LinkButton href={`/admin/users/${row.userId}`} variant="secondary" icon="arrow-up-right">
+                Open account
+              </LinkButton>
+              <Button variant="danger" icon="close" onClick={onReject} disabled={busy}>
+                Reject…
+              </Button>
+              <HoldButton
+                tone="commit"
+                icon="shield"
+                block
+                className="rounded-[18px]"
+                onCommit={onApprove}
+                loading={busy}
+                disabled={!canApprove}
+              >
+                Verify company
+              </HoldButton>
+            </div>
+          </>
+        )}
       </div>
     </Reveal>
   );

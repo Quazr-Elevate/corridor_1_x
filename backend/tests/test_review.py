@@ -124,16 +124,17 @@ async def test_other_entries_are_labelled_and_decided_separately(client, admin_c
     await fill_mandatory(client)
     t = await _types(client)
     other = (await client.post("/me/verification-docs", data={"customName": "Spices Board registration", "value": "SB-12345"})).json()
-    iec = (await client.post("/me/verification-docs", data={"documentTypeId": t["iec"]["id"], "value": "AAACS1234K"})).json()
+    r = await client.post("/me/verification-docs", data={"documentTypeId": t["iec"]["id"], "value": "AAACS1234K"})
+    assert r.status_code == 201
     assert (await client.post("/me/submit-verification")).status_code == 200
 
-    # Approving the business approves only the required documents.
+    # The company waits until every document, optional ones too, is decided.
+    r = await admin_client.post(f"/admin/users/{body['userId']}/verify")
+    assert r.status_code == 409 and "Spices Board registration" in r.json()["detail"]
     assert (await verify_business(admin_client, body['userId'])).status_code == 200
     docs = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
-    assert docs[other["id"]] == "pending" and docs[iec["id"]] == "pending"
-    assert sorted(docs.values()).count("approved") == 2  # GSTIN + PAN
-    [row] = (await admin_client.get("/admin/verify/queue")).json()["items"]
-    assert row["reviewKind"] == "documents"  # the rest still need a look
+    assert set(docs.values()) == {"approved"} and len(docs) == 4
+    assert (await admin_client.get("/admin/verify/queue")).json()["items"] == []
 
     # Revoke flagging the Other entry: its own name comes back as the label.
     r = await admin_client.post(
@@ -145,7 +146,7 @@ async def test_other_entries_are_labelled_and_decided_separately(client, admin_c
     assert v["rejectedItems"] == [f"doc:{other['id']}"] and v["rejectedItemLabels"] == ["Spices Board registration"]
 
 
-async def test_approve_approves_the_documents_too(client, admin_client):
+async def test_a_verified_business_has_every_document_decided(client, admin_client):
     body = await _submitted(client, admin_client, verify=True)
     docs = (await client.get("/me/verification-docs")).json()["items"]
     assert {d["status"] for d in docs} == {"approved"}
@@ -271,7 +272,7 @@ async def test_countries_are_referenced_not_free_text():
 
 
 
-async def test_approval_waits_until_the_reviewer_opened_every_required_document(client, admin_client, make_client):
+async def test_each_document_is_opened_and_approved_before_the_company(client, admin_client, make_client):
     from test_admin_accounts import _new_admin
 
     body = await signup_and_login(client, "owner@kaverifoods.in")
@@ -283,16 +284,47 @@ async def test_approval_waits_until_the_reviewer_opened_every_required_document(
     assert len(detail["unopenedDocIds"]) == 2  # GSTIN and PAN, entered as numbers
 
     r = await admin_client.post(f"/admin/users/{uid}/verify")
-    assert r.status_code == 409 and r.json()["detail"].startswith("Open each required document before approving.")
+    assert r.status_code == 409 and r.json()["detail"].startswith("Approve or reject each document")
     first, second = detail["unopenedDocIds"]
+    r = await admin_client.post(f"/admin/docs/{first}/approve")
+    assert r.status_code == 409 and r.json()["detail"].startswith("Open the ")
     await admin_client.post(f"/admin/docs/{first}/reveal", json=reason)
-    assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 409
+    assert (await admin_client.post(f"/admin/docs/{first}/approve")).status_code == 200
+    assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 409  # one still pending
     # Another reviewer's look doesn't count for this one.
     _, other = await _new_admin(admin_client, make_client)
     await other.post(f"/admin/docs/{second}/reveal", json=reason)
     assert (await admin_client.post(f"/admin/users/{uid}/open", json=reason)).json()["unopenedDocIds"] == [second]
+    assert (await admin_client.post(f"/admin/docs/{second}/approve")).status_code == 409
     await admin_client.post(f"/admin/docs/{second}/reveal", json=reason)
+    assert (await admin_client.post(f"/admin/docs/{second}/approve")).status_code == 200
     assert (await admin_client.post(f"/admin/users/{uid}/verify")).status_code == 200
+
+
+async def test_a_resubmitted_document_must_be_approved_before_the_company(client, admin_client):
+    """The reported bug: a rejected document is replaced, and approving the
+    company used to verify it without anyone deciding the new document."""
+    body = await signup_and_login(client, "resub@kaverifoods.in")
+    await fill_mandatory(client)
+    assert (await client.post("/me/submit-verification")).status_code == 200
+    uid = body["userId"]
+    gstin = next(d for d in (await client.get("/me/verification-docs")).json()["items"] if d["documentTypeCode"] == "gstin")
+    r = await admin_client.post(
+        f"/admin/users/{uid}/reject", json={"reason": "The GSTIN copy is unreadable.", "failedItems": ["kyb:gstin"]}
+    )
+    assert r.status_code == 200
+
+    assert (await client.delete(f"/me/verification-docs/{gstin['id']}")).status_code == 204
+    t = await _types(client)
+    new = (await client.post("/me/verification-docs", data={"documentTypeId": t["gstin"]["id"], "value": "29ABCDE1234F1Z5"})).json()
+    assert (await client.post("/me/submit-verification")).status_code == 200
+
+    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    assert r.status_code == 409 and "GSTIN" in r.json()["detail"]
+    assert (await client.get("/me")).json()["status"] == "pending_verification"
+    assert (await verify_business(admin_client, uid)).status_code == 200
+    docs = {d["id"]: d["status"] for d in (await client.get("/me/verification-docs")).json()["items"]}
+    assert docs[new["id"]] == "approved"
 
 
 # ── who reviewed it ──────────────────────────────────────────────────
@@ -325,10 +357,12 @@ async def test_the_account_shows_who_decided_what_and_why(client, admin_client, 
 
     detail = (await admin_client.post(f"/admin/users/{uid}/open", json={"reason": "Checking the review trail"})).json()
     history = detail["reviewHistory"]
-    assert [e["kind"] for e in history] == ["business_approved", "business_rejected"]
-    approved, rejected = history
+    # Each document is approved on its own now, before the company.
+    kinds = [e["kind"] for e in history]
+    assert kinds == ["business_approved", "document_approved", "document_approved", "business_rejected"]
+    approved, rejected = history[0], history[-1]
     assert (approved["reviewerName"], approved["reviewerEmail"]) == ("Riya Reviewer", "rev@cor1x.test")
-    assert approved["documentsApproved"] == 2  # GSTIN and PAN, approved with the business
+    assert approved["documentsApproved"] is None
     assert rejected["reviewerEmail"] == first["email"] and rejected["reviewerName"] == first["fullName"]
     assert rejected["reason"] == "The address doesn't match the GST certificate."
     assert rejected["items"] == ["Registered address", "GSTIN"]

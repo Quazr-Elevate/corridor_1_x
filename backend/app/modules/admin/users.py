@@ -37,11 +37,22 @@ async def user_detail(user_id: str, payload: AccessReasonIn, admin: CanViewUsers
 
 
 @router.patch("/users/{user_id}", response_model=UserDetail, response_model_by_alias=True)
-async def update_user(user_id: str, payload: UserPatchIn, admin: CanEditUsers, db: DbSession) -> UserDetail:
+async def update_user(
+    user_id: str, payload: UserPatchIn, admin: CanEditUsers, db: DbSession, background: BackgroundTasks
+) -> UserDetail:
     uid = parse_uuid(user_id)
-    await service.update_user(db, admin, uid, payload)
+    moved = await service.update_user(db, admin, uid, payload)
     detail = await service.user_detail(db, admin, uid)
     await db.commit()
+    if moved:
+        background.add_task(
+            notifications.deliver_safely,
+            notifications.send_country_changed,
+            to=moved.email,
+            first_name=notifications.first_name_of(moved.full_name),
+            country=moved.country_name,
+            documents=moved.documents_needed,
+        )
     return detail
 
 

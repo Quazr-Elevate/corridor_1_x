@@ -112,7 +112,7 @@ function LoginForm() {
           <Link href="/forgot-password" className={nightLinkClass}>
             Forgot your password?
           </Link>
-          <span className="mt-1 block">Signing in here signs you out on any other device.</span>
+          <span className="mt-1 block">You stay signed in on up to 5 devices; a sixth sign-in signs out the one used least recently.</span>
         </p>
       </form>
 

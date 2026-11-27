@@ -103,7 +103,8 @@ async def _seed(conn) -> None:
     types = default_rows()
     await conn.execute(Country.__table__.insert(), default_country_rows())
     await conn.execute(KybDocumentType.__table__.insert(), types)
-    await conn.execute(CountryDocumentRule.__table__.insert(), default_rule_rows(types))
+    if rules := default_rule_rows(types):
+        await conn.execute(CountryDocumentRule.__table__.insert(), rules)
     for code, links in default_country_links(types).items():
         await conn.execute(Country.__table__.update().where(Country.code == code).values(**links))
     from app.models.listing import CategoryCertificateRequirement, CertificateType, SpecParameter
@@ -391,12 +392,13 @@ PDF_BYTES = _clean_pdf()
 
 
 async def verify_business(admin: httpx.AsyncClient, user_id: str) -> httpx.Response:
-    """Approve a business the way a reviewer must (A-054): open each required
-    document the approval waits for (its file, or its number when there is
-    no file), then verify."""
+    """Approve a business the way a reviewer must (A-054): open each pending
+    document (its file, or its number when there is no file), approve it,
+    then verify the company."""
     reason = {"reason": "KYB review of this business"}
     detail = await admin.post(f"/admin/users/{user_id}/open", json=reason)
     for doc_id in detail.json().get("unopenedDocIds", []) if detail.status_code == 200 else []:
         if (await admin.post(f"/admin/docs/{doc_id}/file", json=reason)).status_code != 200:
             await admin.post(f"/admin/docs/{doc_id}/reveal", json=reason)
+        await admin.post(f"/admin/docs/{doc_id}/approve")
     return await admin.post(f"/admin/users/{user_id}/verify")

@@ -389,7 +389,7 @@ export function PaperOpenLink({ doc, label = "Open original" }: { doc: VerifyDoc
   );
 }
 
-/** Fired when this admin opens a KYB file or number; approval waits for every required one (A-054). */
+/** Fired when this admin opens a KYB file or number; a document is approved only once opened (A-054). */
 export const DOC_OPENED_EVENT = "cor1x:kyb-doc-opened";
 
 function announceDocOpened(docId: string) {
@@ -397,21 +397,43 @@ function announceDocOpened(docId: string) {
 }
 
 /**
- * The required documents this admin still has to open before approving,
+ * The pending documents this admin still has to open before approving them,
  * kept current as they are opened on the page.
  */
 export function useUnopenedDocs(initial: string[] | undefined): string[] {
+  // Documents opened on this page. The account and the preview load at the
+  // same time, so the server's list can arrive after a file was opened and
+  // still name it; what was opened here stays opened.
+  const opened = useRef<Set<string>>(new Set());
   const [left, setLeft] = useState<string[]>(initial ?? []);
   const key = (initial ?? []).join(",");
   useEffect(() => {
-    setLeft(key ? key.split(",") : []);
+    setLeft(key ? key.split(",").filter((id) => !opened.current.has(id)) : []);
   }, [key]);
   useEffect(() => {
-    const onOpened = (e: Event) => setLeft((ids) => ids.filter((id) => id !== (e as CustomEvent<string>).detail));
+    const onOpened = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      opened.current.add(id);
+      setLeft((ids) => ids.filter((x) => x !== id));
+    };
     window.addEventListener(DOC_OPENED_EVENT, onOpened);
     return () => window.removeEventListener(DOC_OPENED_EVENT, onOpened);
   }, []);
   return left;
+}
+
+/** Documents this admin opened on the page so far (file or number). */
+export function useOpenedDocs(): ReadonlySet<string> {
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const onOpened = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      setOpened((cur) => (cur.has(id) ? cur : new Set(cur).add(id)));
+    };
+    window.addEventListener(DOC_OPENED_EVENT, onOpened);
+    return () => window.removeEventListener(DOC_OPENED_EVENT, onOpened);
+  }, []);
+  return opened;
 }
 
 /**

@@ -1,0 +1,17 @@
+Hi {{ first_name }},
+
+Corridor changed your business country to {{ country }}.
+{% if documents %}
+Verification documents differ by country, so your profile needs these before it can be verified:
+{% for d in documents %}
+  - {{ d }}
+{% endfor %}
+Add them under Business verification and press "Send for verification" again:
+{{ account_url }}
+{% else %}
+Check your business profile here:
+{{ account_url }}
+{% endif %}
+If you didn't expect this change, reply to this email or write to {{ support_email }}.
+
+-- Cor1x

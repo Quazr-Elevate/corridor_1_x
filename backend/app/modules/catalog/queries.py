@@ -10,6 +10,7 @@ from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.business import Business, BusinessStatus
+from app.models.listing import ProductCertificate
 from app.models.product import ListingStatus, Product
 
 
@@ -73,3 +74,31 @@ async def hydrate_businesses(db: AsyncSession, business_ids: Sequence[UUID]) -> 
     if not ids:
         return {}
     return {b.id: b for b in await db.scalars(select(Business).where(Business.id.in_(ids)))}
+
+
+def undecided_listing_documents():
+    """Certificates added to a listing after it was published, still
+    internal with no decision made. Those uploaded before were seen with the
+    listing when it was reviewed."""
+    return (
+        select(ProductCertificate.product_id, func.min(ProductCertificate.created_at).label("since"))
+        .join(Product, Product.id == ProductCertificate.product_id)
+        .where(
+            ProductCertificate.visibility == "internal",
+            ProductCertificate.visibility_set_by.is_(None),
+            Product.published_at.is_not(None),
+            ProductCertificate.created_at > Product.published_at,
+        )
+        .group_by(ProductCertificate.product_id)
+    )
+
+
+def awaiting_review_clause():
+    """Listings in the review queue: new submissions, edits to published
+    listings, and documents added to live listings that nobody has decided on."""
+    undecided = undecided_listing_documents().subquery()
+    live_docs = and_(
+        Product.status.in_((ListingStatus.published, ListingStatus.paused)),
+        Product.id.in_(select(undecided.c.product_id)),
+    )
+    return or_(Product.status == ListingStatus.under_review, Product.revision_submitted_at.is_not(None), live_docs)

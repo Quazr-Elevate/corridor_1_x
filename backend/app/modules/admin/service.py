@@ -17,11 +17,12 @@ from app.models.business import Business, BusinessStatus
 from app.models.business_identity import BusinessIdentity
 from app.models.business_document import BusinessDocument, DocStatus
 from app.models.country import Country
-from app.models.kyb_document_type import KybDocumentType
 from app.models.product import Product
+from app.models.rfq import Rfq, RfqStatus
 from app.models.user_identity import UserIdentity
 from app.models.user import User
 from app.modules.accounts.uniqueness import commit_or_conflict, ensure_phone_available
+from app.modules.catalog.queries import awaiting_review_clause
 from app.modules.masking import service as masking
 from app.modules.admin.schemas import (
     AccountSecurityOut,
@@ -41,7 +42,6 @@ from app.modules.verification.rules import (
     ADMIN_REJECTABLE_STATUSES,
     ADMIN_VERIFIABLE_STATUSES,
     PROFILE_FIELDS,
-    document_rule_problems,
     reopen_review,
     requirements,
 )
@@ -151,6 +151,11 @@ async def dashboard_stats(db: AsyncSession) -> DashboardStats:
         await db.execute(
             select(
                 select(func.count(Product.id)).where(Product.deleted_at.is_(None)).scalar_subquery(),
+                select(func.count(Product.id))
+                .where(Product.deleted_at.is_(None), awaiting_review_clause())
+                .scalar_subquery(),
+                select(func.count(Rfq.id)).where(Rfq.status != RfqStatus.draft).scalar_subquery(),
+                select(func.count(Rfq.id)).where(Rfq.status.in_(RfqStatus.QUEUE)).scalar_subquery(),
                 select(func.count(BusinessDocument.id))
                 .join(Business, Business.id == BusinessDocument.business_id)
                 .where(*_docs_in_review())
@@ -168,7 +173,11 @@ async def dashboard_stats(db: AsyncSession) -> DashboardStats:
         rejected_businesses=int(b[4]),
         stuck_signups=int(b[5]),
         total_products=int(other[0] or 0),
-        pending_docs=int(other[1] or 0),
+        total_listings=int(other[0] or 0),
+        listings_to_review=int(other[1] or 0),
+        total_desk_requests=int(other[2] or 0),
+        desk_requests_waiting=int(other[3] or 0),
+        pending_docs=int(other[4] or 0),
     )
 
 
@@ -510,7 +519,7 @@ async def user_detail(
         business_id=str(b.id),
         same_name_as=(await masking.same_name_codes(db, [b.id]))[b.id],
         related_to=await related_codes(db, b),
-        unopened_doc_ids=[str(d.id) for d in await unopened_required_docs(db, admin.id, b.id)],
+        unopened_doc_ids=[str(d.id) for d in await unopened_docs(db, admin.id, b.id)],
         role=u.role.value,
         email=person.email,
         email_verified_at=u.email_verified_at,
@@ -537,9 +546,22 @@ def _blank_to_none(value: Any) -> Any:
     return None if value == "" else value
 
 
-async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, payload: UserPatchIn) -> None:
+@dataclass(frozen=True)
+class CountryChanged:
+    """Who to tell that staff moved their business to another country."""
+
+    email: str
+    full_name: str | None
+    country_name: str
+    documents_needed: list[str]
+
+
+async def update_user(
+    db: AsyncSession, admin: Actor, uid: uuid.UUID | None, payload: UserPatchIn
+) -> CountryChanged | None:
     """Apply only the keys present in the request; same uniqueness rules
-    as the self-service Passport saves. Audited as ``business.update``."""
+    as the self-service Passport saves. Audited as ``business.update``.
+    Returns who to notify when the country changed."""
     user = await load_user(db, uid)
     business = user.business
     changed: list[str] = []
@@ -569,6 +591,7 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
         changed.append(f"profile.{key}")
     identity = await masking.own_identity(db, business.id)
     before = kyb_snapshot(business, identity)
+    old_country = business.country
     for key, val in business_changes.items():
         if key == "country":
             await change_country(db, business, val, by_staff=True)
@@ -578,17 +601,55 @@ async def update_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None, pay
     # As when the business edits these itself: a verified business goes back
     # to review, and its listings leave the market until it is approved.
     reopened = kyb_snapshot(business, identity) != before and reopen_review(business)
+    moved = business.country != old_country
+    needed = (await requirements(db, business)).missing if moved else []
+    asked = moved and bool(needed) and business.verification_status != BusinessStatus.draft
+    if asked:
+        # The documents belong to the old country, so review can't finish:
+        # hand it back to the business with what to add, rather than leave
+        # it "in review" with nothing anyone can approve.
+        name = await _country_name(db, business.country)
+        business.verification_status = BusinessStatus.rejected
+        business.verification_rejected_reason = (
+            f"Corridor changed your business country to {name}. Add the documents {name} asks for "
+            "and send your profile for verification again."
+        )
+        business.verification_rejected_items = [r.key for r in needed]
 
     if changed:
+        extra: dict[str, Any] = {}
+        if reopened:
+            extra["reopenedReview"] = True
+        if moved:
+            extra["country"] = f"{old_country}→{business.country}"
+        if asked:
+            extra["documentsRequested"] = [r.key for r in needed]
         record_action(
             db,
             admin=admin,
             action="business.update",
             target_type="business",
             target_id=business.id,
-            details={"fields": changed, "userId": str(user.id), **({"reopenedReview": True} if reopened else {})},
+            details={"fields": changed, "userId": str(user.id), **extra},
         )
+    notice = None
+    if moved:
+        owner = await _owner_for(db, user)
+        contact = await masking.contact_of(db, owner.id) if owner else None
+        if contact and contact.email:
+            notice = CountryChanged(
+                email=contact.email,
+                full_name=contact.full_name,
+                country_name=await _country_name(db, business.country),
+                documents_needed=[r.label for r in needed if r.key.startswith("kyb:")],
+            )
     await commit_or_conflict(db)
+    return notice
+
+
+async def _country_name(db: AsyncSession, code: str) -> str:
+    country = await db.get(Country, code)
+    return country.name if country else code
 
 
 @dataclass(frozen=True)
@@ -643,21 +704,24 @@ async def related_codes(db: AsyncSession, business: Business) -> list[str]:
     return sorted(code or "unverified" for code in codes)
 
 
-async def unopened_required_docs(db: AsyncSession, admin_id: uuid.UUID, business_id: uuid.UUID) -> list[BusinessDocument]:
-    """The pending required documents this admin hasn't opened since they
+async def unopened_docs(db: AsyncSession, admin_id: uuid.UUID, business_id: uuid.UUID) -> list[BusinessDocument]:
+    """The business's pending documents this admin hasn't opened since they
     were uploaded: the file, or the full number when there is no file
     (A-054). Opening is read from the audit log the reveal routes write."""
     docs = list(await db.scalars(
-        select(BusinessDocument)
-        .join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id)
-        .where(
+        select(BusinessDocument).where(
             BusinessDocument.business_id == business_id,
             BusinessDocument.status == DocStatus.pending,
-            KybDocumentType.is_mandatory.is_(True),
         )
     ))
+    opened = await _opened_ids(db, admin_id, docs)
+    return [d for d in docs if d.id not in opened]
+
+
+async def _opened_ids(db: AsyncSession, admin_id: uuid.UUID, docs: list[BusinessDocument]) -> set[uuid.UUID]:
+    """Which of ``docs`` this admin opened after their latest upload."""
     if not docs:
-        return []
+        return set()
     opened = (await db.execute(
         select(AdminAction.target_id, AdminAction.action, func.max(AdminAction.created_at))
         .where(
@@ -674,12 +738,14 @@ async def unopened_required_docs(db: AsyncSession, admin_id: uuid.UUID, business
         when = seen.get((str(d.id), action))
         return when is not None and when >= ensure_aware(d.uploaded_at)
 
-    return [d for d in docs if not was_opened(d)]
+    return {d.id for d in docs if was_opened(d)}
 
 
 async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> Decision:
-    """Approve the user's business, once this admin has opened every
-    required document it rests on (A-054)."""
+    """Approve the user's business once every document it holds has its own
+    decision and the required ones are approved. Approving the business
+    never approves a document: each is opened and decided on its own, so a
+    resubmitted document can't ride through on the company's approval."""
     user = await load_user(db, uid)
     b = user.business
     if b.verification_status not in ADMIN_VERIFIABLE_STATUSES:
@@ -691,13 +757,16 @@ async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> 
     if report.missing:
         labels = ", ".join(r.label for r in report.missing)
         raise BadRequest(f"Can't verify: the business profile is incomplete ({labels}).")
-    mismatched = await document_rule_problems(db, b)
-    if mismatched:
-        raise BadRequest("Can't verify: " + " ".join(mismatched))
-    unopened = await unopened_required_docs(db, admin.id, b.id)
-    if unopened:
-        names = ", ".join(sorted({d.doc_type for d in unopened}))
-        raise Conflict(f"Open each required document before approving. Not opened yet: {names}.")
+    undecided = await db.scalars(
+        select(BusinessDocument.doc_type).where(
+            BusinessDocument.business_id == b.id, BusinessDocument.status == DocStatus.pending
+        )
+    )
+    names = sorted(set(undecided))
+    if names:
+        raise Conflict(
+            f"Approve or reject each document before approving the company. Still to review: {', '.join(names)}."
+        )
     now = utcnow()
     b.verification_status = BusinessStatus.verified
     b.verified_at = now
@@ -705,14 +774,7 @@ async def verify_user(db: AsyncSession, admin: Actor, uid: uuid.UUID | None) -> 
     b.verification_submitted_at = b.verification_submitted_at or now
     b.verification_rejected_reason = None
     b.verification_rejected_items = None
-    # One review: approving the business approves the documents verification
-    # rests on — its pending *required* entries. Optional and "Other" uploads
-    # keep their own per-document decision (nothing unseen gets approved).
-    approved = await _set_doc_status(db, b.id, admin, DocStatus.approved, now=now, required_only=True)
-    record_action(
-        db, admin=admin, action="business.verify", target_type="business", target_id=b.id,
-        details={"documents_approved": len(approved)} if approved else None,
-    )
+    record_action(db, admin=admin, action="business.verify", target_type="business", target_id=b.id)
     decision = await _decision(db, user, b)
     await db.commit()
     return decision
@@ -776,25 +838,6 @@ def _valid_failed_items(items: list[str], entries: list[BusinessDocument]) -> li
     return seen
 
 
-async def _set_doc_status(
-    db: AsyncSession, business_id: uuid.UUID, admin: Actor, status: DocStatus, *, now, required_only: bool = False
-) -> list[BusinessDocument]:
-    stmt = select(BusinessDocument).where(
-        BusinessDocument.business_id == business_id, BusinessDocument.status == DocStatus.pending
-    )
-    if required_only:
-        stmt = stmt.join(KybDocumentType, KybDocumentType.id == BusinessDocument.document_type_id).where(
-            KybDocumentType.is_mandatory.is_(True)
-        )
-    rows = list(await db.scalars(stmt))
-    for d in rows:
-        d.status = status
-        d.rejection_reason = None
-        d.reviewed_at = now
-        d.reviewed_by = admin.email
-    return rows
-
-
 # ── Documents ────────────────────────────────────────────────────────
 
 
@@ -852,6 +895,9 @@ async def review_doc(
     doc = await db.get(BusinessDocument, doc_id) if doc_id else None
     if doc is None:
         raise NotFound("Document not found")
+    if target == DocStatus.approved and doc.status == DocStatus.pending and not await _opened_ids(db, admin.id, [doc]):
+        what = "file" if doc.storage_key else "number"
+        raise Conflict(f"Open the {doc.doc_type} {what} before approving it.")
     doc.status = target
     doc.reviewed_at = utcnow()
     doc.reviewed_by = admin.email

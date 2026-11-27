@@ -104,6 +104,12 @@ class DashboardStats(CamelModel):
     recent_signups_24h: int
     stuck_signups: int
     pending_docs: int
+    #: Live listings (not deleted), as the Listings lane's "All" view counts them.
+    total_listings: int
+    listings_to_review: int
+    #: Requests sent to the desk (drafts are the buyer's), and those waiting on it.
+    total_desk_requests: int
+    desk_requests_waiting: int
 
 
 class TimelinePoint(CamelModel):

@@ -35,9 +35,9 @@ def default_country_rows() -> list[dict]:
 
 # (country, code, name, input_kind, pattern, placeholder, help, mandatory, sort)
 DEFAULT_TYPES = (
-    ("IN", "gstin", "GSTIN", "value", r"[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]", "22AAAAA0000A1Z5",
+    ("IN", "gstin", "GSTIN", "value", None, "22AAAAA0000A1Z5",
      "15-character GST Identification Number", True, 10),
-    ("IN", "pan", "PAN", "value", r"[A-Z]{5}[0-9]{4}[A-Z]", "AAAAA0000A",
+    ("IN", "pan", "PAN", "value", None, "AAAAA0000A",
      "Permanent Account Number of the business", True, 20),
     ("IN", "udyam", "Udyam (MSME) registration", "value", r"UDYAM-[A-Z]{2}-[0-9]{2}-[0-9]{7}", "UDYAM-KA-01-0000000",
      None, False, 30),
@@ -60,7 +60,9 @@ SHARED = {("IN", "pan")}
 COUNTRY_LINKS = {"IN": ("gstin", "pan")}
 
 #: Per country: (source code, start, end, target code) cross-checks (A-047).
-DEFAULT_RULES = (("IN", "gstin", 3, 12, "pan"),)
+#: None ship: numbers are checked by the reviewer and the upstream provider,
+#: not by country-specific rules in Corridor (0041). Admins may add their own.
+DEFAULT_RULES: tuple[tuple[str, str, int, int, str], ...] = ()
 
 
 def default_rows() -> list[dict]:
