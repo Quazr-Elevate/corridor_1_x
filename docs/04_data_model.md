@@ -1035,3 +1035,12 @@ Insert only: one row per hop with `from_status`, `to_status`, `actor_type`
 `requested`, `seller_dispatched`, `at_hub` and `reviewed`. Desk hops are
 also written to `admin_actions` (`sample.at_hub`, `sample.sealed`,
 `sample.forwarded`, `sample.received`).
+
+## No built-in India checks (`0040_no_builtin_india_checks`)
+
+A-080. Data only, no schema change. Clears `kyb_document_types.value_pattern`
+for India's `gstin` and `pan` and sets the seeded India
+`country_document_rules` row (GSTIN 3–12 = PAN) to `active = false`, in
+each case only while the row still holds the seeded value, so an admin's
+own pattern or rule is kept. Downgrade restores the seeded values on the
+same rows. Fresh databases (`seed.py`) start without them.

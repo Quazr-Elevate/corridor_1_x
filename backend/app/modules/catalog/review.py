@@ -6,7 +6,7 @@ import uuid
 from typing import Any
 
 from pydantic.alias_generators import to_camel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
@@ -18,7 +18,7 @@ from app.models.product import ListingStatus, Product
 from app.modules.admin.service import Actor, clean_reason, record_action
 from app.modules.catalog import certificates, service
 from app.modules.catalog.lifecycle import transition
-from app.modules.catalog.queries import _escape_like, hydrate_businesses
+from app.modules.catalog.queries import _escape_like, undecided_listing_documents, awaiting_review_clause, hydrate_businesses
 from app.modules.masking import service as masking
 from app.modules.catalog.schemas import ProductRead
 from app.shared import leakfilter
@@ -89,23 +89,6 @@ def _kind(p: Product, documents: dict[uuid.UUID, Any]) -> str | None:
     return "documents" if p.id in documents else None
 
 
-def _undecided_documents():
-    """Certificates added to a listing after it was published, still
-    internal with no decision made. Those uploaded before were seen with the
-    listing when it was reviewed."""
-    return (
-        select(ProductCertificate.product_id, func.min(ProductCertificate.created_at).label("since"))
-        .join(Product, Product.id == ProductCertificate.product_id)
-        .where(
-            ProductCertificate.visibility == "internal",
-            ProductCertificate.visibility_set_by.is_(None),
-            Product.published_at.is_not(None),
-            ProductCertificate.created_at > Product.published_at,
-        )
-        .group_by(ProductCertificate.product_id)
-    )
-
-
 def _seller(b: Business | None, business_id: uuid.UUID, legal_name: str | None) -> ListingSeller:
     return ListingSeller(
         business_id=str(business_id), company_code=b.company_code if b else None, legal_name=legal_name,
@@ -134,7 +117,7 @@ async def _documents_waiting(db: AsyncSession, live: list[Product]) -> dict[uuid
     """Live listing id → when its oldest undecided document was added."""
     if not live:
         return {}
-    rows = await db.execute(_undecided_documents().where(ProductCertificate.product_id.in_([p.id for p in live])))
+    rows = await db.execute(undecided_listing_documents().where(ProductCertificate.product_id.in_([p.id for p in live])))
     return dict(rows.all())
 
 
@@ -152,10 +135,9 @@ async def list_listings(
     nobody has decided on), oldest first. ``queue=all``: every listing,
     newest first, optionally one status."""
     stmt = select(Product).where(Product.deleted_at.is_(None))
-    undecided = _undecided_documents().subquery()
+    undecided = undecided_listing_documents().subquery()
     if queue == "pending":
-        live_docs = and_(Product.status.in_((S.published, S.paused)), Product.id.in_(select(undecided.c.product_id)))
-        stmt = stmt.where(or_(Product.status == S.under_review, Product.revision_submitted_at.is_not(None), live_docs))
+        stmt = stmt.where(awaiting_review_clause())
         stmt = stmt.outerjoin(undecided, undecided.c.product_id == Product.id)
         order = (func.coalesce(Product.revision_submitted_at, Product.submitted_at, undecided.c.since).asc(),)
     else:

@@ -242,6 +242,24 @@ export default function TowerHomePage() {
               sub={stats ? `${plural(stats.totalUsers, "account")} in total` : "…"}
             />
           </StaggerItem>
+          <StaggerItem>
+            <QueueTile
+              href="/admin/listings"
+              icon="sack"
+              count={stats?.totalListings}
+              title="Listings"
+              sub={stats ? `${stats.listingsToReview.toLocaleString("en-GB")} waiting for review` : "…"}
+            />
+          </StaggerItem>
+          <StaggerItem>
+            <QueueTile
+              href="/admin/rfqs"
+              icon="match"
+              count={stats?.totalDeskRequests}
+              title="Desk requests"
+              sub={stats ? `${stats.deskRequestsWaiting.toLocaleString("en-GB")} waiting on the desk` : "…"}
+            />
+          </StaggerItem>
         </Stagger>
       </section>
 

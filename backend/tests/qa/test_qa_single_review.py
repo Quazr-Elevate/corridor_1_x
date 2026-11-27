@@ -24,10 +24,12 @@ async def _ready_business(client, admin_client) -> tuple[str, dict]:
     return email, {"code": code, "type": t, "entry": entry}
 
 
-# QA-600.1 — approve verifies the business and approves its required documents
-async def test_approve_cascades_to_required_docs(client, admin_client):
+# QA-600.1 — adapted: each document is approved on its own, then the business
+async def test_approve_needs_every_document_decided_first(client, admin_client):
     email, ctx = await _ready_business(client, admin_client)
     uid = await user_id_for(admin_client, email)
+    r = await admin_client.post(f"/admin/users/{uid}/verify")
+    assert r.status_code == 409 and "QA6 cert" in r.json()["detail"]
     r = await verify_business(admin_client, uid)
     assert r.status_code == 200 and r.json()["status"] == "verified"
     assert (await client.get("/me")).json()["verification"]["status"] == "verified"

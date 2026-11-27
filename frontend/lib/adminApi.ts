@@ -80,6 +80,12 @@ export interface DashboardStats {
   /** Businesses still in draft 24h+ after signup. */
   stuckSignups: number;
   pendingDocs: number;
+  /** Live listings, as the Listings lane's "All" view counts them. */
+  totalListings: number;
+  listingsToReview: number;
+  /** Requests sent to the desk (not drafts), and those waiting on it. */
+  totalDeskRequests: number;
+  deskRequestsWaiting: number;
 }
 
 export interface TimelinePoint {

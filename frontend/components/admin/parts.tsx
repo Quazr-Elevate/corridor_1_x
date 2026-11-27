@@ -389,7 +389,7 @@ export function PaperOpenLink({ doc, label = "Open original" }: { doc: VerifyDoc
   );
 }
 
-/** Fired when this admin opens a KYB file or number; approval waits for every required one (A-054). */
+/** Fired when this admin opens a KYB file or number; a document is approved only once opened (A-054). */
 export const DOC_OPENED_EVENT = "cor1x:kyb-doc-opened";
 
 function announceDocOpened(docId: string) {
@@ -397,7 +397,7 @@ function announceDocOpened(docId: string) {
 }
 
 /**
- * The required documents this admin still has to open before approving,
+ * The pending documents this admin still has to open before approving them,
  * kept current as they are opened on the page.
  */
 export function useUnopenedDocs(initial: string[] | undefined): string[] {

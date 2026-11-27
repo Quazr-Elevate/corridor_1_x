@@ -231,6 +231,21 @@ async def send_verification_rejected(*, to: str, first_name: str, reason: str) -
     )
 
 
+async def send_country_changed(*, to: str, first_name: str, country: str, documents: list[str]) -> None:
+    """Tell a business that staff changed its country, and which documents
+    the new country asks for."""
+    await _send(
+        to,
+        f"Your Cor1x business country is now {country}",
+        "country_changed",
+        first_name=first_name,
+        country=country,
+        documents=documents,
+        account_url=frontend_url("/dashboard/account"),
+        support_email=settings.support_email,
+    )
+
+
 async def send_doc_rejected(*, to: str, first_name: str, cert_type: str, reason: str) -> None:
     await _send(
         to,
@@ -256,6 +271,7 @@ __all__ = [
     "deliver_safely",
     "first_name_of",
     "render",
+    "send_country_changed",
     "send_doc_rejected",
     "send_new_device_signin",
     "send_password_changed",

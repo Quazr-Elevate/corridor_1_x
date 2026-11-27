@@ -22,6 +22,8 @@ ALLOWED_VARIABLES = {
     "reset_url", "rfq_url", "subject", "support_email", "valid_minutes", "when",
     # The platform's deal reference (DL-…), not a party's identity (A-074).
     "deal_code",
+    # The recipient's own business country and the document names it asks for.
+    "country", "documents",
 }
 #: Names that would carry a company's or a counterparty's identity.
 FORBIDDEN = set(VAULT_COLUMNS) | {

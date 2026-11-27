@@ -361,14 +361,15 @@ export default function AccountDetailPage() {
   const passportPlace = [displayValue(user.businessProfile?.state), displayValue(user.businessProfile?.country)]
     .filter(Boolean)
     .join(", ");
-  const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing && unopened.length === 0;
+  const undecided = user.docs.filter((d) => d.status === "pending").length;
+  const canApprove = APPROVABLE.has(user.status) && missing.length === 0 && !editing && undecided === 0;
   const canReject = REJECTABLE.has(user.status) && !editing;
   const approveHint = editing
     ? "Save or cancel your edits first."
     : missing.length
       ? `${plural(missing.length, "required item")} still missing.`
-      : unopened.length && APPROVABLE.has(user.status)
-        ? `Open each required document first: ${plural(unopened.length, "document")} not opened yet.`
+      : undecided && APPROVABLE.has(user.status)
+        ? `Approve or reject each document first: ${plural(undecided, "document")} still to review.`
       : user.status === "verified"
         ? "Already verified."
         : !APPROVABLE.has(user.status)
@@ -467,7 +468,7 @@ export default function AccountDetailPage() {
               {approveHint ??
                 (user.status === "verified"
                   ? "Verified. Revoke it if something no longer holds."
-                  : "Profile and required documents are in — hold to approve.")}
+                  : "Profile complete and every document decided — hold to approve.")}
             </p>
             <TwinFlags sameNameAs={user.sameNameAs ?? []} relatedTo={user.relatedTo ?? []} />
           </div>
@@ -590,6 +591,7 @@ export default function AccountDetailPage() {
                                   size="sm"
                                   onCommit={() => approveDoc(d)}
                                   loading={docBusy === d.id}
+                                  disabled={unopened.includes(d.id)}
                                   holdMs={900}
                                 >
                                   Approve

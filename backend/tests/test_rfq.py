@@ -509,3 +509,16 @@ async def test_capacity_counts_the_months_left_and_incoterms_and_documents_must_
     assert (await admin_client.get(f"/admin/rfqs/{needs_pc['id']}")).json()["matches"] == []
     r = await admin_client.post(f"/admin/rfqs/{needs_pc['id']}/matches", json={"listingId": pid})
     assert r.status_code == 409 and "Not on the listing: Product certificate." in r.json()["detail"]
+
+
+async def test_the_dashboard_counts_listings_and_desk_requests(client, make_client, admin_client):
+    empty = (await admin_client.get("/admin/dashboard/stats")).json()
+    assert (empty["totalListings"], empty["totalDeskRequests"], empty["deskRequestsWaiting"]) == (0, 0, 0)
+    await _seller(client, admin_client)
+    buyer = make_client()
+    await _buyer(buyer)
+    await buyer.post("/rfqs", json=await _body(buyer))  # a draft is not the desk's yet
+    await _submitted(buyer)
+    stats = (await admin_client.get("/admin/dashboard/stats")).json()
+    assert (stats["totalListings"], stats["listingsToReview"]) == (1, 0)
+    assert (stats["totalDeskRequests"], stats["deskRequestsWaiting"]) == (1, 1)
