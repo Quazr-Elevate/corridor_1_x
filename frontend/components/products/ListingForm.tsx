@@ -1010,8 +1010,10 @@ export function ListingForm({ productId }: { productId?: string }) {
 
       {/* Action bar — floats above the dock. */}
       <div className="sticky bottom-[calc(max(14px,env(safe-area-inset-bottom))_+_80px)] z-30 pt-2">
-        <div className="glass flex flex-col gap-3 rounded-[24px] p-2 sm:flex-row sm:items-center sm:rounded-full sm:pl-5">
-          <p className="t-sub min-w-0 flex-1 px-3 pt-1 sm:px-0 sm:pt-0" aria-live="polite">
+        {/* Solid on a phone: see-through, the form's fields read through the
+            bar and collide with its labels. */}
+        <div className="glass flex flex-col gap-2 rounded-[24px] p-2 max-sm:[background-color:var(--glass-solid)] sm:flex-row sm:items-center sm:gap-3 sm:rounded-full sm:pl-5">
+          <p className="t-foot sm:t-sub min-w-0 flex-1 px-3 pt-1 sm:px-0 sm:pt-0" aria-live="polite">
             {formError ? (
               <span className="flex items-start gap-1.5 text-danger">
                 <Icon name="alert" size={14} className="mt-[2px] shrink-0" />
@@ -1031,8 +1033,8 @@ export function ListingForm({ productId }: { productId?: string }) {
               <span className="text-fg-3">Ready. A reviewer checks it before it reaches the market.</span>
             )}
           </p>
-          {/* Three buttons do not fit one row on a phone: submit takes its own. */}
-          <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+          {/* One row on a phone too, so the bar and the dock leave room for the form. */}
+          <div className="flex items-center gap-2">
             <Button variant="quiet" onClick={() => confirmIfDirty(() => router.push("/dashboard/products"))} disabled={busy !== null} className="flex-1 sm:flex-none">
               {dirty ? "Cancel" : "Back"}
             </Button>
@@ -1056,9 +1058,10 @@ export function ListingForm({ productId }: { productId?: string }) {
                   disabled={uploading > 0 || !canSubmit}
                   title={canSubmit ? undefined : verified ? "Complete the checklist first" : "Verify your company first"}
                   onClick={onSubmit}
-                  className="flex-1 basis-full sm:flex-none sm:basis-auto"
+                  className="flex-[1.4] sm:flex-none"
                 >
-                  Submit for review
+                  <span className="sm:hidden">Submit</span>
+                  <span className="hidden sm:inline">Submit for review</span>
                 </Button>
               </>
             )}
