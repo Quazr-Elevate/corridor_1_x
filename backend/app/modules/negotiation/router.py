@@ -10,9 +10,12 @@ from app.models.negotiation import ChatMessage, CounterOffer
 from app.modules.accounts.service import owner_contact
 from app.modules.auth.deps import CurrentUser, DbSession
 from app.core.config import settings
-from app.models.negotiation import Sample, SampleEvent
-from app.modules.negotiation import counters, samples, service
+from app.models.negotiation import Sample, SampleEvent, TermSheet
+from app.modules.negotiation import counters, samples, service, term_sheets
 from app.modules.negotiation.schemas import (
+    AcceptTermSheetIn,
+    DeclineTermSheetIn,
+    TermSheetOut,
     ChatMessageOut,
     ChatOut,
     ChooseOfferIn,
@@ -231,3 +234,52 @@ async def review_sample(
     await db.commit()
     await _mail_side(background, db, deal, "seller", notifications.send_sample_reviewed)
     return sample_out(sample, "buyer", (await samples.events(db, [sample.id]))[sample.id])
+
+
+# ── Term sheets (CX-103) ─────────────────────────────────────────────
+
+
+def term_sheet_out(t: TermSheet, side: str) -> TermSheetOut:
+    other = "seller" if side == "buyer" else "buyer"
+    return TermSheetOut(
+        version=t.version, status=t.status, product=t.product, quality=t.quality, packaging=t.packaging,
+        quantity=t.quantity, unit=t.unit, incoterm=t.incoterm, port_of_loading=t.port_of_loading,
+        destination_port=t.destination_port, delivery_from=t.delivery_from, delivery_to=t.delivery_to,
+        price_minor=getattr(t, f"{side}_price_minor"), currency=getattr(t, f"{side}_currency"),
+        payment_terms=getattr(t, f"{side}_payment_terms"), notes=t.notes, content_sha256=t.content_sha256,
+        you_accepted=getattr(t, f"{side}_accepted_at") is not None,
+        other_accepted=getattr(t, f"{other}_accepted_at") is not None,
+        decline_note=t.decline_note if t.declined_side == side else None,
+        issued_at=t.issued_at, agreed_at=t.agreed_at,
+    )
+
+
+@router.get("/{code}/term-sheets", response_model=ItemList[TermSheetOut], response_model_by_alias=True)
+async def list_term_sheets(code: str, user: CurrentUser, db: DbSession) -> ItemList[TermSheetOut]:
+    """Every version Corridor One X has issued on this deal, newest first, with your own price."""
+    side, _, rows = await term_sheets.visible_to(db, user, code)
+    return item_list([term_sheet_out(t, side) for t in rows])
+
+
+@router.post("/{code}/term-sheets/{version}/accept", response_model=TermSheetOut, response_model_by_alias=True)
+async def accept_term_sheet(
+    code: str, version: int, payload: AcceptTermSheetIn, user: CurrentUser, db: DbSession, background: BackgroundTasks
+) -> TermSheetOut:
+    """Accept the version you read, by its hash (409 if it isn't the one on
+    record). When both sides have accepted it is agreed and can't change."""
+    a = await term_sheets.accept(db, user, code, version, payload.content_sha256)
+    await db.commit()
+    if a.sheet.status == "agreed":
+        for s in ("buyer", "seller"):
+            await _mail_side(background, db, a.deal, s, notifications.send_term_sheet_agreed)
+    return term_sheet_out(a.sheet, a.side)
+
+
+@router.post("/{code}/term-sheets/{version}/decline", response_model=TermSheetOut, response_model_by_alias=True)
+async def decline_term_sheet(
+    code: str, version: int, payload: DeclineTermSheetIn, user: CurrentUser, db: DbSession
+) -> TermSheetOut:
+    """Say no, with a reason Corridor One X reads. It drafts a new version."""
+    a = await term_sheets.decline(db, user, code, version, payload.reason)
+    await db.commit()
+    return term_sheet_out(a.sheet, a.side)

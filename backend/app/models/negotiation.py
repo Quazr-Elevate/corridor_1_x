@@ -9,10 +9,28 @@ blocks is refused and recorded as a strike (its text is not kept)."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CHAR, JSON, BigInteger, CheckConstraint, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import (
+    CHAR,
+    DDL,
+    JSON,
+    BigInteger,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    event,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UTCDateTime
@@ -226,3 +244,143 @@ class SampleEvent(Base):
     actor_type: Mapped[str] = mapped_column(String(5), nullable=False)
     actor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+
+
+#: A version's path (A-076): the desk drafts it, issues it to both sides,
+#: and it is agreed when both accept. ``superseded`` when a later version is
+#: agreed; ``declined`` when a side says no; ``withdrawn`` by the desk.
+TERM_SHEET_STATUSES = ("draft", "issued", "agreed", "declined", "withdrawn", "superseded")
+TERM_SHEET_OPEN = ("draft", "issued")
+#: The terms. Frozen from issue: the code doesn't write them, and a trigger
+#: refuses it at the database (``trg_term_sheets_frozen``).
+TERM_FIELDS = (
+    "product", "quality", "packaging", "quantity", "unit", "incoterm", "port_of_loading", "destination_port",
+    "delivery_from", "delivery_to", "buyer_price_minor", "buyer_currency", "buyer_payment_terms",
+    "seller_price_minor", "seller_currency", "seller_payment_terms", "margin_pct", "notes", "version",
+    "deal_id", "content_sha256",
+)
+
+
+class TermSheet(Base):
+    """One version of a deal's terms (CX-103, A-076): the single source for
+    the LOIs and contracts that follow. Corridor One X is the counterparty
+    to both sides, so a version holds both prices; each side is shown only
+    its own. Once issued, its content is hashed and never changes; a change
+    is a new version."""
+
+    __tablename__ = "term_sheets"
+    __table_args__ = (
+        UniqueConstraint("deal_id", "version", name="uq_term_sheets_deal_version"),
+        # One version being worked on, and one agreed, per deal.
+        Index(
+            "uq_term_sheets_open", "deal_id", unique=True,
+            sqlite_where=text("status IN ('draft', 'issued')"), postgresql_where=text("status IN ('draft', 'issued')"),
+        ),
+        Index(
+            "uq_term_sheets_agreed", "deal_id", unique=True,
+            sqlite_where=text("status = 'agreed'"), postgresql_where=text("status = 'agreed'"),
+        ),
+        CheckConstraint(_in("status", TERM_SHEET_STATUSES), name="ck_term_sheets_status"),
+        CheckConstraint("version > 0 AND quantity > 0", name="ck_term_sheets_positive"),
+        CheckConstraint("buyer_price_minor > 0 AND seller_price_minor > 0", name="ck_term_sheets_prices"),
+        CheckConstraint(
+            "delivery_from IS NULL OR delivery_to IS NULL OR delivery_to >= delivery_from",
+            name="ck_term_sheets_delivery_window",
+        ),
+        CheckConstraint("status IN ('draft', 'withdrawn') OR content_sha256 IS NOT NULL", name="ck_term_sheets_hashed_when_issued"),
+        CheckConstraint(
+            "status NOT IN ('agreed', 'superseded') OR "
+            "(buyer_accepted_at IS NOT NULL AND seller_accepted_at IS NOT NULL AND agreed_at IS NOT NULL)",
+            name="ck_term_sheets_agreed_by_both",
+        ),
+        CheckConstraint("status <> 'declined' OR decline_note IS NOT NULL", name="ck_term_sheets_declined_has_note"),
+        CheckConstraint("status <> 'withdrawn' OR withdraw_note IS NOT NULL", name="ck_term_sheets_withdrawn_has_note"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    deal_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("deals.id", ondelete="RESTRICT", name="fk_term_sheets_deal_id"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(10), nullable=False, default="draft")
+
+    # ─── The goods ─────────────────────────────────────────────────
+    product: Mapped[str] = mapped_column(String(200), nullable=False)
+    quality: Mapped[str | None] = mapped_column(Text, nullable=True)
+    packaging: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(precision=12, scale=2), nullable=False)
+    unit: Mapped[str] = mapped_column(String(10), nullable=False)
+
+    # ─── Delivery ──────────────────────────────────────────────────
+    incoterm: Mapped[str] = mapped_column(String(3), nullable=False)
+    port_of_loading: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    destination_port: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    delivery_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    delivery_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # ─── Each side's price, per unit, in its own currency ──────────
+    buyer_price_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    buyer_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False)
+    buyer_payment_terms: Mapped[str] = mapped_column(String(30), nullable=False)
+    seller_price_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    seller_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False)
+    seller_payment_terms: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Desk only: the margin the two prices leave, through the deal's cost sheet.
+    margin_pct: Mapped[Decimal] = mapped_column(Numeric(precision=6, scale=2), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # SHA-256 of the canonical terms, set on issue. Both sides accept this hash.
+    content_sha256: Mapped[str | None] = mapped_column(CHAR(64), nullable=True)
+
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("admin_users.id", ondelete="SET NULL", name="fk_term_sheets_created_by"), nullable=True
+    )
+    issued_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("admin_users.id", ondelete="SET NULL", name="fk_term_sheets_issued_by"), nullable=True
+    )
+    issued_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    buyer_accepted_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_term_sheets_buyer_accepted_by"), nullable=True
+    )
+    buyer_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    seller_accepted_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL", name="fk_term_sheets_seller_accepted_by"), nullable=True
+    )
+    seller_accepted_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    agreed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    declined_side: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    decline_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    withdraw_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    superseded_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+def term_sheet_freeze_sql(dialect: str) -> list[str]:
+    """The trigger that refuses any change to the terms of an issued version,
+    for schemas built from the models (tests). Migration 0040 carries its own
+    copy, as migrations never import app code."""
+    if dialect == "sqlite":
+        changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in TERM_FIELDS)
+        return [
+            "CREATE TRIGGER trg_term_sheets_frozen BEFORE UPDATE ON term_sheets "
+            f"WHEN OLD.content_sha256 IS NOT NULL AND ({changed}) "
+            "BEGIN SELECT RAISE(ABORT, 'term_sheet_frozen'); END"
+        ]
+    changed = " OR ".join(f"NEW.{c} IS DISTINCT FROM OLD.{c}" for c in TERM_FIELDS)
+    return [
+        "CREATE FUNCTION term_sheets_frozen() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+        f"IF OLD.content_sha256 IS NOT NULL AND ({changed}) THEN "
+        "RAISE EXCEPTION 'term_sheet_frozen' USING ERRCODE = 'integrity_constraint_violation'; END IF; "
+        "RETURN NEW; END $$",
+        "CREATE TRIGGER trg_term_sheets_frozen BEFORE UPDATE ON term_sheets "
+        "FOR EACH ROW EXECUTE FUNCTION term_sheets_frozen()",
+    ]
+
+
+for _dialect in ("sqlite", "postgresql"):
+    for _sql in term_sheet_freeze_sql(_dialect):
+        event.listen(TermSheet.__table__, "after_create", DDL(_sql).execute_if(dialect=_dialect))

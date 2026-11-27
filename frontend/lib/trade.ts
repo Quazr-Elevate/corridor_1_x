@@ -253,6 +253,33 @@ export interface Sample {
   createdAt: string;
 }
 
+/** A term sheet version as one side reads it (CX-103): only that side's own price and payment terms. */
+export interface TermSheet {
+  version: number;
+  status: "issued" | "agreed" | "declined" | "withdrawn" | "superseded";
+  product: string;
+  quality: string | null;
+  packaging: string | null;
+  quantity: string;
+  unit: string;
+  incoterm: string;
+  portOfLoading: string | null;
+  destinationPort: string | null;
+  deliveryFrom: string | null;
+  deliveryTo: string | null;
+  priceMinor: number;
+  currency: string;
+  paymentTerms: PaymentTerms;
+  notes: string | null;
+  /** Sent back to accept: proves which text was agreed to. */
+  contentSha256: string;
+  youAccepted: boolean;
+  otherAccepted: boolean;
+  declineNote: string | null;
+  issuedAt: string | null;
+  agreedAt: string | null;
+}
+
 export const trade = {
   listRfqs: () => call<{ total: number; items: Rfq[] }>("/rfqs"),
   getRfq: (id: string) => call<Rfq>(`/rfqs/${id}`),
@@ -275,6 +302,11 @@ export const trade = {
     call<Counter>(`/deals/${dealCode}/counters`, { method: "POST", body: JSON.stringify(body) }),
   answerCounter: (dealCode: string, counterId: string, accept: boolean) =>
     call<Counter>(`/deals/${dealCode}/counters/${counterId}/answer`, { method: "POST", body: JSON.stringify({ accept }) }),
+  listTermSheets: (dealCode: string) => call<{ items: TermSheet[] }>(`/deals/${dealCode}/term-sheets`).then((r) => r.items),
+  acceptTermSheet: (dealCode: string, version: number, contentSha256: string) =>
+    call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/accept`, { method: "POST", body: JSON.stringify({ contentSha256 }) }),
+  declineTermSheet: (dealCode: string, version: number, reason: string) =>
+    call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/decline`, { method: "POST", body: JSON.stringify({ reason }) }),
   listSamples: (dealCode: string) => call<{ items: Sample[] }>(`/deals/${dealCode}/samples`).then((r) => r.items),
   requestSample: (dealCode: string) => call<Sample>(`/deals/${dealCode}/samples`, { method: "POST" }),
   dispatchSample: (dealCode: string, id: string, courierRef: string) =>

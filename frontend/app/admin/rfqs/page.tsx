@@ -15,6 +15,7 @@ import { LaneHeader } from "@/components/admin/tower";
 import { fmtAgo } from "@/components/admin/format";
 import { RequestSheet } from "@/components/trade/parts";
 import { DeskDealChatPanel, HeldMessages, OpenSamples, PendingCounters } from "@/components/admin/DeskChat";
+import { DeskTermSheetPanel } from "@/components/admin/DeskTermSheet";
 
 const STATUS: Record<string, { label: string; tone: ChipTone }> = {
   submitted: { label: "Waiting", tone: "move" },
@@ -282,6 +283,7 @@ export default function DeskPage() {
               ) : null}
 
               {detail.rfq.dealCode ? <DeskDealChatPanel key={detail.rfq.dealCode} dealCode={detail.rfq.dealCode} /> : null}
+              {detail.rfq.dealCode ? <DeskTermSheetPanel key={`ts-${detail.rfq.dealCode}`} dealCode={detail.rfq.dealCode} /> : null}
 
               {quotes.length ? (
                 <div>
