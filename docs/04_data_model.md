@@ -1154,3 +1154,28 @@ Postgres). The service refuses a transaction whose lines don't net to zero
 per currency or that has fewer than two lines; on Postgres the deferred
 constraint trigger `trg_ledger_entries_balanced` refuses it again at commit.
 The test suite lifts the insert-only guard only to wipe tables between tests.
+
+## Payment milestones (`0045_payment_milestones`)
+
+M5 · S10, CX-110 (A-083). Generated in the transaction that makes a deal's
+two contracts effective, from each contract's payment terms
+(`app/modules/payments/terms.py`); the same transaction posts each leg's
+opening entry to the ledger (`sales_contract`, `purchase_contract`).
+
+| Column | Notes |
+|---|---|
+| `deal_id`, `contract_id` | The deal and the contract (sales for the buyer leg, purchase for the seller leg) |
+| `leg`, `sequence` | `buyer`: the buyer pays Corridor One X; `seller`: Corridor One X pays the seller. Unique per deal, leg and sequence |
+| `kind` | `advance`, `balance`, `cad`, `lc_payment`, `da_payment`, `open_account`, `escrow_funding`, `retention` |
+| `amount_minor`, `currency` | Integer minor units in the contract's currency. A leg's amounts add up to its contract value exactly; the last part takes the rounding |
+| `due_event`, `due_days`, `due_at` | Due `due_days` after `contract_effective`, `shipment`, `documents` or `acceptance`; `due_at` is set when the event happens |
+| `gate` | What the milestone opens: `start_production`, `ship`, `release_documents`, `pay_seller`, `release_retention` |
+| `status` | `open` → `cleared` (buyer money received, CX-112) or `paid` (seller payout, CX-121); `void`. Check: only the buyer leg clears, only the seller leg is paid |
+
+The seller leg holds back `retention_pct` (a `trade_settings` placeholder,
+10) of its value as a last `retention` milestone due at acceptance.
+
+`trade_settings` gains `outlay_cap_months` (4, placeholder until CX-078) and
+`retention_pct` (10, placeholder). A contract's payment parameters
+(`advance_pct`, `tenor_days`, `credit_limit_minor`, `credit_insurance_ref`)
+are part of its `deal_documents.terms` and are checked before it is sent.

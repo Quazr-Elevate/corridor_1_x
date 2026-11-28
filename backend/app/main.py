@@ -23,6 +23,7 @@ from app.modules.accounts.router import branding_router, me_router, onboarding_r
 from app.modules.credits.router import wallet_router, webhooks_router
 from app.modules.negotiation.router import router as deals_router
 from app.modules.contracts.router import router as documents_router
+from app.modules.payments.router import router as milestones_router
 from app.modules.quotes.router import offers_router, quotes_router, rfq_offers_router
 from app.modules.rfq.router import matched_router, rfqs_router
 from app.modules.admin.router import router as admin_router
@@ -203,6 +204,7 @@ def create_app(s: Settings = settings) -> FastAPI:
         offers_router,
         deals_router,
         documents_router,
+        milestones_router,
         admin_router,
     ):
         app.include_router(router, prefix="/v1")

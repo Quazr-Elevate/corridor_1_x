@@ -202,6 +202,11 @@ export interface ContractTerms {
   governingLaw: string;
   seat: string;
   forceMajeure: string;
+  /** Payment parameters the contract's payment terms need (CX-110). */
+  advancePct?: number | null;
+  tenorDays?: number | null;
+  creditLimitMinor?: number | null;
+  creditInsuranceRef?: string | null;
 }
 
 export interface ContractTemplate {

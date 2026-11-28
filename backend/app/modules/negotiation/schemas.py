@@ -207,7 +207,7 @@ class ForwardIn(RequestModel):
 
 # ── Term sheets (CX-103) ─────────────────────────────────────────────
 
-PaymentTermsCode = Literal["advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account"]
+PaymentTermsCode = Literal["advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account", "cad", "da", "escrow"]
 
 
 class TermSheetOut(CamelModel):

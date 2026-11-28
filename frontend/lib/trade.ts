@@ -20,13 +20,17 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export type PaymentTerms = "advance" | "lc_sight" | "lc_usance" | "advance_balance_docs" | "open_account";
+export type PaymentTerms =
+  | "advance" | "lc_sight" | "lc_usance" | "advance_balance_docs" | "open_account" | "cad" | "da" | "escrow";
 export const PAYMENT_TERMS: ReadonlyArray<{ value: PaymentTerms; label: string }> = [
   { value: "advance", label: "Advance payment" },
   { value: "lc_sight", label: "Letter of credit at sight" },
   { value: "lc_usance", label: "Usance letter of credit" },
   { value: "advance_balance_docs", label: "Advance, balance against documents" },
   { value: "open_account", label: "Open account" },
+  { value: "cad", label: "Cash against documents" },
+  { value: "da", label: "Documents against acceptance" },
+  { value: "escrow", label: "Escrow" },
 ];
 export const paymentLabel = (v: string) => PAYMENT_TERMS.find((t) => t.value === v)?.label ?? v;
 export const INCOTERMS = ["EXW", "FOB", "CIF", "CFR", "DAP", "DDP"] as const;
@@ -297,6 +301,18 @@ export interface DealDocument {
   effectiveAt: string | null;
 }
 
+/** A payment milestone as its own party reads it (CX-110). */
+export interface Milestone {
+  sequence: number;
+  kind: "advance" | "balance" | "cad" | "lc_payment" | "da_payment" | "open_account" | "escrow_funding" | "retention";
+  amountMinor: number;
+  currency: string;
+  dueEvent: "contract_effective" | "shipment" | "documents" | "acceptance";
+  dueDays: number;
+  dueAt: string | null;
+  status: "open" | "cleared" | "paid" | "void";
+}
+
 export const trade = {
   listRfqs: () => call<{ total: number; items: Rfq[] }>("/rfqs"),
   getRfq: (id: string) => call<Rfq>(`/rfqs/${id}`),
@@ -324,6 +340,7 @@ export const trade = {
     call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/accept`, { method: "POST", body: JSON.stringify({ contentSha256 }) }),
   declineTermSheet: (dealCode: string, version: number, reason: string) =>
     call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/decline`, { method: "POST", body: JSON.stringify({ reason }) }),
+  listMilestones: (dealCode: string) => call<{ items: Milestone[] }>(`/deals/${dealCode}/milestones`).then((r) => r.items),
   listDocuments: (dealCode: string) => call<{ items: DealDocument[] }>(`/deals/${dealCode}/documents`).then((r) => r.items),
   signDocument: (dealCode: string, id: string, body: { contentSha256: string; signerRole: string; authorityConfirmed: boolean }) =>
     call<DealDocument>(`/deals/${dealCode}/documents/${id}/sign`, { method: "POST", body: JSON.stringify(body) }),

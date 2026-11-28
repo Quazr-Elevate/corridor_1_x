@@ -12,6 +12,8 @@ FX_BUFFER_PCT = "fx_buffer_pct"
 FREIGHT_MAX_AGE_DAYS = "freight_max_age_days"
 MAX_MARGIN_PCT = "max_margin_pct"
 FX_MAX_AGE_DAYS = "fx_max_age_days"
+OUTLAY_CAP_MONTHS = "outlay_cap_months"
+RETENTION_PCT = "retention_pct"
 
 # key, value, placeholder
 _SETTINGS = (
@@ -22,6 +24,8 @@ _SETTINGS = (
     (FREIGHT_MAX_AGE_DAYS, "7", False),  # plan 6.3: a freight quote older than this is refused
     (MAX_MARGIN_PCT, "25", True),  # CX-182: above this, a desk manager approves
     (FX_MAX_AGE_DAYS, "3", True),  # CX-181: an older rate needs a desk manager
+    (OUTLAY_CAP_MONTHS, "4", True),  # A-083: until the AD bank answers CX-078 (four or six)
+    (RETENTION_PCT, "10", True),  # A-083: held from the seller until acceptance
 )
 
 

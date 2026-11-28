@@ -29,6 +29,7 @@ from app.models.user import User
 from app.modules.contracts import mirror, render, templates
 from app.modules.fx import service as fx
 from app.modules.negotiation import counters
+from app.modules.payments import milestones
 from app.modules.deals.machine import Actor, transition
 from app.modules.masking import service as masking
 from app.modules.negotiation import service as chat
@@ -40,6 +41,9 @@ PAYMENT_LABELS = {
     "lc_usance": "usance letter of credit",
     "advance_balance_docs": "advance, balance against documents",
     "open_account": "open account",
+    "cad": "cash against documents",
+    "da": "documents against acceptance",
+    "escrow": "escrow, released at shipment and at acceptance",
 }
 #: Terms that must read the same in the buy and the sell document.
 SHARED_TERMS = ("product", "quality", "packaging", "quantity", "unit", "incoterm", "port_of_loading",
@@ -131,7 +135,7 @@ async def issue_lois(db: AsyncSession, admin_id: uuid.UUID, deal: Deal) -> list[
 
 CONTRACT_TERMS = ("tolerance_pct", "shipment_from", "shipment_to", "inspection_agency", "inspection_point",
                   "late_penalty_pct", "quality_penalty_pct", "claim_window_days", "governing_law", "seat",
-                  "force_majeure")
+                  "force_majeure", "advance_pct", "tenor_days", "credit_limit_minor", "credit_insurance_ref")
 
 
 def _plain(value: object) -> object:
@@ -165,6 +169,7 @@ async def issue_contracts(
     purchase = {**side_terms(ts, "seller"), **{k: _plain(purchase_in[k]) for k in CONTRACT_TERMS}}
     sheet = await counters.sheet_of(db, deal)
     mirror.check(sales, purchase, purchase_to_sales_rate=sheet.fx_rate)
+    await milestones.check_contract_terms(db, sales, purchase)
     if await _over_legal_threshold(db, sales["value_minor"], sales["currency"]) and not legal_review_note:
         raise Conflict(
             "This contract is above the legal-review threshold. Record who reviewed it before sending.",
@@ -262,6 +267,8 @@ async def countersign(
             contract.status, contract.effective_at = "effective", now
         transition(db, deal, DealStatus.CONTRACTED, actor=Actor.admin(admin_id),
                    details={"contracts": [str(d.id) for d in both.values()]})
+        # Payment terms become milestones, and the books open, in the same transaction (CX-110).
+        await milestones.generate(db, deal, both, admin_id)
     return Signed(doc, deal, moved)
 
 

@@ -12,7 +12,7 @@ from pydantic import Field
 from app.modules.catalog.schemas import Category, Currency, Incoterm, Operator, Unit
 from app.shared.schemas import CamelModel, CountryCode, RequestModel, text
 
-PaymentTerms = Literal["advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account"]
+PaymentTerms = Literal["advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account", "cad", "da", "escrow"]
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=12, decimal_places=2)]
 #: A price per unit in the currency's minor unit (paise, fils, cents).
 PriceMinor = Annotated[int, Field(ge=0, le=10**13)]

@@ -12,6 +12,9 @@ from app.modules.auth.deps import DbSession
 from app.modules.ledger import service as ledger
 from app.modules.ledger.schemas import DealBooksOut, EntryOut, LegOut, ReverseIn, TransactionOut
 from app.modules.negotiation import service as deals
+from app.modules.payments import milestones
+from app.modules.payments.schemas import DeskMilestoneOut
+from app.shared.schemas import ItemList, item_list
 
 router = APIRouter()
 
@@ -60,3 +63,15 @@ async def reverse_transaction(transaction_id: str, payload: ReverseIn, admin: Ca
         reference_type=txn.reference_type, reference_id=txn.reference_id, created_at=txn.created_at,
         entries=[EntryOut(account=e.account, leg=e.leg, amount_minor=e.amount_minor, currency=e.currency) for e in entries],
     )
+
+
+@router.get("/deals/{code}/milestones", response_model=ItemList[DeskMilestoneOut], response_model_by_alias=True)
+async def deal_milestones(code: str, _: CanViewFinance, db: DbSession) -> ItemList[DeskMilestoneOut]:
+    """Both legs' payment milestones, buyer first, in order."""
+    deal = await deals.deal_by_code(db, code)
+    return item_list([
+        DeskMilestoneOut(id=str(m.id), leg=m.leg, sequence=m.sequence, kind=m.kind, amount_minor=m.amount_minor,
+                         currency=m.currency, due_event=m.due_event, due_days=m.due_days, due_at=m.due_at,
+                         gate=m.gate, status=m.status, cleared_at=m.cleared_at)
+        for m in await milestones.of_deal(db, deal.id)
+    ])

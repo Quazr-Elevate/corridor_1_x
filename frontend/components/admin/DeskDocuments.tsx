@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { adminApi, errorMessage, type ContractTemplate, type ContractTerms, type DeskDocument } from "@/lib/adminApi";
-import { money } from "@/lib/trade";
+import { fromMinor, money, toMinor } from "@/lib/trade";
 import { formatDay } from "@/lib/verification";
 import { Button } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
@@ -39,6 +39,8 @@ const FIELDS: ReadonlyArray<{ key: keyof ContractTerms; label: string; type?: st
   { key: "forceMajeure", label: "Force majeure clause" },
 ];
 
+const intOrNull = (v: string) => (v.trim() === "" ? null : Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : null);
+
 function TermsForm({ title, value, onChange }: { title: string; value: ContractTerms; onChange: (v: ContractTerms) => void }) {
   return (
     <fieldset className="well space-y-3 rounded-[18px] p-4">
@@ -48,12 +50,23 @@ function TermsForm({ title, value, onChange }: { title: string; value: ContractT
           key={f.key}
           label={f.label}
           type={f.type}
-          value={String(value[f.key])}
+          value={String(value[f.key] ?? "")}
           inputMode={f.mono ? "decimal" : undefined}
           inputClassName={f.mono ? "t-code" : undefined}
           onChange={(e) => onChange({ ...value, [f.key]: f.key === "claimWindowDays" ? Number(e.target.value) || 0 : e.target.value })}
         />
       ))}
+      <p className="t-label pt-2 text-fg-3">Payment (as the payment terms need)</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Input label="Advance %" optional inputMode="numeric" value={value.advancePct ?? ""} hint="Advance + balance terms."
+          onChange={(e) => onChange({ ...value, advancePct: intOrNull(e.target.value) })} inputClassName="t-code" />
+        <Input label="Credit period (days)" optional inputMode="numeric" value={value.tenorDays ?? ""} hint="Usance LC, DA, open account."
+          onChange={(e) => onChange({ ...value, tenorDays: intOrNull(e.target.value) })} inputClassName="t-code" />
+        <Input label="Credit limit" optional inputMode="decimal" value={value.creditLimitMinor ? fromMinor(value.creditLimitMinor) : ""}
+          hint="DA and open account, buyer side." onChange={(e) => onChange({ ...value, creditLimitMinor: toMinor(e.target.value) })} inputClassName="t-code" />
+        <Input label="Credit insurance policy" optional value={value.creditInsuranceRef ?? ""} maxLength={100}
+          onChange={(e) => onChange({ ...value, creditInsuranceRef: e.target.value || null })} />
+      </div>
     </fieldset>
   );
 }

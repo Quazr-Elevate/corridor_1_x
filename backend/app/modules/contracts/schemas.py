@@ -92,6 +92,11 @@ class ContractTermsIn(RequestModel):
     governing_law: text(100, 2)  # type: ignore[valid-type]
     seat: text(100, 2)  # type: ignore[valid-type]
     force_majeure: text(300, 2)  # type: ignore[valid-type]
+    #: Payment parameters, as the contract's payment terms need them (CX-110).
+    advance_pct: int | None = Field(default=None, ge=1, le=99)
+    tenor_days: int | None = Field(default=None, ge=1, le=365)
+    credit_limit_minor: int | None = Field(default=None, gt=0, lt=10**15)
+    credit_insurance_ref: text(100, 2) | None = None  # type: ignore[valid-type]
 
     @model_validator(mode="after")
     def _window(self) -> ContractTermsIn:

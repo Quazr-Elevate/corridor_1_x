@@ -48,7 +48,9 @@ RFQ_KINDS = ("listing", "open")
 MATCH_STATUSES = ("proposed", "confirmed", "removed")
 MATCH_SOURCES = ("rule", "desk")
 #: How a buyer would like to pay. Fixed list; the contract sets the real terms (M4).
-PAYMENT_TERMS = ("advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account")
+#: The eight payment terms (A-083; to be checked against plan 10.1). Each
+#: generates its own milestones (``app/modules/payments/milestones.py``).
+PAYMENT_TERMS = ("advance", "lc_sight", "lc_usance", "advance_balance_docs", "open_account", "cad", "da", "escrow")
 
 
 class Rfq(Base):

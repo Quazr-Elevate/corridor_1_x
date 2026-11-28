@@ -19,6 +19,7 @@ import { DealCounters } from "@/components/trade/DealCounters";
 import { DealSamples } from "@/components/trade/DealSamples";
 import { DealTermSheet } from "@/components/trade/DealTermSheet";
 import { DealDocuments } from "@/components/trade/DealDocuments";
+import { DealPayments } from "@/components/trade/DealPayments";
 
 /**
  * Whether a stated value meets the buyer's limit, the way the server works
@@ -168,6 +169,7 @@ export default function MatchedRequestPage() {
           <div className="min-w-0 space-y-6">
           {chat ? <DealChat chat={chat} /> : null}
           {chat ? <DealCounters dealCode={chat.dealCode} canWrite={chat.canWrite} currency={quote?.currency ?? null} /> : null}
+          {chat ? <DealPayments dealCode={chat.dealCode} side="seller" /> : null}
           {chat ? <DealDocuments dealCode={chat.dealCode} canWrite={!chat.suspended} /> : null}
           {chat ? <DealTermSheet dealCode={chat.dealCode} canWrite={chat.canWrite} /> : null}
           {chat ? <DealSamples dealCode={chat.dealCode} side="seller" canWrite={chat.canWrite} /> : null}
