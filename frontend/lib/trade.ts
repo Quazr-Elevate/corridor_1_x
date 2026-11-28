@@ -280,6 +280,23 @@ export interface TermSheet {
   agreedAt: string | null;
 }
 
+/** An LOI or contract as its own party reads it (A-081): the full text and its hash. */
+export interface DealDocument {
+  id: string;
+  kind: "loi" | "contract";
+  status: "issued" | "party_signed" | "signed" | "effective" | "void";
+  body: string;
+  contentSha256: string;
+  valueMinor: number;
+  currency: string;
+  expiresAt: string;
+  voidReason: string | null;
+  issuedAt: string;
+  youSignedAt: string | null;
+  corridorSignedAt: string | null;
+  effectiveAt: string | null;
+}
+
 export const trade = {
   listRfqs: () => call<{ total: number; items: Rfq[] }>("/rfqs"),
   getRfq: (id: string) => call<Rfq>(`/rfqs/${id}`),
@@ -307,6 +324,9 @@ export const trade = {
     call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/accept`, { method: "POST", body: JSON.stringify({ contentSha256 }) }),
   declineTermSheet: (dealCode: string, version: number, reason: string) =>
     call<TermSheet>(`/deals/${dealCode}/term-sheets/${version}/decline`, { method: "POST", body: JSON.stringify({ reason }) }),
+  listDocuments: (dealCode: string) => call<{ items: DealDocument[] }>(`/deals/${dealCode}/documents`).then((r) => r.items),
+  signDocument: (dealCode: string, id: string, body: { contentSha256: string; signerRole: string; authorityConfirmed: boolean }) =>
+    call<DealDocument>(`/deals/${dealCode}/documents/${id}/sign`, { method: "POST", body: JSON.stringify(body) }),
   listSamples: (dealCode: string) => call<{ items: Sample[] }>(`/deals/${dealCode}/samples`).then((r) => r.items),
   requestSample: (dealCode: string) => call<Sample>(`/deals/${dealCode}/samples`, { method: "POST" }),
   dispatchSample: (dealCode: string, id: string, courierRef: string) =>

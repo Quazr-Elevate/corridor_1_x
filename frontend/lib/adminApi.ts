@@ -164,6 +164,53 @@ export interface DeskDealChat {
   threads: { side: "buyer" | "seller"; companyCode: string | null; suspended: boolean; messages: DeskChatMessage[] }[];
 }
 
+/** An LOI or contract as the desk sees it: both sides, with signatures (A-081). */
+export interface DeskDocument {
+  id: string;
+  dealCode: string;
+  kind: "loi" | "contract";
+  side: "buyer" | "seller";
+  status: "issued" | "party_signed" | "signed" | "effective" | "void";
+  body: string;
+  contentSha256: string;
+  valueMinor: number;
+  currency: string;
+  termSheetVersion: number;
+  template: string;
+  expiresAt: string;
+  voidReason: string | null;
+  issuedAt: string;
+  effectiveAt: string | null;
+  signatures: { signerType: "party" | "corridor"; signerRole: string; signedAt: string }[];
+}
+
+/** One contract's own terms (A-081); percentages and dates as strings. */
+export interface ContractTerms {
+  tolerancePct: string;
+  shipmentFrom: string;
+  shipmentTo: string;
+  inspectionAgency: string;
+  inspectionPoint: string;
+  latePenaltyPct: string;
+  qualityPenaltyPct: string;
+  claimWindowDays: number;
+  governingLaw: string;
+  seat: string;
+  forceMajeure: string;
+}
+
+export interface ContractTemplate {
+  id: string;
+  code: string;
+  version: number;
+  status: "draft" | "approved" | "retired";
+  body: string;
+  approvalNote: string | null;
+  approvedAt: string | null;
+}
+
+export type SignBody = { contentSha256: string; signerRole: string; authorityConfirmed: boolean };
+
 /** A term sheet version as the desk sees it: both prices and the margin (CX-103). */
 export interface DeskTermSheet {
   id: string;
@@ -860,6 +907,17 @@ export const adminApi = {
   issueTermSheet: (id: string) => req<DeskTermSheet>(`/admin/term-sheets/${id}/issue`, { method: "POST" }),
   withdrawTermSheet: (id: string, reason: string) =>
     req<DeskTermSheet>(`/admin/term-sheets/${id}/withdraw`, { method: "POST", body: JSON.stringify({ reason }) }),
+  dealDocuments: (code: string) => req<ItemList<DeskDocument>>(`/admin/deals/${code}/documents`).then((r) => r.items),
+  issueLois: (code: string) => req<ItemList<DeskDocument>>(`/admin/deals/${code}/lois`, { method: "POST" }),
+  issueContracts: (code: string, body: { sales: ContractTerms; purchase: ContractTerms; legalReviewNote: string | null }) =>
+    req<ItemList<DeskDocument>>(`/admin/deals/${code}/contracts`, { method: "POST", body: JSON.stringify(body) }),
+  countersign: (id: string, body: SignBody) =>
+    req<DeskDocument>(`/admin/documents/${id}/countersign`, { method: "POST", body: JSON.stringify(body) }),
+  voidDocument: (id: string, reason: string) =>
+    req<DeskDocument>(`/admin/documents/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) }),
+  contractTemplates: () => req<ItemList<ContractTemplate>>("/admin/contract-templates").then((r) => r.items),
+  approveTemplate: (id: string, note: string) =>
+    req<ContractTemplate>(`/admin/contract-templates/${id}/approve`, { method: "POST", body: JSON.stringify({ note }) }),
   openSamples: () => req<ItemList<DeskSample>>("/admin/samples").then((r) => r.items),
   sampleAtHub: (id: string) => req<DeskSample>(`/admin/samples/${id}/at-hub`, { method: "POST" }),
   sealSample: (id: string, retainedSealNo: string, forwardSealNo: string) =>

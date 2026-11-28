@@ -18,6 +18,7 @@ import { DealChat } from "@/components/trade/DealChat";
 import { DealCounters } from "@/components/trade/DealCounters";
 import { DealSamples } from "@/components/trade/DealSamples";
 import { DealTermSheet } from "@/components/trade/DealTermSheet";
+import { DealDocuments } from "@/components/trade/DealDocuments";
 import { HoldButton } from "@/components/ui/Controls";
 
 /**
@@ -154,6 +155,7 @@ export default function RequestPage() {
                     currency={offers?.find((o) => o.status === "published" && o.unlocked)?.currency ?? null}
                   />
                 ) : null}
+                {chat ? <DealDocuments dealCode={chat.dealCode} canWrite={!chat.suspended} /> : null}
                 {chat ? <DealTermSheet dealCode={chat.dealCode} canWrite={chat.canWrite} /> : null}
                 {chat ? <DealSamples dealCode={chat.dealCode} side="buyer" canWrite={chat.canWrite} /> : null}
                 <div>
