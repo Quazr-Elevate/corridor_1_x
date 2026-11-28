@@ -6,7 +6,7 @@ columns (values are stored as UTC). Always pass DB datetimes through
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 def utcnow() -> datetime:
@@ -20,3 +20,15 @@ def ensure_aware(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def add_business_days(start: datetime, days: int) -> datetime:
+    """``start`` plus ``days`` weekdays (Monday to Friday), same time of day.
+    Public holidays aren't counted out yet: which calendar (India, UAE or
+    both) is for the client to confirm."""
+    current, left = start, days
+    while left > 0:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            left -= 1
+    return current

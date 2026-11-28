@@ -11,6 +11,7 @@ his `flows.md`.
 | FLOW-300/400/500 trader documents + submit gate | `test_qa_trader_docs.py` | `GET /kyb/document-types`; one entry per type — a second add is 409, the file is replaced via PATCH. `mandatoryTotal` = 4 profile fields + required documents |
 | FLOW-600/700 single review + trader rejection view | `test_qa_single_review.py` | Keys `kyb:<code>` / `doc:<entry id>`; `rejectedItemLabels` is a list aligned with `rejectedItems`. Unknown keys → 400 (not silently dropped) |
 | FLOW-800 auto re-review | `test_qa_auto_unverify.py` | Triggered by company name, address, city, country, required documents — not contact person or trade position |
+| M4 journey (S8 + S9) | `test_qa_m4_journey.py` | One deal from a chosen offer to two effective contracts: chat (relayed, blocked, held and released), counter-offer, sample, term sheet, LOIs, contracts (a pair that doesn't mirror is refused). Checks neither trader is ever sent the other's identity or price |
 | FLOW-900 per-document review | existing `tests/test_docs.py`, `tests/test_review.py` | — |
 
 Run: `python -m pytest tests/qa -q`

@@ -1,7 +1,8 @@
 """Close RFQs whose open period ran out without an offer, mark offers past
 their date expired, remind buyers of offers that end tomorrow, write off
 plan credits whose plan has ended, and delete sign-up and reset codes older
-than 24 hours (cron, hourly: CX-178, CX-183, CX-173, CX-149).
+than 24 hours, and lapse LOIs and contracts not signed in time (cron, hourly:
+CX-178, CX-183, CX-173, CX-149, CX-104).
 
 The lists also run this when they are read, so a missed run only delays the
 status change; it never lets an expired RFQ be worked.
@@ -22,6 +23,7 @@ from app.core.db import SessionLocal  # noqa: E402
 from app.main import configure_integrations  # noqa: E402
 from app.modules.accounts.service import owner_contact  # noqa: E402
 from app.modules.auth.service import purge_old_codes  # noqa: E402
+from app.modules.contracts.documents import lapse_due  # noqa: E402
 from app.modules.credits.service import expire_due_plans  # noqa: E402
 from app.modules.quotes.service import expire_offers_due, offers_to_remind  # noqa: E402
 from app.modules.rfq.service import expire_due  # noqa: E402
@@ -36,6 +38,7 @@ async def main() -> None:
         due = await offers_to_remind(db)
         owners = [(await owner_contact(db, offer.buyer_business_id), offer, rfq) for offer, rfq in due]
         codes = await purge_old_codes(db)
+        lapsed = await lapse_due(db)
         await db.commit()
     for owner, offer, rfq in owners:
         if owner is not None:
@@ -45,7 +48,7 @@ async def main() -> None:
             )
     print(
         f"Expired {closed} request(s), {offers} offer(s) and the credits of {plans} plan(s); "
-        f"reminded {len(owners)} buyer(s); deleted {codes} old email code(s)."
+        f"reminded {len(owners)} buyer(s); deleted {codes} old email code(s); {lapsed} deal(s) had unsigned documents lapse."
     )
 
 

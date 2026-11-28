@@ -76,6 +76,9 @@ Last updated: 27 November 2026 · Status key: ✅ built and tested · 🔜 plann
 - ✅ **Counter-offers:** either side proposes a new price in its own currency. Corridor One X checks it, then the other side sees what it means in their currency and accepts or declines. Neither side sees the other's price.
 - ✅ **Samples:** the buyer asks for a sample (paid in credits). The seller sends it to Corridor One X's hub, which splits it, seals both halves, keeps one for disputes and sends the other to the buyer under its own name. The buyer records whether it passed. Each side sees only its own courier leg.
 - ✅ **Term sheet:** Corridor One X drafts the terms (product, quality, quantity, price, payment, incoterm, ports, delivery window). Each side reads its own price and accepts the exact version it read, or says what needs to change. When both accept, the version is agreed and can never change; new terms mean a new version, which replaces it once both accept.
+- ✅ **Letters of intent:** once the term sheet is agreed, each side receives its own letter of intent with Corridor One X, naming only itself, at its own price. It is read and signed in the app: the signer confirms they may sign for their company. Corridor One X countersigns. If both letters aren't signed within five business days, both lapse and new ones can be issued.
+- ✅ **Contracts:** after both letters are signed, the buyer receives a sales contract and the seller a purchase contract, each with Corridor One X. They are signed the same way. Both take effect at the same moment, when Corridor One X signs the second; the deal is then contracted. Contracts not signed within five business days of the letters lapse with them.
+- ⏳ The letter and contract texts are drafts until a trade lawyer approves them; nothing is sent for signature before then.
 - ⏳ The sample fee is a placeholder (5 credits) until it is set from a courier quote.
 
 ---
@@ -149,7 +152,8 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Request queue:** new requests with the sellers the rules propose and why. The desk adds or removes sellers, confirms, rejects with a reason, or closes a request as unmatched.
 - ✅ **Hard rules:** same category, monthly capacity covers the quantity, required specifications within the buyer's limits, lead time inside the delivery window. The desk cannot add a seller who fails one.
 - ✅ **Roles:** trade desk and desk manager. They see company codes, never names.
-- ✅ **Cost sheet:** the desk adds freight, insurance, inspection and other costs to a quote, converts once at a stored rate with a buffer, and sets the margin. A freight figure older than seven days is refused. A margin under the floor needs a desk manager other than the author.
+- ✅ **Ranked proposals:** among the sellers that pass every rule, the best ten are proposed, ranked out of 100 on optional specifications met, price against the buyer's target, and how often the seller quotes when sent a request. The desk sees the score and why.
+- ✅ **Cost sheet:** the desk adds freight, insurance, inspection and other costs to a quote (each in rupees, dirhams or dollars, converted once at the stored rate), converts once at a stored rate with a buffer, and sets the margin. A freight figure older than seven days is refused. A margin under the floor needs a desk manager other than the author.
 - ✅ **Publish the offer:** the buyer gets the selling price; the deal moves to Quoted. The offer ends at least two days before the quote behind it.
 - ✅ **Held countries** and the desk's settings (how long a request stays open and others), set by a super admin.
 
@@ -158,6 +162,9 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Counter-offers:** each shows what it means for the other side and the margin left. Pass it on at the sheet's margin or another; outside the floor or ceiling only a desk manager may.
 - ✅ **Samples in progress:** record arrival at the hub, the two seal numbers, the forward courier and delivery. A sample can't be forwarded before both halves are sealed.
 - ✅ **Term sheet:** draft a version (the first starts from the chosen offer at the last accepted counter's prices), edit it, and issue it to both sides. Issuing fixes the text. A margin outside the limits needs a desk manager. A version can be withdrawn until it is agreed.
+
+- ✅ **Contracts (desk):** set each contract's own terms (quantity tolerance, shipment window, inspection, penalties, claim window, law, seat, force majeure). The two contracts are refused, naming the term, unless every promise to the buyer is backed by the seller: penalties are compared as amounts of money, not percentages. Contracts above a set value need the lawyer who reviewed them recorded first.
+- ✅ **Letters of intent (desk):** issue both letters from the agreed term sheet (refused if they would disagree, or would show the other side's identity), countersign as Corridor One X (desk manager), void with a reason. Templates are listed with their approval; a super admin records the lawyer's approval of each version.
 
 ## Change log
 

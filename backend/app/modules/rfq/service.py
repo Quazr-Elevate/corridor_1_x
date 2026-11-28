@@ -38,7 +38,8 @@ from app.modules.credits import service as credits
 from app.modules.deals import machine
 from app.modules.deals.machine import Actor
 from app.modules.masking import service as masking
-from app.modules.rfq import matching, seed
+from app.modules.fx import service as fx
+from app.modules.rfq import matching, ranking, seed
 from app.modules.rfq.schemas import (
     CertificateNeed,
     DeskLeakFlag,
@@ -365,10 +366,30 @@ async def evaluate_listing(db: AsyncSession, rfq: Rfq, listing: Product, today) 
     )
 
 
+async def _response_history(db: AsyncSession, seller_ids: set[uuid.UUID], rfq: Rfq) -> dict[uuid.UUID, tuple[int, int]]:
+    """Per seller: requests sent to it in the last year (other than this one),
+    and how many of those it quoted on."""
+    if not seller_ids:
+        return {}
+    since = utcnow() - timedelta(days=365)
+    rows = await db.execute(
+        select(RfqMatch.seller_business_id, func.count(RfqMatch.id), func.count(Quote.id))
+        .outerjoin(Quote, (Quote.rfq_id == RfqMatch.rfq_id) & (Quote.seller_business_id == RfqMatch.seller_business_id))
+        .where(
+            RfqMatch.seller_business_id.in_(seller_ids), RfqMatch.status == "confirmed",
+            RfqMatch.confirmed_at >= since, RfqMatch.rfq_id != rfq.id,
+        )
+        .group_by(RfqMatch.seller_business_id)
+    )
+    return {seller: (sent, quoted) for seller, sent, quoted in rows}
+
+
 async def propose_matches(db: AsyncSession, rfq: Rfq, *, today) -> int:
     """Replace the rule-made proposals with a fresh run. Desk-added and
-    confirmed matches are left alone. One listing per seller: the first that
-    passes. A request raised from a listing proposes that listing only."""
+    confirmed matches are left alone. Every listing that passes the hard rules
+    is scored (``ranking``); each seller is proposed once, with its best
+    listing, and the best :data:`MAX_PROPOSALS` sellers are proposed (CX-177).
+    A request raised from a listing proposes that listing only."""
     stmt = visible_products_select().where(
         Product.category == rfq.category, Product.business_id != rfq.buyer_business_id
     )
@@ -387,23 +408,30 @@ async def propose_matches(db: AsyncSession, rfq: Rfq, *, today) -> int:
     await db.flush()
     kept = {seller for seller, m in existing.items() if not (m.source == "rule" and m.status == "proposed")}
 
-    proposed = 0
+    rates = await fx.get_latest_rates(db)
+    history = await _response_history(db, {p.business_id for p in listings} - kept, rfq)
+    best: dict[uuid.UUID, tuple[ranking.Score, Product, list]] = {}
     for listing in listings:
-        if proposed >= MAX_PROPOSALS:
-            break
         if listing.business_id in kept:
             continue
         reasons = matching.evaluate(
             rfq, listing, specs[listing.id], required, today, on_file=on_file[listing.id], needed=needed
         )
-        if matching.passes(reasons):
-            db.add(RfqMatch(
-                rfq_id=rfq.id, seller_business_id=listing.business_id, listing_id=listing.id, status="proposed",
-                source="rule", reasons=reasons,
-            ))
-            kept.add(listing.business_id)
-            proposed += 1
-    return proposed
+        if not matching.passes(reasons):
+            continue
+        sent, quoted = history.get(listing.business_id, (0, 0))
+        scored = ranking.score(rfq, listing, specs[listing.id], required, rates, sent=sent, quoted=quoted)
+        # Listings arrive newest first, so a tie keeps the newer listing.
+        if listing.business_id not in best or scored.total > best[listing.business_id][0].total:
+            best[listing.business_id] = (scored, listing, reasons)
+
+    chosen = sorted(best.values(), key=lambda b: b[0].total, reverse=True)[:MAX_PROPOSALS]
+    for scored, listing, reasons in chosen:
+        db.add(RfqMatch(
+            rfq_id=rfq.id, seller_business_id=listing.business_id, listing_id=listing.id, status="proposed",
+            source="rule", reasons=reasons, score=scored.total, score_parts=scored.parts,
+        ))
+    return len(chosen)
 
 
 # ── Views ────────────────────────────────────────────────────────────
@@ -639,7 +667,9 @@ async def desk_detail(db: AsyncSession, rfq_id: uuid.UUID | None) -> DeskRfqDeta
     turning a code into a name is the audited unmask, not this screen."""
     rfq = await _desk_rfq(db, rfq_id)
     matches = list(await db.scalars(
-        select(RfqMatch).where(RfqMatch.rfq_id == rfq.id, RfqMatch.status != "removed").order_by(RfqMatch.created_at)
+        select(RfqMatch).where(RfqMatch.rfq_id == rfq.id, RfqMatch.status != "removed")
+        # Best-ranked first; desk-added matches (no score) after, oldest first.
+        .order_by(RfqMatch.score.is_(None), RfqMatch.score.desc(), RfqMatch.created_at)
     ))
     sellers = await _businesses(db, [m.seller_business_id for m in matches])
     listing_ids = [m.listing_id for m in matches if m.listing_id]
@@ -663,7 +693,7 @@ async def desk_detail(db: AsyncSession, rfq_id: uuid.UUID | None) -> DeskRfqDeta
                 seller_state=sellers[m.seller_business_id].state if m.seller_business_id in sellers else None,
                 listing_id=str(m.listing_id) if m.listing_id else None, listing_name=names.get(m.listing_id),
                 status=m.status, source=m.source, reasons=[MatchReason(**r) for r in m.reasons],
-                viewed_at=m.viewed_at,
+                score=m.score, score_parts=m.score_parts, viewed_at=m.viewed_at,
             )
             for m in matches
         ],

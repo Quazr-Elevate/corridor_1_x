@@ -631,6 +631,22 @@ cd backend
 .venv/bin/alembic upgrade head
 ```
 
+### Rotating keys (CX-035, A-080)
+
+No rotation signs anyone out: sessions are random tokens, not signed.
+
+| Secret | How | Old value |
+|---|---|---|
+| `SESSION_SECRET` | Set the new one; put the old one in `SESSION_SECRET_PREVIOUS` | Remove after 30 minutes (codes in flight) |
+| `KYB_ENC_KEYS` | Add `N+1:<newkey>` (the highest version encrypts); deploy; `python scripts/rotate_keys.py` (dry run), then `--apply` | Remove a version once the script reports it holds 0 values |
+| `KYB_HASH_KEY` | Set the new one; put the old one in `KYB_HASH_KEY_PREVIOUS`; deploy; run the script as above | **Keep it.** Deleted companies' free-quota rows can only be matched by it |
+| `RAZORPAY_WEBHOOK_SECRET` | Change it in the Razorpay dashboard and here together | Webhooks in flight are retried by Razorpay |
+
+The script prints counts only, never a number, and can be run again safely:
+each batch commits on its own and a value already on the newest keys is left
+alone. Until it runs, duplicate checks, sibling-company links and free-quota
+lookups match under every listed hash key, so nothing is missed in between.
+
 ---
 
 ## 13. Definition of done

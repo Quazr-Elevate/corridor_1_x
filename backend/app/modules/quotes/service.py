@@ -43,6 +43,7 @@ from app.modules.masking import service as masking
 from app.modules.quotes.schemas import (
     CostSheetIn,
     CostSheetRead,
+    LineEntryOut,
     DeskQuote,
     OfferRead,
     QuoteIn,
@@ -190,6 +191,35 @@ async def _desk_quote(db: AsyncSession, quote_id: uuid.UUID | None) -> tuple[Quo
     return quote, await db.get(Rfq, quote.rfq_id)
 
 
+async def _convert_lines(
+    db: AsyncSession, sheet: CostSheet, payload: CostSheetIn, purchase_currency: str
+) -> tuple[dict, list[date]]:
+    """Set each ``<line>_minor`` in the purchase currency. A line entered in
+    another currency is converted once at the latest stored rate, rounded up
+    so a conversion never eats the margin, and kept with that rate (CX-185).
+    Returns the entries and the dates of the rates used."""
+    entries: dict = {}
+    dates: list[date] = []
+    rates = None
+    for line in COST_LINES:
+        amount = getattr(payload, f"{line}_minor")
+        currency = getattr(payload, f"{line}_currency") or purchase_currency
+        if currency == purchase_currency or amount == 0:
+            setattr(sheet, f"{line}_minor", amount)
+            continue
+        rates = rates or await fx.get_latest_rates(db)
+        rate = fx.convert(Decimal(1), currency, purchase_currency, rates)
+        if rate is None:
+            raise Conflict(f"There is no exchange rate for {currency} yet. Refresh the rates and retry.")
+        setattr(sheet, f"{line}_minor", int((Decimal(amount) * rate).to_integral_value(rounding=ROUND_CEILING)))
+        as_of = min((d for d in (rates.as_of_by.get(currency), rates.as_of_by.get(purchase_currency)) if d), default=None)
+        entries[line] = {"amount_minor": amount, "currency": currency, "rate": str(_rate(rate)),
+                         "as_of": as_of.isoformat() if as_of else None}
+        if as_of:
+            dates.append(as_of)
+    return entries, dates
+
+
 def total_cost(sheet: CostSheet) -> int:
     return sheet.purchase_price_minor + sum(getattr(sheet, f"{line}_minor") for line in COST_LINES)
 
@@ -232,15 +262,15 @@ async def save_cost_sheet(
     sheet.created_by = admin_id  # whoever last set the numbers is the author an approver must differ from
     sheet.approved_by = sheet.approved_at = None
     sheet.purchase_currency, sheet.purchase_price_minor = quote.currency, quote.price_minor
-    for line in COST_LINES:
-        setattr(sheet, f"{line}_minor", getattr(payload, f"{line}_minor"))
+    sheet.line_entries, line_dates = await _convert_lines(db, sheet, payload, quote.currency)
     sheet.freight_quoted_on = payload.freight_quoted_on if freight > 0 else None
 
     buyer = await db.get(Business, rfq.buyer_business_id)
     seller = await db.get(Business, quote.seller_business_id)
     sheet.deal_currency = CROSS_BORDER_CURRENCY if buyer.country != seller.country else quote.currency
     if sheet.deal_currency == sheet.purchase_currency:
-        sheet.fx_rate, sheet.fx_as_of, sheet.fx_buffer_pct = _rate(Decimal(1)), None, _pct(Decimal(0))
+        # A line in another currency still brings its rate's age to the sheet (CX-185).
+        sheet.fx_rate, sheet.fx_as_of, sheet.fx_buffer_pct = _rate(Decimal(1)), min(line_dates, default=None), _pct(Decimal(0))
     else:
         rates = await fx.get_latest_rates(db)
         rate = fx.convert(Decimal(1), sheet.purchase_currency, sheet.deal_currency, rates)
@@ -249,7 +279,7 @@ async def save_cost_sheet(
         sheet.fx_rate = _rate(rate)
         # The older of the two rates behind the conversion is the one that matters.
         dates = [d for d in (rates.as_of_by.get(sheet.purchase_currency), rates.as_of_by.get(sheet.deal_currency)) if d]
-        sheet.fx_as_of = min(dates) if dates else None
+        sheet.fx_as_of = min(dates + line_dates) if dates or line_dates else None
         sheet.fx_buffer_pct = _pct(await rfqs.setting(db, seed.FX_BUFFER_PCT))
     sheet.margin_pct = _pct(payload.margin_pct)
     sheet.min_margin_pct = _pct(await rfqs.setting(db, seed.MIN_MARGIN_PCT))
@@ -306,6 +336,11 @@ def sheet_to_read(sheet: CostSheet) -> CostSheetRead:
         max_margin_pct=sheet.max_margin_pct, sell_price_minor=sheet.sell_price_minor,
         needs_approval=sheet.status == "pending_approval", approval_reasons=list(sheet.approval_reasons or []),
         approved=sheet.approved_by is not None,
+        line_entries=[
+            LineEntryOut(line=line, amount_minor=e["amount_minor"], currency=e["currency"], rate=Decimal(e["rate"]),
+                         as_of=date.fromisoformat(e["as_of"]) if e.get("as_of") else None)
+            for line, e in (sheet.line_entries or {}).items()
+        ],
     )
 
 

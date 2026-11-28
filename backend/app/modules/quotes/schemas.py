@@ -109,17 +109,36 @@ class OfferList(CamelModel):
 
 
 class CostSheetIn(RequestModel):
-    """Cost lines per unit, in the quote's currency, and the margin."""
+    """Cost lines per unit and the margin. Each line is in the quote's
+    currency unless its ``…Currency`` says otherwise (CX-185); it is then
+    converted at the stored rate, rounded up."""
 
     inland_freight_minor: Minor = 0
+    inland_freight_currency: Currency | None = None
     ocean_freight_minor: Minor = 0
+    ocean_freight_currency: Currency | None = None
     freight_quoted_on: date | None = None
     insurance_minor: Minor = 0
+    insurance_currency: Currency | None = None
     inspection_minor: Minor = 0
+    inspection_currency: Currency | None = None
     documentation_minor: Minor = 0
+    documentation_currency: Currency | None = None
     finance_minor: Minor = 0
+    finance_currency: Currency | None = None
     other_minor: Minor = 0
+    other_currency: Currency | None = None
     margin_pct: Percent
+
+
+class LineEntryOut(CamelModel):
+    """A cost line entered in another currency, and the rate it was converted at."""
+
+    line: str
+    amount_minor: int
+    currency: str
+    rate: Decimal
+    as_of: date | None
 
 
 class CostSheetRead(CamelModel):
@@ -149,6 +168,8 @@ class CostSheetRead(CamelModel):
     #: What a desk manager has to accept: under the floor, over the ceiling, an old rate.
     approval_reasons: list[str] = []
     approved: bool
+    #: Lines entered in another currency; the ``…Minor`` fields above are converted.
+    line_entries: list[LineEntryOut] = []
 
 
 class DeskQuote(CamelModel):

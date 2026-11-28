@@ -17,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -152,6 +153,7 @@ class RfqMatch(Base):
         UniqueConstraint("rfq_id", "seller_business_id", name="uq_rfq_matches_seller"),
         Index("ix_rfq_matches_seller", "seller_business_id", "status"),
         CheckConstraint("status IN ('proposed', 'confirmed', 'removed')", name="ck_rfq_matches_status"),
+        CheckConstraint("score IS NULL OR (score >= 0 AND score <= 100)", name="ck_rfq_matches_score"),
         CheckConstraint("source IN ('rule', 'desk')", name="ck_rfq_matches_source"),
         CheckConstraint("status <> 'confirmed' OR confirmed_at IS NOT NULL", name="ck_rfq_matches_confirmed_has_date"),
     )
@@ -170,6 +172,10 @@ class RfqMatch(Base):
     source: Mapped[str] = mapped_column(String(5), nullable=False)
     # Each hard rule and how this listing met it: [{"rule", "detail"}].
     reasons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    #: 0–100 from ``rfq/ranking.py`` (CX-177); null for desk-added matches.
+    score: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    #: The score's parts: points, out of, and a sentence each.
+    score_parts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     confirmed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("admin_users.id", ondelete="SET NULL", name="fk_rfq_matches_confirmed_by"), nullable=True

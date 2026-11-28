@@ -231,6 +231,12 @@ async def send_term_sheet_agreed(*, to: str, first_name: str, deal_code: str) ->
                 first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
 
 
+async def send_document_to_sign(*, to: str, first_name: str, deal_code: str) -> None:
+    """An LOI or contract is ready to read and sign (A-081). No terms in the email."""
+    await _send(to, f"A document for {deal_code} is ready to sign", "document_to_sign",
+                first_name=first_name, deal_code=deal_code, dashboard_url=frontend_url("/dashboard/requests"))
+
+
 async def send_verification_rejected(*, to: str, first_name: str, reason: str) -> None:
     await _send(
         to,

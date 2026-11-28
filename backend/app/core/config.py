@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # Keys email-code hashes. ROTATE in prod; the app refuses to start with
     # the dev default when DEBUG is off.
     session_secret: str = "dev-only-session-secret-change-me"
+    # Earlier SESSION_SECRETs, comma-separated: they still check codes sent
+    # before a rotation, never sign new ones (CX-035). Empty once every
+    # code issued under them has expired (30 minutes is enough).
+    session_secret_previous: str = ""
     user_session_idle_hours: int = 12
     user_session_max_days: int = 7
     # Traders may be signed in on this many devices at once; the oldest is
@@ -84,6 +88,12 @@ class Settings(BaseSettings):
 
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
+    # Corridor One X as it is named in LOIs and contracts (A-081).
+    corridor_legal_name: str = "Corridor One X (legal entity name to be confirmed)"
+    corridor_address: str = "Registered address to be confirmed"
+    # Contracts worth more than this (in USD) wait for a lawyer before they are
+    # sent (CX-109). A placeholder until the client sets it.
+    legal_review_threshold_usd: int = 250000
     # Where sellers send samples (CX-102); shown to the seller of a deal only.
     sample_hub_address: str = "Corridor One X sample desk — address to be confirmed by operations"
 
@@ -112,6 +122,11 @@ class Settings(BaseSettings):
     kyb_enc_keys: str = ""
     # Separate base64 32-byte key for the duplicate-check hash (value_hash).
     kyb_hash_key: str = ""
+    # Earlier KYB_HASH_KEYs, comma-separated base64. They only match, never
+    # write; scripts/rotate_keys.py moves stored hashes to KYB_HASH_KEY. Keep
+    # them listed: a deleted company's free-quota row stays under its old
+    # hash, which can't be recomputed without the number (A-080).
+    kyb_hash_key_previous: str = ""
 
     # ─── Email (app/integrations/email) ──────────────────────────
     email_provider: str = "console"  # console | resend | brevo

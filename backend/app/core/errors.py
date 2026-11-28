@@ -29,11 +29,13 @@ class DomainError(Exception):
     code: str = "request.invalid"
 
     def __init__(
-        self, detail: str, *, code: str | None = None, headers: dict[str, str] | None = None
+        self, detail: str, *, code: str | None = None, headers: dict[str, str] | None = None,
+        fields: list[dict[str, str]] | None = None,
     ) -> None:
         super().__init__(detail)
         self.detail = detail
         self.headers = headers
+        self.fields = fields
         if code is not None:
             self.code = code
 
@@ -41,6 +43,13 @@ class DomainError(Exception):
 class BadRequest(DomainError):
     status_code = 400
     code = "request.invalid"
+
+
+class Unprocessable(DomainError):
+    """Well-formed input that breaks a business rule about one field; ``fields`` names it."""
+
+    status_code = 422
+    code = "request.unprocessable"
 
 
 class Unauthorized(DomainError):
@@ -163,7 +172,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         if exc.status_code >= 500:
             log.warning("domain_error status=%s detail=%r", exc.status_code, exc.detail)
         return JSONResponse(
-            error_body(exc.detail, exc.code), status_code=exc.status_code, headers=exc.headers
+            error_body(exc.detail, exc.code, exc.fields), status_code=exc.status_code, headers=exc.headers
         )
 
     @app.exception_handler(RequestValidationError)

@@ -19,6 +19,7 @@ from app.models.credits import (
     PlanPurchase,
 )
 from app.models.deal import Deal, DealEvent, DealStatus
+from app.models.contract import ContractTemplate, DealDocument, DocumentSignature
 from app.models.negotiation import ChatMessage, ChatThread, CounterOffer, LeakStrike, Sample, SampleEvent, TermSheet
 from app.models.email_code import EmailCode, EmailCodePurpose
 from app.models.exchange_rate import SUPPORTED_CURRENCIES, ExchangeRate
@@ -37,6 +38,9 @@ __all__ = [
     "Sample",
     "SampleEvent",
     "TermSheet",
+    "ContractTemplate",
+    "DealDocument",
+    "DocumentSignature",
     "LeakStrike",
     "PERSON_COLUMNS",
     "UserIdentity",
