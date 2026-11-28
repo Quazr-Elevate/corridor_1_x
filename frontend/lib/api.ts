@@ -538,6 +538,19 @@ export function assetUrl(rel: string | null | undefined): string {
 /** @deprecated use assetUrl */
 export const photoUrl = assetUrl;
 
+/** A business's bank account as it sees it: masked (CX-020). */
+export interface BankAccount {
+  id: string;
+  currency: "INR" | "AED" | "USD";
+  country: "IN" | "AE";
+  bankName: string;
+  routingCode: string;
+  accountMasked: string;
+  status: "pending" | "verified" | "rejected" | "retired";
+  rejectedReason: string | null;
+  createdAt: string;
+}
+
 export const api = {
   // ─── Auth ───
   signupCode: (email: string) =>
@@ -666,6 +679,9 @@ export const api = {
 
   // ─── Credits ───
   getWallet: () => jsonFetch<Wallet>("/wallet"),
+  listBankAccounts: () => jsonFetch<{ items: BankAccount[] }>("/me/bank-accounts").then((r) => r.items),
+  addBankAccount: (body: { currency: string; country: string; bankName: string; routingCode: string; accountNumber: string; holderName: string }) =>
+    jsonFetch<BankAccount>("/me/bank-accounts", { method: "POST", body: JSON.stringify(body) }),
   getLedger: (limit = 50, offset = 0) =>
     jsonFetch<{ total: number; items: LedgerLine[] }>(`/wallet/ledger?limit=${limit}&offset=${offset}`),
   listPlans: () => jsonFetch<ItemList<CreditPlan>>("/wallet/plans").then((r) => r.items),

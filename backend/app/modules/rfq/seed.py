@@ -14,6 +14,7 @@ MAX_MARGIN_PCT = "max_margin_pct"
 FX_MAX_AGE_DAYS = "fx_max_age_days"
 OUTLAY_CAP_MONTHS = "outlay_cap_months"
 RETENTION_PCT = "retention_pct"
+PAYOUT_COOLING_OFF_HOURS = "payout_cooling_off_hours"
 
 # key, value, placeholder
 _SETTINGS = (
@@ -26,6 +27,7 @@ _SETTINGS = (
     (FX_MAX_AGE_DAYS, "3", True),  # CX-181: an older rate needs a desk manager
     (OUTLAY_CAP_MONTHS, "4", True),  # A-083: until the AD bank answers CX-078 (four or six)
     (RETENTION_PCT, "10", True),  # A-083: held from the seller until acceptance
+    (PAYOUT_COOLING_OFF_HOURS, "72", True),  # A-083: a newly verified account waits this long for payouts
 )
 
 

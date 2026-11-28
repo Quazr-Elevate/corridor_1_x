@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.modules.admin import (
     admins,
     auth,
+    banking,
     contracts,
     country_rules,
     credits,
@@ -39,3 +40,4 @@ router.include_router(quotes.router)
 router.include_router(negotiation.router)
 router.include_router(contracts.router)
 router.include_router(ledger.router)
+router.include_router(banking.router)

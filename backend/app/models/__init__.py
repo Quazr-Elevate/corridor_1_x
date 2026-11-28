@@ -19,6 +19,7 @@ from app.models.credits import (
     PlanPurchase,
 )
 from app.models.deal import Deal, DealEvent, DealStatus
+from app.models.banking import BankAccount, BankStatement, BankStatementLine, BankStatementMap
 from app.models.payment import PaymentMilestone
 from app.models.ledger import LedgerEntry, LedgerTransaction
 from app.models.contract import ContractTemplate, DealDocument, DocumentSignature
@@ -43,6 +44,10 @@ __all__ = [
     "LedgerEntry",
     "LedgerTransaction",
     "PaymentMilestone",
+    "BankAccount",
+    "BankStatement",
+    "BankStatementLine",
+    "BankStatementMap",
     "ContractTemplate",
     "DealDocument",
     "DocumentSignature",

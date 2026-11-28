@@ -23,7 +23,15 @@ export type AdminPermission =
   | "margin.approve"
   | "trade.configure"
   | "credits.manage"
-  | "identity.unmask";
+  | "identity.unmask"
+  | "samples.handle"
+  | "documents.sign"
+  | "templates.approve"
+  | "finance.view"
+  | "ledger.correct"
+  | "statements.work"
+  | "bank_accounts.verify"
+  | "bank_accounts.reveal";
 
 export interface AdminMe {
   id: string;
@@ -220,6 +228,54 @@ export interface ContractTemplate {
 }
 
 export type SignBody = { contentSha256: string; signerRole: string; authorityConfirmed: boolean };
+
+/** A bank account as finance sees it: by company code, masked (CX-020). */
+export interface DeskBankAccount {
+  id: string;
+  companyCode: string | null;
+  currency: string;
+  country: string;
+  bankName: string;
+  routingCode: string;
+  accountMasked: string;
+  status: string;
+  rejectedReason: string | null;
+  createdAt: string;
+  verifiedAt: string | null;
+  coolingOffUntil: string | null;
+}
+
+export interface StatementMap {
+  id: string;
+  name: string;
+  columns: Record<string, string>;
+  dateFormat: string;
+  defaultCurrency: string;
+}
+
+export interface StatementLine {
+  id: string;
+  bookedOn: string;
+  amountMinor: number;
+  currency: string;
+  reference: string;
+  payerAccountLast4: string | null;
+  status: "unmatched" | "matched" | "ignored";
+  note: string | null;
+}
+
+export interface DeskMilestone {
+  id: string;
+  leg: "buyer" | "seller";
+  sequence: number;
+  kind: string;
+  amountMinor: number;
+  currency: string;
+  dueEvent: string;
+  dueDays: number;
+  gate: string;
+  status: string;
+}
 
 /** A term sheet version as the desk sees it: both prices and the margin (CX-103). */
 export interface DeskTermSheet {
@@ -561,11 +617,13 @@ function detailToMessage(detail: unknown, status: number): string {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  // A file upload sets its own multipart boundary.
+  const isForm = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isForm ? {} : { "Content-Type": "application/json" }),
       ...(init?.headers ?? {}),
     },
   });
@@ -933,6 +991,30 @@ export const adminApi = {
   contractTemplates: () => req<ItemList<ContractTemplate>>("/admin/contract-templates").then((r) => r.items),
   approveTemplate: (id: string, note: string) =>
     req<ContractTemplate>(`/admin/contract-templates/${id}/approve`, { method: "POST", body: JSON.stringify({ note }) }),
+  pendingBankAccounts: () => req<ItemList<DeskBankAccount>>("/admin/bank-accounts/pending").then((r) => r.items),
+  verifyBankAccount: (id: string, note: string) =>
+    req<DeskBankAccount>(`/admin/bank-accounts/${id}/verify`, { method: "POST", body: JSON.stringify({ note }) }),
+  rejectBankAccount: (id: string, note: string) =>
+    req<DeskBankAccount>(`/admin/bank-accounts/${id}/reject`, { method: "POST", body: JSON.stringify({ note }) }),
+  revealBankAccount: (id: string, reason: string) =>
+    req<{ id: string; accountNumber: string; holderName: string }>(`/admin/bank-accounts/${id}/reveal`, { method: "POST", body: JSON.stringify({ reason }) }),
+  statementMaps: () => req<ItemList<StatementMap>>("/admin/statement-maps").then((r) => r.items),
+  createStatementMap: (body: Omit<StatementMap, "id">) =>
+    req<StatementMap>("/admin/statement-maps", { method: "POST", body: JSON.stringify(body) }),
+  importStatement: (mapId: string, file: File) => {
+    const form = new FormData();
+    form.append("mapId", mapId);
+    form.append("file", file);
+    return req<{ statementId: string; linesTotal: number; linesNew: number; linesMatched: number; debitsSkipped: number }>(
+      "/admin/statements", { method: "POST", body: form },
+    );
+  },
+  unmatchedLines: () => req<ItemList<StatementLine>>("/admin/statement-lines/unmatched").then((r) => r.items),
+  matchLine: (id: string, milestoneId: string, note: string) =>
+    req<StatementLine>(`/admin/statement-lines/${id}/match`, { method: "POST", body: JSON.stringify({ milestoneId, note }) }),
+  setAsideLine: (id: string, note: string) =>
+    req<StatementLine>(`/admin/statement-lines/${id}/set-aside`, { method: "POST", body: JSON.stringify({ note }) }),
+  dealMilestones: (code: string) => req<ItemList<DeskMilestone>>(`/admin/deals/${code}/milestones`).then((r) => r.items),
   openSamples: () => req<ItemList<DeskSample>>("/admin/samples").then((r) => r.items),
   sampleAtHub: (id: string) => req<DeskSample>(`/admin/samples/${id}/at-hub`, { method: "POST" }),
   sealSample: (id: string, retainedSealNo: string, forwardSealNo: string) =>

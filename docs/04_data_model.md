@@ -1179,3 +1179,31 @@ The seller leg holds back `retention_pct` (a `trade_settings` placeholder,
 `retention_pct` (10, placeholder). A contract's payment parameters
 (`advance_pct`, `tenor_days`, `credit_limit_minor`, `credit_insurance_ref`)
 are part of its `deal_documents.terms` and are checked before it is sent.
+
+## Bank accounts and statements (`0046_banking`)
+
+M5 · S10, CX-020, CX-112 (A-083). Money moves at the AD bank; these tables
+record which accounts money may move between, and the bank's statement.
+
+### `bank_accounts`
+
+| Column | Notes |
+|---|---|
+| `business_id`, `currency` | Partial unique index `uq_bank_accounts_live`: one `pending` or `verified` account per business and currency; adding one retires the old |
+| `country`, `bank_name`, `routing_code` | IFSC in India (checked), SWIFT/BIC elsewhere (checked) |
+| `account_encrypted`, `holder_encrypted`, `key_version` | AES-256-GCM, KYB keys; re-encrypted by `scripts/rotate_keys.py` |
+| `account_hash` | Keyed hash of the normalised number (scope `bank_account`): how a statement's payer is matched; moved by the rotation script |
+| `account_last4` | Display: `••••6789` |
+| `status` | `pending` → `verified` (finance manager, with a note; check: verifier, time and `cooling_off_until` set) / `rejected` (check: reason); `retired` when replaced |
+| `cooling_off_until` | Verified time + `payout_cooling_off_hours` (72, placeholder); no payout before it (CX-121) |
+
+### `bank_statement_maps`, `bank_statements`, `bank_statement_lines`
+
+| Table | Notes |
+|---|---|
+| `bank_statement_maps` | One per bank export: header names for `date`, `amount`, `reference`, `payer_account` (and `currency`), the date format, a default currency |
+| `bank_statements` | One per uploaded file; `content_sha256` unique, so the same file is never imported twice |
+| `bank_statement_lines` | Credits only (`amount_minor > 0`); `fingerprint` (date, amount, currency, reference, payer hash) unique, so overlapping exports keep a line once; `payer_account_hash` and last four; `status` `unmatched` → `matched` (check: with `milestone_id`) or `ignored` (check: with a note); a milestone is cleared by one line only (partial unique index) |
+
+Matching a line clears the buyer milestone and posts `buyer_receipt` to
+the ledger (Dr `bank`, Cr `buyer_receivable`), idempotent on the line.

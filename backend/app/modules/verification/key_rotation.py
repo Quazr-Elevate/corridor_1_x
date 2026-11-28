@@ -5,6 +5,7 @@ Run after adding a key, through ``scripts/rotate_keys.py``:
 * a KYB number encrypted under an older ``KYB_ENC_KEYS`` version is
   re-encrypted under the newest; once no value uses a version, that key can
   be removed from the list;
+* bank accounts (CX-020) are re-encrypted and their match hash moved the same way;
 * a keyed hash written under a key now in ``KYB_HASH_KEY_PREVIOUS`` is
   recomputed under ``KYB_HASH_KEY``, and a free-quota row carrying the old
   hash of a number still on file moves with it.
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
 from app.models.admin_user import AdminUser
+from app.models.banking import BankAccount
 from app.models.business_document import BusinessDocument
 from app.models.credits import CreditFreeQuota
 from app.models.user import User
@@ -77,6 +79,25 @@ async def rotate(db: AsyncSession, *, apply: bool) -> RotationReport:
         last_id = docs[-1].id
         if apply:
             await db.commit()
+
+    # Bank accounts (CX-020): the number and holder share one key version; the
+    # hash is what statement lines are matched by, so it moves too.
+    for account in list(await db.scalars(select(BankAccount))):
+        number = crypto.decrypt(account.account_encrypted, account.key_version)
+        if account.key_version != current:
+            report.reencrypted += 1
+            if apply:
+                holder = crypto.decrypt(account.holder_encrypted, account.key_version)
+                account.account_encrypted, account.key_version = crypto.encrypt(number)
+                account.holder_encrypted, _ = crypto.encrypt(holder)
+        new_hash = crypto.value_hash(number, scope="bank_account")
+        if account.account_hash != new_hash:
+            report.rehashed += 1
+            if apply:
+                account.account_hash = new_hash
+        report.by_version[current if apply else account.key_version] += 1
+    if apply:
+        await db.commit()
 
     for old, new in moved.items():
         for quota in list(await db.scalars(select(CreditFreeQuota).where(CreditFreeQuota.registration_hash == old))):

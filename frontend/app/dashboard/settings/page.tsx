@@ -17,6 +17,7 @@ import { PasswordInput } from "@/components/auth/PasswordInput";
 import { DISPLAY_CURRENCIES, isDisplayCurrency, useFx, type DisplayCurrency } from "@/components/fx/FxContext";
 import { approxPrice, formatPrice, rateDateLabel, withApprox } from "@/components/products/format";
 import { initials, memberCode } from "@/components/trader/format";
+import { BankAccounts } from "@/components/trader/BankAccounts";
 
 const MIN_PASSWORD = 8;
 
@@ -41,6 +42,7 @@ export default function SettingsPage() {
         <div className="min-w-0 space-y-6 lg:col-start-1 lg:row-start-1">
           <PasswordSection />
           <CurrencySection />
+          <BankAccountsSection />
           <SessionSection />
           <DangerSection />
         </div>
@@ -59,6 +61,7 @@ export default function SettingsPage() {
 const NAV: ReadonlyArray<{ id: string; label: string; icon: IconName }> = [
   { id: "password", label: "Password", icon: "key" },
   { id: "currency", label: "Display currency", icon: "globe" },
+  { id: "bank-accounts", label: "Bank accounts", icon: "vault" },
   { id: "session", label: "Sign-in & security", icon: "shield" },
   { id: "delete-account", label: "Delete account", icon: "trash" },
 ];
@@ -192,6 +195,22 @@ function SectionCard({
       </div>
       <div className="mt-6 border-t border-line pt-6 sm:mt-7 sm:pt-7">{children}</div>
     </section>
+  );
+}
+
+/* ───────────────────────── Bank accounts ────────────────────────── */
+
+function BankAccountsSection() {
+  return (
+    <SectionCard
+      id="bank-accounts"
+      index="03"
+      icon="vault"
+      title="Bank accounts"
+      description="Where your company pays from and is paid into. Corridor One X verifies each account before it is used."
+    >
+      <BankAccounts />
+    </SectionCard>
   );
 }
 
@@ -460,7 +479,7 @@ function SessionSection() {
   return (
     <SectionCard
       id="session"
-      index="03"
+      index="04"
       icon="shield"
       title="Sign-in & security"
       description={
@@ -563,7 +582,7 @@ function DangerSection() {
   return (
     <SectionCard
       id="delete-account"
-      index="04"
+      index="05"
       icon="trash"
       tone="danger"
       title="Delete account"

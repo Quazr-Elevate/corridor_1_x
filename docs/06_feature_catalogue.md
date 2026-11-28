@@ -79,6 +79,8 @@ Last updated: 27 November 2026 · Status key: ✅ built and tested · 🔜 plann
 - ✅ **Letters of intent:** once the term sheet is agreed, each side receives its own letter of intent with Corridor One X, naming only itself, at its own price. It is read and signed in the app: the signer confirms they may sign for their company. Corridor One X countersigns. If both letters aren't signed within five business days, both lapse and new ones can be issued.
 - ✅ **Contracts:** after both letters are signed, the buyer receives a sales contract and the seller a purchase contract, each with Corridor One X. They are signed the same way. Both take effect at the same moment, when Corridor One X signs the second; the deal is then contracted. Contracts not signed within five business days of the letters lapse with them.
 - ✅ **Payment schedule:** when the contracts take effect, each side sees its own payments: the buyer what it pays Corridor One X and when, the seller what Corridor One X pays it, with a 10 % retention held until the buyer accepts the goods. Eight payment terms: advance, advance and balance against documents, cash against documents, letter of credit at sight, usance letter of credit, documents against acceptance, open account, escrow.
+- ✅ **Bank accounts:** a verified company adds its account for each currency in Settings; the number is stored encrypted and shown masked. Corridor One X verifies it before any payment uses it; a new account replaces the old one and is verified again.
+- ✅ **Payments received:** a buyer's payment is marked received when it reaches Corridor One X's bank from the buyer's verified account for the exact amount due.
 - ⏳ The retention (10 %) and the four-month outlay cap are placeholders until the client and the bank confirm them.
 - ⏳ The letter and contract texts are drafts until a trade lawyer approves them; nothing is sent for signature before then.
 - ⏳ The sample fee is a placeholder (5 credits) until it is set from a courier quote.
@@ -167,6 +169,11 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 
 - ✅ **Contracts (desk):** set each contract's own terms (quantity tolerance, shipment window, inspection, penalties, claim window, law, seat, force majeure). The two contracts are refused, naming the term, unless every promise to the buyer is backed by the seller: penalties are compared as amounts of money, not percentages. Contracts above a set value need the lawyer who reviewed them recorded first.
 - ✅ **Letters of intent (desk):** issue both letters from the agreed term sheet (refused if they would disagree, or would show the other side's identity), countersign as Corridor One X (desk manager), void with a reason. Templates are listed with their approval; a super admin records the lawyer's approval of each version.
+
+### 2.9 Finance (M5)
+- ✅ **Bank accounts:** verify or reject a company's account, saying how it was checked; see the full number only with a recorded reason.
+- ✅ **Bank statements:** describe each bank's CSV export once, then import statements. Payments that name the deal and match a payment due from the buyer's verified account are matched automatically; the rest wait for finance to match by hand, under the same rules, or set aside with a reason.
+- ✅ **The books:** each deal's buyer and seller sides in one view, balanced per currency.
 
 ## Change log
 
