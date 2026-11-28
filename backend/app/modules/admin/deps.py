@@ -99,3 +99,5 @@ CanManageCredits = Annotated[AdminPrincipal, Depends(require(Perm.credits_manage
 CanUnmaskIdentity = Annotated[AdminPrincipal, Depends(require(Perm.identity_unmask))]
 CanLiftSuspension = Annotated[AdminPrincipal, Depends(require(Perm.suspension_lift))]
 CanHandleSamples = Annotated[AdminPrincipal, Depends(require(Perm.samples_handle))]
+CanSignDocuments = Annotated[AdminPrincipal, Depends(require(Perm.documents_sign))]
+CanApproveTemplates = Annotated[AdminPrincipal, Depends(require(Perm.templates_approve))]

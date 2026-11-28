@@ -88,6 +88,12 @@ class Settings(BaseSettings):
 
     # Shown in lockout messages ("contact support").
     support_email: str = "enquiry@corridor1x.com"
+    # Corridor One X as it is named in LOIs and contracts (A-081).
+    corridor_legal_name: str = "Corridor One X (legal entity name to be confirmed)"
+    corridor_address: str = "Registered address to be confirmed"
+    # Contracts worth more than this (in USD) wait for a lawyer before they are
+    # sent (CX-109). A placeholder until the client sets it.
+    legal_review_threshold_usd: int = 250000
     # Where sellers send samples (CX-102); shown to the seller of a deal only.
     sample_hub_address: str = "Corridor One X sample desk — address to be confirmed by operations"
 

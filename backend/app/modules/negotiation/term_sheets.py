@@ -31,6 +31,7 @@ from app.models.negotiation import TERM_SHEET_OPEN, CounterOffer, TermSheet
 from app.models.quote import CostSheet, Offer, Quote
 from app.models.rfq import PAYMENT_TERMS, Rfq
 from app.models.user import User
+from app.modules.contracts import documents
 from app.modules.masking import service as masking
 from app.modules.negotiation import counters
 from app.modules.negotiation import service as chat
@@ -248,6 +249,8 @@ async def accept(db: AsyncSession, user: User, code: str, version: int, content_
     previous = await db.scalar(select(TermSheet).where(TermSheet.deal_id == deal.id, TermSheet.status == "agreed"))
     if previous is not None:
         previous.status, previous.superseded_at, previous.superseded_by_id = "superseded", utcnow(), ts.id
+        # LOIs built on the replaced version no longer stand (A-076).
+        await documents.void_built_on(db, previous.id)
         # The partial unique index allows one agreed version; free it first.
         await db.flush()
     ts.status, ts.agreed_at = "agreed", utcnow()

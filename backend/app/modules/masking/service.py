@@ -85,6 +85,43 @@ async def legal_name_for_text_check(db: AsyncSession, business_id: uuid.UUID) ->
     return identity.legal_name if identity else None
 
 
+@dataclass(frozen=True)
+class DocumentParty:
+    """How a company is named in its own LOI or contract (A-081)."""
+
+    legal_name: str
+    address: str | None
+
+
+async def party_for_document(db: AsyncSession, business_id: uuid.UUID) -> DocumentParty:
+    """A company's legal name and address for a document only it and Corridor
+    One X sign. Not an unmask: the other side never receives the document."""
+    identity = await db.get(BusinessIdentity, business_id)
+    if identity is None or not identity.legal_name:
+        raise Conflict("This company has no legal name on file yet.")
+    return DocumentParty(legal_name=identity.legal_name, address=identity.address_line)
+
+
+async def identity_markers(db: AsyncSession, business_id: uuid.UUID) -> list[str]:
+    """Every vault value that would identify a company or its people, to
+    check a document meant for the other side doesn't carry one (CX-106).
+    Never returned to anyone."""
+    identity = await db.get(BusinessIdentity, business_id)
+    markers = [getattr(identity, c) for c in VAULT_COLUMNS] if identity else []
+    people = await db.scalars(
+        select(UserIdentity).join(User, User.id == UserIdentity.user_id).where(User.business_id == business_id)
+    )
+    for person in people:
+        markers += [person.full_name, person.email, person.phone]
+    return [m.strip() for m in markers if m and len(m.strip()) >= 4]
+
+
+async def signer_name(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+    """The name a party signed under, shown on their own document."""
+    person = await db.get(UserIdentity, user_id)
+    return person.full_name if person else None
+
+
 def start_identity(db: AsyncSession, business_id: uuid.UUID, *, legal_name: str) -> BusinessIdentity:
     """The vault row of a business that is being created at sign-up."""
     identity = BusinessIdentity(business_id=business_id, legal_name=legal_name)

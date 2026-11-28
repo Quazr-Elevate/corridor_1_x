@@ -76,6 +76,8 @@ Last updated: 27 November 2026 · Status key: ✅ built and tested · 🔜 plann
 - ✅ **Counter-offers:** either side proposes a new price in its own currency. Corridor One X checks it, then the other side sees what it means in their currency and accepts or declines. Neither side sees the other's price.
 - ✅ **Samples:** the buyer asks for a sample (paid in credits). The seller sends it to Corridor One X's hub, which splits it, seals both halves, keeps one for disputes and sends the other to the buyer under its own name. The buyer records whether it passed. Each side sees only its own courier leg.
 - ✅ **Term sheet:** Corridor One X drafts the terms (product, quality, quantity, price, payment, incoterm, ports, delivery window). Each side reads its own price and accepts the exact version it read, or says what needs to change. When both accept, the version is agreed and can never change; new terms mean a new version, which replaces it once both accept.
+- ✅ **Letters of intent:** once the term sheet is agreed, each side receives its own letter of intent with Corridor One X, naming only itself, at its own price. It is read and signed in the app: the signer confirms they may sign for their company. Corridor One X countersigns. If both letters aren't signed within five business days, both lapse and new ones can be issued.
+- ⏳ The letter and contract texts are drafts until a trade lawyer approves them; nothing is sent for signature before then.
 - ⏳ The sample fee is a placeholder (5 credits) until it is set from a courier quote.
 
 ---
@@ -158,6 +160,8 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Counter-offers:** each shows what it means for the other side and the margin left. Pass it on at the sheet's margin or another; outside the floor or ceiling only a desk manager may.
 - ✅ **Samples in progress:** record arrival at the hub, the two seal numbers, the forward courier and delivery. A sample can't be forwarded before both halves are sealed.
 - ✅ **Term sheet:** draft a version (the first starts from the chosen offer at the last accepted counter's prices), edit it, and issue it to both sides. Issuing fixes the text. A margin outside the limits needs a desk manager. A version can be withdrawn until it is agreed.
+
+- ✅ **Letters of intent (desk):** issue both letters from the agreed term sheet (refused if they would disagree, or would show the other side's identity), countersign as Corridor One X (desk manager), void with a reason. Templates are listed with their approval; a super admin records the lawyer's approval of each version.
 
 ## Change log
 

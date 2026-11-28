@@ -1,0 +1,32 @@
+LETTER OF INTENT TO PURCHASE
+Reference {{ deal_code }}-LOI-B · Template {{ template_code }} v{{ template_version }}{% if template_draft %} · DRAFT: NOT YET APPROVED BY COUNSEL{% endif %}
+
+Between
+  {{ corridor.legal_name }}, {{ corridor.address }} ("the Seller"), and
+  {{ party.legal_name }}{% if party.address %}, {{ party.address }}{% endif %} ("the Buyer").
+
+1. Goods
+   {{ t.product }}{% if t.packaging %}, packed in {{ t.packaging }}{% endif %}.
+   Quality: {{ t.quality or "as agreed in the term sheet" }}.
+   Quantity: {{ t.quantity }} {{ t.unit }}.
+
+2. Price and payment
+   {{ t.price }} per {{ t.unit }}, {{ t.incoterm }}{% if t.destination_port %} {{ t.destination_port }}{% endif %}; total {{ t.value }}.
+   Payment: {{ t.payment_terms }}.
+
+3. Delivery
+   {% if t.port_of_loading %}From {{ t.port_of_loading }}. {% endif %}Delivery window: {{ t.delivery or "to be fixed in the contract" }}.
+
+4. Next step
+   The Buyer and the Seller intend to sign a sales contract on these terms
+   within five business days of both signing this letter. If the contract is
+   not signed in that time, this letter lapses.
+
+5. This letter is based on version {{ term_sheet_version }} of the agreed term
+   sheet (reference {{ term_sheet_ref }}). A later agreed version voids it.
+{% if t.notes %}
+6. Notes
+   {{ t.notes }}
+{% endif %}
+Signed for the Buyer by a person authorised to bind it, and for the Seller by
+its authorised signatory, in the Corridor One X platform.

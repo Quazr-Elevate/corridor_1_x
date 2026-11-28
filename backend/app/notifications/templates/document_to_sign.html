@@ -1,0 +1,7 @@
+{% extends "_layout.html" %}
+{% block body %}
+<p>Hi {{ first_name }},</p>
+<p>A document for deal <strong>{{ deal_code }}</strong> is ready for you to read and sign.</p>
+<p>It must be signed within five business days, or it lapses.</p>
+<p><a href="{{ dashboard_url }}" style="display:inline-block;padding:10px 18px;background:#CEE94A;color:#0b0b0b;text-decoration:none;border-radius:8px;font-weight:600;">Read and sign</a></p>
+{% endblock %}

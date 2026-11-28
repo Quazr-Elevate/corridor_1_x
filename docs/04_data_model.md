@@ -1073,3 +1073,42 @@ for India's `gstin` and `pan` and sets the seeded India
 each case only while the row still holds the seeded value, so an admin's
 own pattern or rule is kept. Downgrade restores the seeded values on the
 same rows. Fresh databases (`seed.py`) start without them.
+
+## LOIs and contracts (`0042_deal_documents`)
+
+M4 · S9, CX-104 … CX-108 (A-081). Corridor One X is the counterparty to both
+sides, so each deal has a buyer's and a seller's document of each kind; each
+names only Corridor One X and that one party.
+
+### `contract_templates`
+
+| Column | Notes |
+|---|---|
+| `code`, `version` | Unique together. `loi_buy`, `loi_sell` now; `sales`, `purchase` with CX-105. Version 1 is read from `app/modules/contracts/templates/<code>.txt` on first use |
+| `status` | `draft` → `approved` (super admin, `templates.approve`) → `retired` when a newer version is approved. Check: approved needs `approved_by`, `approved_at` and `approval_note` (the lawyer and where the written approval is kept) |
+| `body` | Plain-text Jinja, rendered in a sandbox with strict variables |
+
+### `deal_documents`
+
+| Column | Notes |
+|---|---|
+| `deal_id`, `kind`, `side` | `loi` / `contract`; `buyer` / `seller`. Partial unique index `uq_deal_documents_live`: one non-void document per deal, kind and side |
+| `term_sheet_id`, `template_id` | What it was rendered from |
+| `status` | `issued` → `party_signed` → `signed` (Corridor One X countersigned) → `effective` (contracts only, check); `void` with `void_reason` (check) |
+| `body`, `content_sha256` | The rendered text the party reads and signs, and its SHA-256 |
+| `terms` | JSON: the structured terms it states (shared terms and this side's own price and payment terms); the mirror validator reads these |
+| `value_minor`, `currency` | Price × quantity in this side's currency (check > 0) |
+| `expires_at` | Sign by: five business days from issue |
+
+Trigger `trg_deal_documents_frozen` refuses any change to the deal, kind,
+side, term sheet, template, text, hash, terms or value; status, expiry and
+the void reason can move. On Postgres `terms` is compared as text (json has
+no equality operator).
+
+### `document_signatures`
+
+Insert only (`trg_document_signatures_insert_only`). One per document and
+`signer_type` (`party`: a user; `corridor`: an admin; check). Stores the
+signer's stated role, `authority_confirmed` (check: true), the
+`content_sha256` signed, and the IP truncated to /24 or /48. The party
+signer's name is not copied here: it stays in `user_identities`.

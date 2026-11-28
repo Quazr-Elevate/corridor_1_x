@@ -1,0 +1,8 @@
+Hi {{ first_name }},
+
+A document for deal {{ deal_code }} is ready for you to read and sign:
+{{ dashboard_url }}
+
+It must be signed within five business days, or it lapses.
+
+-- Cor1x
