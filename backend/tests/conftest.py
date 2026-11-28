@@ -29,7 +29,9 @@ ADMIN_PASSWORD = "admin-pass-123"
 
 os.environ.update(
     {
-        "DATABASE_URL": f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
+        # TEST_DATABASE_URL runs the suite on another database (Postgres)
+        # without touching the one in DATABASE_URL.
+        "DATABASE_URL": os.environ.get("TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{_TMP / 'test.db'}",
         "DEBUG": "false",
         "TEST_HARNESS": "true",
         "CROSS_SITE_COOKIES": "false",

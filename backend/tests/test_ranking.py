@@ -43,6 +43,13 @@ def test_price_scores_full_at_target_and_nothing_at_25_percent_over():
     assert score(usd, _listing(price_per_unit=Decimal("72000")), [], {}, RATES, sent=0, quoted=0).parts["price"]["points"] == 40.0
 
 
+def test_the_same_currency_compares_without_any_stored_rate():
+    no_rates = LatestRates(rates={"USD": Decimal(1)})
+    rfq = _rfq(target_price_max=7_200_000, currency="INR")
+    s = score(rfq, _listing(price_per_unit=Decimal("72000")), [], {}, no_rates, sent=0, quoted=0)
+    assert s.parts["price"]["points"] == 40.0
+
+
 def test_unknowns_score_half_so_nobody_is_buried():
     s = score(_rfq(), _listing(), [], {}, RATES, sent=0, quoted=0)
     assert s.parts["price"]["points"] == 20.0 and s.parts["response"]["points"] == 10.0

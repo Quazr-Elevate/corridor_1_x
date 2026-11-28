@@ -385,10 +385,12 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
       {quote.notes ? <p className="t-sub mt-1 text-fg-2">{quote.notes}</p> : null}
 
       <fieldset disabled={published || busy} className="mt-4 space-y-3 disabled:opacity-70">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <p className="t-sub text-fg-3">Costs per {quote.unit}. Leave a line empty when there is none; enter each in the currency it was quoted in.</p>
+        {/* A line is an amount and its currency: three to a row so neither is squeezed. */}
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {LINES.map(([key, label]) => (
-            <div key={key} className="grid grid-cols-[minmax(0,1fr)_6rem] items-end gap-2">
-              <Input label={label} optional inputMode="decimal" value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} inputClassName="t-code" />
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_6.5rem] items-end gap-2">
+              <Input label={label} inputMode="decimal" value={form[key]} placeholder="0" onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} inputClassName="t-code" />
               <Select
                 label="Currency"
                 value={form[currencyKey(key)]}

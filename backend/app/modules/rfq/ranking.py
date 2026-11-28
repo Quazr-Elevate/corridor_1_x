@@ -52,7 +52,11 @@ def _price_fit(rfq: Rfq, listing: Product, rates: LatestRates) -> tuple[Decimal,
     ceiling = rfq.target_price_max or rfq.target_price_min
     if not ceiling or not rfq.currency or listing.price_per_unit is None or listing.unit != rfq.unit:
         return Decimal("0.5"), "No comparable target price."
-    target = convert(Decimal(ceiling) / 100, rfq.currency, listing.currency, rates)
+    # Same currency needs no rate: comparing must not depend on one being stored.
+    if rfq.currency == listing.currency:
+        target = Decimal(ceiling) / 100
+    else:
+        target = convert(Decimal(ceiling) / 100, rfq.currency, listing.currency, rates)
     if target is None or target <= 0:
         return Decimal("0.5"), "No exchange rate to compare the price."
     over = (Decimal(listing.price_per_unit) - target) / target
