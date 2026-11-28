@@ -12,6 +12,7 @@ from app.modules.admin import (
     docs,
     identity,
     kyb_types,
+    ledger,
     listing_templates,
     listings,
     negotiation,
@@ -37,3 +38,4 @@ router.include_router(rfqs.router)
 router.include_router(quotes.router)
 router.include_router(negotiation.router)
 router.include_router(contracts.router)
+router.include_router(ledger.router)

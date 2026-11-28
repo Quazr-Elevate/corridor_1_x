@@ -4,7 +4,7 @@ import type { CertificateType, SpecParameter } from "./publicApi";
 
 export const API_BASE = versioned(process.env.NEXT_PUBLIC_API_BASE_URL || "/api");
 
-export type AdminRole = "super_admin" | "reviewer";
+export type AdminRole = "super_admin" | "reviewer" | "trade_desk" | "desk_manager" | "finance" | "finance_manager" | "logistics";
 
 export type AdminPermission =
   | "dashboard.view"
@@ -37,6 +37,11 @@ export interface AdminMe {
 export const ADMIN_ROLE_LABEL: Record<AdminRole, string> = {
   super_admin: "Super admin",
   reviewer: "Reviewer",
+  trade_desk: "Trade desk",
+  desk_manager: "Desk manager",
+  finance: "Finance",
+  finance_manager: "Finance manager",
+  logistics: "Logistics",
 };
 
 export type LockState = "none" | "temporary" | "support";

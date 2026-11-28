@@ -1122,3 +1122,35 @@ CX-177, CX-185 (A-082).
 | `rfq_matches` | `score` | smallint, 0–100 (check `ck_rfq_matches_score`), from `app/modules/rfq/ranking.py`. Null for desk-added matches and rows made before 0043. The desk's list is ordered by it |
 | `rfq_matches` | `score_parts` | JSON `{specs|price|response: {points, of, detail}}` |
 | `cost_sheets` | `line_entries` | JSON, not null, default `{}`. `{line: {amount_minor, currency, rate, as_of}}` for each cost line entered in a currency other than the quote's; `rate` is one unit of it in the purchase currency. The line's `<line>_minor` is the converted amount, rounded up |
+
+## Trade ledger (`0044_trade_ledger`)
+
+M5 · S10, CX-111 (A-083). Corridor One X's books for trades: double entry,
+append only, integer minor units. Separate from the credit wallet.
+
+### `ledger_transactions`
+
+| Column | Notes |
+|---|---|
+| `deal_id` | The deal it belongs to, or null (a bank fee not tied to one) |
+| `kind`, `memo` | What happened: `buyer_receipt`, `seller_payout`, `margin`, `reversal`, … |
+| `idempotency_key` | Unique. A retry with the same key and the same lines returns the first posting; the same key with other lines is refused |
+| `reverses_id` | The posting this one reverses. Unique: a posting is reversed at most once; a reversal is never reversed |
+| `reference_type`, `reference_id` | What it came from: a milestone, a statement line, a payout |
+| `created_by` | The admin, when a person posted it |
+
+### `ledger_entries`
+
+| Column | Notes |
+|---|---|
+| `transaction_id`, `deal_id` | `deal_id` copied from the transaction for per-deal reads |
+| `account` | Check: `bank`, `buyer_receivable`, `buyer_escrow`, `seller_payable`, `retention`, `corridor_margin`, `fx_gain_loss`, `fees` |
+| `leg` | `buyer` (Corridor One X ↔ buyer), `seller` (Corridor One X ↔ seller), `corridor`, or null |
+| `amount_minor` | Signed: debit positive, credit negative; never zero (check) |
+| `currency` | ISO code |
+
+**Guards.** Triggers refuse UPDATE and DELETE on both tables (SQLite and
+Postgres). The service refuses a transaction whose lines don't net to zero
+per currency or that has fewer than two lines; on Postgres the deferred
+constraint trigger `trg_ledger_entries_balanced` refuses it again at commit.
+The test suite lifts the insert-only guard only to wipe tables between tests.

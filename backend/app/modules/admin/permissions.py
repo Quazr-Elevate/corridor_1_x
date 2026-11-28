@@ -29,6 +29,8 @@ class Perm(str, enum.Enum):
     credits_manage = "credits.manage"  # set credit prices and plans
     identity_unmask = "identity.unmask"  # turn a company code back into a name, with a reason
     suspension_lift = "suspensions.lift"  # let a company suspended for leak strikes trade again (A-075)
+    finance_view = "finance.view"  # the trade ledger and a deal's books (M5)
+    ledger_correct = "ledger.correct"  # reverse a ledger posting (finance manager)
     documents_sign = "documents.sign"  # countersign LOIs and contracts for Corridor One X (A-081)
     templates_approve = "templates.approve"  # record a lawyer's approval of a template version (CX-108)
     samples_handle = "samples.handle"  # record a sample's hops at the hub: received, sealed, forwarded (CX-102)
@@ -50,11 +52,19 @@ TRADE_DESK = frozenset({Perm.dashboard_view, Perm.rfqs_triage, Perm.samples_hand
 #: A desk manager also approves what a desk user may not approve alone.
 DESK_MANAGER = TRADE_DESK | {Perm.margin_approve, Perm.suspension_lift, Perm.documents_sign}
 
+#: Finance works the books from company codes, like the desk (A-083).
+FINANCE = frozenset({Perm.dashboard_view, Perm.finance_view})
+FINANCE_MANAGER = FINANCE | {Perm.ledger_correct}
+LOGISTICS = frozenset({Perm.dashboard_view})
+
 ROLE_PERMISSIONS: dict[AdminRole, frozenset[Perm]] = {
     AdminRole.super_admin: frozenset(Perm),
     AdminRole.reviewer: REVIEWER,
     AdminRole.trade_desk: TRADE_DESK,
     AdminRole.desk_manager: DESK_MANAGER,
+    AdminRole.finance: FINANCE,
+    AdminRole.finance_manager: FINANCE_MANAGER,
+    AdminRole.logistics: LOGISTICS,
 }
 
 

@@ -23,6 +23,11 @@ import { useTower } from "@/components/shell/TowerShell";
 
 const ROLE_OPTIONS = [
   { value: "reviewer", label: "Reviewer — reviews businesses and documents" },
+  { value: "trade_desk", label: "Trade desk — requests, quotes, negotiation" },
+  { value: "desk_manager", label: "Desk manager — trade desk, plus margin approvals and countersigning" },
+  { value: "finance", label: "Finance — the trade ledger and bank statements" },
+  { value: "finance_manager", label: "Finance manager — finance, plus corrections and approvals" },
+  { value: "logistics", label: "Logistics — inspection, shipment and document releases" },
   { value: "super_admin", label: "Super admin — everything, incl. countries and admins" },
 ];
 

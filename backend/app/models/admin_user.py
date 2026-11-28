@@ -18,6 +18,9 @@ class AdminRole(str, enum.Enum):
     reviewer = "reviewer"
     trade_desk = "trade_desk"  # works RFQs, matches and cost sheets
     desk_manager = "desk_manager"  # trade desk, plus approving a below-floor margin
+    finance = "finance"  # the trade ledger, bank statements, preparing payouts (M5)
+    finance_manager = "finance_manager"  # finance, plus corrections and approvals
+    logistics = "logistics"  # inspection, shipment and document releases (M5)
 
 
 class AdminStatus(str, enum.Enum):

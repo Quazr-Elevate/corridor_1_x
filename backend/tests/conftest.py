@@ -65,7 +65,7 @@ os.environ.update(
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402
-from sqlalchemy import delete, select, update  # noqa: E402
+from sqlalchemy import delete, select, text, update  # noqa: E402
 
 import app.models  # noqa: E402,F401
 from app.core.db import SessionLocal, engine  # noqa: E402
@@ -73,6 +73,7 @@ from app.integrations.email import get_provider  # noqa: E402
 from app.main import app as asgi_app  # noqa: E402
 from app.models.base import Base  # noqa: E402
 from app.models.business import Business, BusinessStatus  # noqa: E402
+from app.models.ledger import ledger_guard_sql  # noqa: E402
 from app.models.user import User  # noqa: E402
 from app.models.user_identity import UserIdentity  # noqa: E402
 from app.modules.lookups.router import clear_cache as clear_lookup_cache  # noqa: E402
@@ -140,8 +141,22 @@ async def _schema():
 async def _clean():
     yield
     async with engine.begin() as conn:
+        # The trade ledger refuses deletes (it is append only); wiping it
+        # between tests lifts that guard for this one transaction.
+        if conn.dialect.name == "postgresql":
+            await conn.execute(text("SET LOCAL session_replication_role = replica"))
+        else:
+            for t in ("ledger_transactions", "ledger_entries"):
+                for o in ("update", "delete"):
+                    await conn.execute(text(f"DROP TRIGGER IF EXISTS trg_{t}_insert_only_{o}"))
+        # A reversal points at the posting it reverses: those rows go first.
+        await conn.execute(text("DELETE FROM ledger_entries"))
+        await conn.execute(text("DELETE FROM ledger_transactions WHERE reverses_id IS NOT NULL"))
         for table in reversed(Base.metadata.sorted_tables):
             await conn.execute(delete(table))
+        if conn.dialect.name != "postgresql":
+            for sql in ledger_guard_sql("sqlite"):
+                await conn.execute(text(sql))
         await _seed(conn)
     await get_limiter().reset()
     get_provider().sent.clear()

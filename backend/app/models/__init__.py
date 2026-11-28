@@ -19,6 +19,7 @@ from app.models.credits import (
     PlanPurchase,
 )
 from app.models.deal import Deal, DealEvent, DealStatus
+from app.models.ledger import LedgerEntry, LedgerTransaction
 from app.models.contract import ContractTemplate, DealDocument, DocumentSignature
 from app.models.negotiation import ChatMessage, ChatThread, CounterOffer, LeakStrike, Sample, SampleEvent, TermSheet
 from app.models.email_code import EmailCode, EmailCodePurpose
@@ -38,6 +39,8 @@ __all__ = [
     "Sample",
     "SampleEvent",
     "TermSheet",
+    "LedgerEntry",
+    "LedgerTransaction",
     "ContractTemplate",
     "DealDocument",
     "DocumentSignature",
