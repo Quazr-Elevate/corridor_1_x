@@ -1,0 +1,24 @@
+SALES CONTRACT
+Reference {{ deal_code }}-SC · Template {{ template_code }} v{{ template_version }}
+
+Between
+  {{ corridor.legal_name }}, {{ corridor.address }} ("the Seller"), and
+  {{ party.legal_name }}{% if party.address %}, {{ party.address }}{% endif %} ("the Buyer").
+
+1. Goods: {{ t.product }}{% if t.packaging %}, packed in {{ t.packaging }}{% endif %}.
+   Quality: {{ t.quality or "as stated in the term sheet" }}.
+2. Quantity: {{ t.quantity }} {{ t.unit }}, {{ t.tolerance_pct }} % more or less at the Seller's option.
+3. Price: {{ t.price }} per {{ t.unit }}, {{ t.incoterm }}{% if t.destination_port %} {{ t.destination_port }}{% endif %}. Contract value {{ t.value }}.
+4. Payment: {{ t.payment_terms }}.
+5. Shipment: {% if t.port_of_loading %}from {{ t.port_of_loading }}, {% endif %}between {{ t.shipment_from }} and {{ t.shipment_to }}.
+6. Inspection: by {{ t.inspection_agency }} at {{ t.inspection_point }}; its certificate is final as to quality and quantity.
+7. Late delivery: {{ t.late_penalty_pct }} % of the contract value, as liquidated damages.
+8. Quality: where the goods fall short of the quality in clause 1, {{ t.quality_penalty_pct }} % of the contract value, as liquidated damages.
+9. Claims: the Buyer notifies any claim within {{ t.claim_window_days }} days of discharge.
+10. Force majeure: {{ t.force_majeure }}.
+11. Law and disputes: {{ t.governing_law }}; disputes are settled by arbitration seated in {{ t.seat }}.
+12. This contract follows the letter of intent {{ deal_code }}-LOI-B and term sheet version {{ term_sheet_version }} (reference {{ term_sheet_ref }}).
+{% if t.notes %}13. Notes: {{ t.notes }}
+{% endif %}
+Signed for the Buyer by a person authorised to bind it, and for the Seller by
+its authorised signatory, in the Corridor One X platform.

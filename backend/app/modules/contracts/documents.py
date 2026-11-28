@@ -1,4 +1,4 @@
-"""LOIs and their signatures (M4 · S9, CX-104, A-081).
+"""LOIs, contracts and their signatures (M4 · S9, CX-104, CX-105, A-081).
 
     issued ─(party signs)→ party_signed ─(Corridor One X countersigns)→ signed
     issued, party_signed ─(5 business days pass, or a newer term sheet)→ void
@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,9 @@ from app.models.contract import DOCUMENT_LIVE, DealDocument, DocumentSignature
 from app.models.deal import Deal, DealEvent, DealStatus
 from app.models.negotiation import TermSheet
 from app.models.user import User
-from app.modules.contracts import render, templates
+from app.modules.contracts import mirror, render, templates
+from app.modules.fx import service as fx
+from app.modules.negotiation import counters
 from app.modules.deals.machine import Actor, transition
 from app.modules.masking import service as masking
 from app.modules.negotiation import service as chat
@@ -124,6 +127,65 @@ async def issue_lois(db: AsyncSession, admin_id: uuid.UUID, deal: Deal) -> list[
     return docs
 
 
+# ── Contracts (CX-105, CX-109) ───────────────────────────────────────
+
+CONTRACT_TERMS = ("tolerance_pct", "shipment_from", "shipment_to", "inspection_agency", "inspection_point",
+                  "late_penalty_pct", "quality_penalty_pct", "claim_window_days", "governing_law", "seat",
+                  "force_majeure")
+
+
+def _plain(value: object) -> object:
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    return value
+
+
+async def _over_legal_threshold(db: AsyncSession, value_minor: int, currency: str) -> bool:
+    """Whether a contract's value, in USD, is above the legal-review threshold.
+    An unknown rate counts as above: the safe side (CX-109)."""
+    usd = fx.convert(Decimal(value_minor) / 100, currency, "USD", await fx.get_latest_rates(db))
+    return usd is None or usd > settings.legal_review_threshold_usd
+
+
+async def issue_contracts(
+    db: AsyncSession, admin_id: uuid.UUID, deal: Deal, sales_in: dict, purchase_in: dict,
+    legal_review_note: str | None,
+) -> list[DealDocument]:
+    """Render both contracts from the signed LOIs' term sheet and the desk's
+    contract terms, refuse them unless they mirror, and send them."""
+    if deal.status != DealStatus.LOI_SIGNED:
+        raise Conflict("Contracts are issued once both LOIs are signed.")
+    if await live_of(db, deal, "contract"):
+        raise Conflict("This deal already has contracts out. Void them before issuing new ones.")
+    lois = await live_of(db, deal, "loi")
+    ts = await db.get(TermSheet, lois["buyer"].term_sheet_id)
+    sales = {**side_terms(ts, "buyer"), **{k: _plain(sales_in[k]) for k in CONTRACT_TERMS}}
+    purchase = {**side_terms(ts, "seller"), **{k: _plain(purchase_in[k]) for k in CONTRACT_TERMS}}
+    sheet = await counters.sheet_of(db, deal)
+    mirror.check(sales, purchase, purchase_to_sales_rate=sheet.fx_rate)
+    if await _over_legal_threshold(db, sales["value_minor"], sales["currency"]) and not legal_review_note:
+        raise Conflict(
+            "This contract is above the legal-review threshold. Record who reviewed it before sending.",
+            code="contract.legal_review",
+        )
+    signed_at = await _lois_signed_at(db, deal)
+    expires = add_business_days(ensure_aware(signed_at), SIGN_WITHIN_BUSINESS_DAYS)
+    now = utcnow()
+    docs = []
+    for side, code, terms in (("buyer", "sales", sales), ("seller", "purchase", purchase)):
+        body, template = await _render_one(db, deal, ts, side, code, terms)
+        docs.append(DealDocument(
+            id=uuid.uuid4(), deal_id=deal.id, kind="contract", side=side, term_sheet_id=ts.id,
+            template_id=template.id, status="issued", body=body, content_sha256=render.sha256(body), terms=terms,
+            value_minor=terms["value_minor"], currency=terms["currency"], expires_at=expires, issued_by=admin_id,
+            issued_at=now,
+        ))
+    db.add_all(docs)
+    return docs
+
+
 # ── Signing ──────────────────────────────────────────────────────────
 
 
@@ -188,11 +250,18 @@ async def countersign(
                              signed_at=utcnow()))
     doc.status = "signed"
     await db.flush()
-    lois = await live_of(db, deal, "loi")
-    moved = doc.kind == "loi" and len(lois) == 2 and all(d.status == "signed" for d in lois.values())
-    if moved:
+    both = await live_of(db, deal, doc.kind)
+    moved = len(both) == 2 and all(d.status == "signed" for d in both.values())
+    if moved and doc.kind == "loi":
         transition(db, deal, DealStatus.LOI_SIGNED, actor=Actor.admin(admin_id),
-                   details={"lois": [str(d.id) for d in lois.values()]})
+                   details={"lois": [str(d.id) for d in both.values()]})
+    elif moved:
+        # Both contracts take effect together, at one instant, in this one transaction (A-081).
+        now = utcnow()
+        for contract in both.values():
+            contract.status, contract.effective_at = "effective", now
+        transition(db, deal, DealStatus.CONTRACTED, actor=Actor.admin(admin_id),
+                   details={"contracts": [str(d.id) for d in both.values()]})
     return Signed(doc, deal, moved)
 
 

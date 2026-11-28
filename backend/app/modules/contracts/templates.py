@@ -14,7 +14,7 @@ from app.core.time import utcnow
 from app.models.contract import TEMPLATE_CODES, ContractTemplate
 
 _DIR = Path(__file__).parent / "templates"
-#: The codes built so far; the sales and purchase contracts come with CX-105.
+#: Every template with a file; a code without one has no version to seed.
 AVAILABLE = tuple(c for c in TEMPLATE_CODES if (_DIR / f"{c}.txt").exists())
 
 

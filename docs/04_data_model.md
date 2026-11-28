@@ -1094,9 +1094,9 @@ names only Corridor One X and that one party.
 |---|---|
 | `deal_id`, `kind`, `side` | `loi` / `contract`; `buyer` / `seller`. Partial unique index `uq_deal_documents_live`: one non-void document per deal, kind and side |
 | `term_sheet_id`, `template_id` | What it was rendered from |
-| `status` | `issued` → `party_signed` → `signed` (Corridor One X countersigned) → `effective` (contracts only, check); `void` with `void_reason` (check) |
+| `status` | `issued` → `party_signed` → `signed` (Corridor One X countersigned) → `effective` (contracts only, check: both contracts at one `effective_at`, in the transaction that moves the deal to CONTRACTED); `void` with `void_reason` (check; an effective contract can't be voided) |
 | `body`, `content_sha256` | The rendered text the party reads and signs, and its SHA-256 |
-| `terms` | JSON: the structured terms it states (shared terms and this side's own price and payment terms); the mirror validator reads these |
+| `terms` | JSON: the structured terms it states (shared terms and this side's own price and payment terms). A contract adds its own: `tolerance_pct`, `shipment_from`, `shipment_to`, `inspection_agency`, `inspection_point`, `late_penalty_pct`, `quality_penalty_pct`, `claim_window_days`, `governing_law`, `seat`, `force_majeure`. The mirror validator (`contracts/mirror.py`) compares the sales and purchase terms before either is stored |
 | `value_minor`, `currency` | Price × quantity in this side's currency (check > 0) |
 | `expires_at` | Sign by: five business days from issue |
 

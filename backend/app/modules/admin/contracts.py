@@ -16,6 +16,7 @@ from app.modules.auth.deps import DbSession
 from app.modules.contracts import documents, templates
 from app.modules.contracts.schemas import (
     ApproveTemplateIn,
+    IssueContractsIn,
     DeskDocumentOut,
     DeskSignature,
     SignIn,
@@ -64,6 +65,28 @@ async def issue_lois(code: str, admin: CanTriageRfqs, db: DbSession, background:
     deal = await service.deal_by_code(db, code)
     docs = await documents.issue_lois(db, admin.id, deal)
     audit.record_action(db, admin=admin, action="lois.issued", target_type="deal", target_id=deal.id,
+                        details={"deal": deal.code, "documents": [str(d.id) for d in docs]})
+    await db.commit()
+    for side in ("buyer", "seller"):
+        await _mail_side(background, db, deal, side, notifications.send_document_to_sign)
+    return item_list(await _desk_docs(db, deal, docs))
+
+
+@router.post(
+    "/deals/{code}/contracts", response_model=ItemList[DeskDocumentOut], response_model_by_alias=True, status_code=201
+)
+async def issue_contracts(
+    code: str, payload: IssueContractsIn, admin: CanTriageRfqs, db: DbSession, background: BackgroundTasks
+) -> ItemList[DeskDocumentOut]:
+    """Issue the sales and purchase contracts once both LOIs are signed. 422
+    names the field when they don't mirror; 409 above the legal-review
+    threshold without a reviewer's note."""
+    deal = await service.deal_by_code(db, code)
+    docs = await documents.issue_contracts(
+        db, admin.id, deal, payload.sales.model_dump(), payload.purchase.model_dump(), payload.legal_review_note
+    )
+    audit.record_action(db, admin=admin, action="contracts.issued", target_type="deal", target_id=deal.id,
+                        reason=payload.legal_review_note,
                         details={"deal": deal.code, "documents": [str(d.id) for d in docs]})
     await db.commit()
     for side in ("buyer", "seller"):
