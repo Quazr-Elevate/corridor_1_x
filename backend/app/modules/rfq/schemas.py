@@ -189,6 +189,10 @@ class MatchOut(CamelModel):
     status: str
     source: str
     reasons: list[MatchReason]
+    #: 0–100 from the ranking (CX-177); null for a seller the desk added.
+    score: int | None = None
+    #: {specs|price|response: {points, of, detail}}
+    score_parts: dict | None = None
     viewed_at: datetime | None
 
 

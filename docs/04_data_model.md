@@ -1112,3 +1112,13 @@ Insert only (`trg_document_signatures_insert_only`). One per document and
 signer's stated role, `authority_confirmed` (check: true), the
 `content_sha256` signed, and the IP truncated to /24 or /48. The party
 signer's name is not copied here: it stays in `user_identities`.
+
+## Ranking and cost-line currencies (`0043_rank_and_line_currencies`)
+
+CX-177, CX-185 (A-082).
+
+| Table | Column | Notes |
+|---|---|---|
+| `rfq_matches` | `score` | smallint, 0–100 (check `ck_rfq_matches_score`), from `app/modules/rfq/ranking.py`. Null for desk-added matches and rows made before 0043. The desk's list is ordered by it |
+| `rfq_matches` | `score_parts` | JSON `{specs|price|response: {points, of, detail}}` |
+| `cost_sheets` | `line_entries` | JSON, not null, default `{}`. `{line: {amount_minor, currency, rate, as_of}}` for each cost line entered in a currency other than the quote's; `rate` is one unit of it in the purchase currency. The line's `<line>_minor` is the converted amount, rounded up |

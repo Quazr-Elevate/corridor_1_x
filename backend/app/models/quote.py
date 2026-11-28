@@ -129,6 +129,11 @@ class CostSheet(Base):
     documentation_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     finance_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     other_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    # A line entered in another currency (CX-185): {line: {"amount_minor",
+    # "currency", "rate", "as_of"}}, the rate being one unit of it in the
+    # purchase currency, stored once. The ``<line>_minor`` above is always
+    # the converted amount, rounded up. Lines in the purchase currency aren't listed.
+    line_entries: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
 
     # ─── The one FX conversion, stored (never looked up at render) ─
     deal_currency: Mapped[str] = mapped_column(CHAR(3), nullable=False)

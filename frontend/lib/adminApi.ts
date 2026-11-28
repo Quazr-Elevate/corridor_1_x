@@ -650,6 +650,9 @@ export interface DeskMatch {
   status: "proposed" | "confirmed" | "removed";
   source: "rule" | "desk";
   reasons: { rule: string; ok: boolean; detail: string }[];
+  /** 0–100 from the ranking (CX-177); null for a seller the desk added. */
+  score: number | null;
+  scoreParts: Record<"specs" | "price" | "response", { points: number; of: number; detail: string }> | null;
   viewedAt: string | null;
 }
 
@@ -693,12 +696,14 @@ export interface CostSheet {
   /** What a desk manager has to accept: under the floor, over the ceiling, an old rate. */
   approvalReasons: string[];
   approved: boolean;
+  /** Lines entered in another currency (CX-185); the …Minor fields are converted. */
+  lineEntries: { line: string; amountMinor: number; currency: string; rate: string; asOf: string | null }[];
 }
 
 export type CostSheetInput = Pick<
   CostSheet,
   "inlandFreightMinor" | "oceanFreightMinor" | "freightQuotedOn" | "insuranceMinor" | "inspectionMinor" | "documentationMinor" | "financeMinor" | "otherMinor"
-> & { marginPct: string };
+> & { marginPct: string } & Partial<Record<`${string}Currency`, string | null>>;
 
 export interface DeskQuote {
   id: string;

@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { adminApi, type CostSheet, type CostSheetInput, type DeskQuote, type DeskRfqDetail, type DeskRfqRow } from "@/lib/adminApi";
 import { cn } from "@/lib/cn";
-import { fromMinor, money, paymentLabel, toMinor } from "@/lib/trade";
+import { DEAL_CURRENCIES, fromMinor, money, paymentLabel, toMinor } from "@/lib/trade";
 import { Button } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
 import { HoldButton, Segmented } from "@/components/ui/Controls";
-import { Input, Textarea } from "@/components/ui/Field";
+import { Input, Select, Textarea } from "@/components/ui/Field";
 import { EmptyState, Notice, Skeleton } from "@/components/ui/Surface";
 import { useToast } from "@/components/ui/Toast";
 import { RejectSheet } from "@/components/admin/RejectSheet";
@@ -223,6 +223,11 @@ export default function DeskPage() {
                             <span className="ml-2 text-fg-3">{m.listingName}</span>
                           </p>
                           <span className="flex items-center gap-2">
+                            {m.score !== null ? (
+                              <span className="t-code text-fg-2" title="Fit score out of 100">
+                                {m.score}/100
+                              </span>
+                            ) : null}
                             <Chip tone={m.status === "confirmed" ? "verified" : "quiet"} size="sm" noIcon>
                               {m.status === "confirmed" ? (m.viewedAt ? "Opened" : "Sent") : m.source === "desk" ? "Added by desk" : "Proposed"}
                             </Chip>
@@ -240,6 +245,13 @@ export default function DeskPage() {
                             </li>
                           ))}
                         </ul>
+                        {m.scoreParts ? (
+                          <p className="t-sub mt-2 text-fg-3">
+                            Ranked on: {(["specs", "price", "response"] as const)
+                              .map((k) => `${m.scoreParts![k].detail} (${m.scoreParts![k].points}/${m.scoreParts![k].of})`)
+                              .join(" · ")}
+                          </p>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -306,9 +318,18 @@ export default function DeskPage() {
   );
 }
 
-function sheetForm(sheet: CostSheet | null): Record<string, string> {
+/** "oceanFreightMinor" → "ocean_freight", the key the API keeps line entries under. */
+const lineName = (key: string) => key.replace(/Minor$/, "").replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+const currencyKey = (key: string) => key.replace(/Minor$/, "Currency");
+
+function sheetForm(sheet: CostSheet | null, purchaseCurrency: string): Record<string, string> {
   const values: Record<string, string> = { marginPct: sheet ? String(Number(sheet.marginPct)) : "", freightQuotedOn: sheet?.freightQuotedOn ?? "" };
-  for (const [key] of LINES) values[key] = sheet ? fromMinor(sheet[key]) : "";
+  for (const [key] of LINES) {
+    // A line entered in another currency shows what was entered, not the conversion.
+    const entry = sheet?.lineEntries.find((e) => e.line === lineName(key));
+    values[key] = entry ? fromMinor(entry.amountMinor) : sheet ? fromMinor(sheet[key]) : "";
+    values[currencyKey(key)] = entry?.currency ?? purchaseCurrency;
+  }
   return values;
 }
 
@@ -320,7 +341,7 @@ const WITHDRAW_REASONS = [
 
 function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act: (fn: () => Promise<unknown>, done: string) => Promise<void> }) {
   const [withdrawing, setWithdrawing] = useState(false);
-  const [form, setForm] = useState(() => sheetForm(quote.costSheet));
+  const [form, setForm] = useState(() => sheetForm(quote.costSheet, quote.currency));
   const [problem, setProblem] = useState<string | null>(null);
   const sheet = quote.costSheet;
   const published = sheet?.status === "published";
@@ -331,6 +352,8 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
       const minor = form[key] ? toMinor(form[key]) : 0;
       if (minor === null) return setProblem(`${label}: enter a number.`);
       body[key] = minor;
+      const currency = form[currencyKey(key)];
+      body[currencyKey(key)] = currency && currency !== quote.currency ? currency : null;
     }
     if (!/^\d+(\.\d{1,2})?$/.test(form.marginPct)) return setProblem("Enter the margin as a percentage.");
     setProblem(null);
@@ -364,7 +387,15 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
       <fieldset disabled={published || busy} className="mt-4 space-y-3 disabled:opacity-70">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {LINES.map(([key, label]) => (
-            <Input key={key} label={`${label} (${quote.currency})`} optional inputMode="decimal" value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} inputClassName="t-code" />
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_6rem] items-end gap-2">
+              <Input label={label} optional inputMode="decimal" value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} inputClassName="t-code" />
+              <Select
+                label="Currency"
+                value={form[currencyKey(key)]}
+                options={DEAL_CURRENCIES as unknown as string[]}
+                onChange={(e) => setForm((f) => ({ ...f, [currencyKey(key)]: e.target.value }))}
+              />
+            </div>
           ))}
           <Input label="Freight quoted on" optional type="date" value={form.freightQuotedOn} onChange={(e) => setForm((f) => ({ ...f, freightQuotedOn: e.target.value }))} />
           <Input label="Margin %" inputMode="decimal" value={form.marginPct} onChange={(e) => setForm((f) => ({ ...f, marginPct: e.target.value }))} inputClassName="t-code" />
@@ -379,6 +410,14 @@ function QuoteCard({ quote, busy, act }: { quote: DeskQuote; busy: boolean; act:
           {Number(sheet.marginPct)}% (floor {Number(sheet.minMarginPct)}%
           {sheet.maxMarginPct ? `, ceiling ${Number(sheet.maxMarginPct)}%` : ""}) ·{" "}
           <span className="font-medium text-fg">sells at {money(sheet.sellPriceMinor, sheet.dealCurrency)}</span>
+        </p>
+      ) : null}
+      {sheet?.lineEntries.length ? (
+        <p className="t-sub mt-1 text-fg-3">
+          Converted:{" "}
+          {sheet.lineEntries
+            .map((e) => `${e.line.replace("_", " ")} ${money(e.amountMinor, e.currency)} at ${Number(e.rate)}${e.asOf ? ` (${e.asOf})` : ""}`)
+            .join(" · ")}
         </p>
       ) : null}
       {sheet?.needsApproval && sheet.approvalReasons.length ? (

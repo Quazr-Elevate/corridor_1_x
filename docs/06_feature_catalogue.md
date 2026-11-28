@@ -152,7 +152,8 @@ Planned before launch (Phase B): two-factor authentication, private encrypted fi
 - ✅ **Request queue:** new requests with the sellers the rules propose and why. The desk adds or removes sellers, confirms, rejects with a reason, or closes a request as unmatched.
 - ✅ **Hard rules:** same category, monthly capacity covers the quantity, required specifications within the buyer's limits, lead time inside the delivery window. The desk cannot add a seller who fails one.
 - ✅ **Roles:** trade desk and desk manager. They see company codes, never names.
-- ✅ **Cost sheet:** the desk adds freight, insurance, inspection and other costs to a quote, converts once at a stored rate with a buffer, and sets the margin. A freight figure older than seven days is refused. A margin under the floor needs a desk manager other than the author.
+- ✅ **Ranked proposals:** among the sellers that pass every rule, the best ten are proposed, ranked out of 100 on optional specifications met, price against the buyer's target, and how often the seller quotes when sent a request. The desk sees the score and why.
+- ✅ **Cost sheet:** the desk adds freight, insurance, inspection and other costs to a quote (each in rupees, dirhams or dollars, converted once at the stored rate), converts once at a stored rate with a buffer, and sets the margin. A freight figure older than seven days is refused. A margin under the floor needs a desk manager other than the author.
 - ✅ **Publish the offer:** the buyer gets the selling price; the deal moves to Quoted. The offer ends at least two days before the quote behind it.
 - ✅ **Held countries** and the desk's settings (how long a request stays open and others), set by a super admin.
 
